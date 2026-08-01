@@ -1,0 +1,37 @@
+# Features
+
+This directory is the change log of the project. Every feature gets its own
+document, numbered incrementally and never overwritten.
+
+## Files
+
+| File | Purpose |
+| --- | --- |
+| `HISTORY.md` | Index of every feature, in implementation order. |
+| `TEMPLATE.md` | Skeleton to copy when documenting a new feature. |
+| `NNN-feature-name.md` | One document per feature. |
+
+## Workflow
+
+Before implementing a feature:
+
+1. Read `HISTORY.md`.
+2. Read `TEMPLATE.md`.
+3. Review related feature documents if necessary.
+
+After implementing a feature:
+
+1. Create `NNN-feature-name.md` from `TEMPLATE.md`, using the next available number.
+2. Document all backend, frontend, database and API changes.
+3. Append a row to `HISTORY.md`.
+4. Update any other documentation the change affects.
+
+Never overwrite a previous feature document. If a later feature changes earlier
+behaviour, record that in the new document and link back to the old one.
+
+## Features
+
+| ID | Feature |
+| --- | --- |
+| 001 | [Backend Initialization](001-backend-initialization.md) |
+| 002 | [Docker & PostgreSQL Setup](002-docker-postgresql-setup.md) |

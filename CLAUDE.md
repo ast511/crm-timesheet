@@ -212,7 +212,8 @@ Tests should be updated whenever application behavior changes.
 - Never hardcode passwords.
 - Never hardcode API keys.
 - Never hardcode URLs.
-- Store configuration in environment variables.
+- Environment variables are managed from the project root unless a specific service requires its own environment file (e.g. Vite frontend).
+- Avoid duplicating configuration across multiple `.env` files whenever possible.
 - Keep development and production configurations separated.
 - Document every required environment variable.
 - Every new environment variable must also be added to `.env.example`.

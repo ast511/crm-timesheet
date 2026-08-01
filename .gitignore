@@ -1,7 +1,10 @@
 # Secrets
+# Ignore every .env variant, then re-include the committed template.
+# The broad pattern means a future .env.production / .env.staging is ignored
+# by default rather than by remembering to add it here.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Node
 node_modules/
@@ -14,6 +17,22 @@ npm-debug.log*
 # Prisma
 backend/prisma/*.db
 backend/prisma/migrations/dev/
+
+# Docker
+# Database data lives in the named volume `crm-timesheet-postgres-data`,
+# managed by Docker outside the repository, so there is nothing to ignore
+# for it. These patterns cover bind-mount / dump directories added by hand.
+pgdata/
+postgres-data/
+*.dump
+*.sql.gz
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*~
 
 # IDE / OS
 .vscode/

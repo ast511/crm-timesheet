@@ -38,19 +38,27 @@ services:
     # Environment variables consumed by the postgres entrypoint on first boot
     # to create the superuser, its password, and the default database.
     # Values come from the `.env` file in the same directory as this file.
+    #
+    # The `:?` syntax aborts `docker compose up` with an explicit message when
+    # a variable is missing, instead of silently substituting an empty string
+    # and leaving the container to crash-loop with an opaque initdb error.
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required — copy .env.example to .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — copy .env.example to .env}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required — copy .env.example to .env}
       # Force explicit locale/encoding — avoids surprises on Windows hosts.
+      # Applied by initdb on FIRST boot only; changing it later has no effect
+      # unless the volume is recreated. See README "Collation".
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
 
     # Publish the DB port on the host so the locally-running NestJS backend
     # (and tools like DBeaver / psql / Prisma Studio) can reach it.
     # Bind to 127.0.0.1 so the port is NOT exposed on the LAN by accident.
     # Remove the `127.0.0.1:` prefix only if you truly need remote access.
+    # The host port is configurable so an existing local PostgreSQL install
+    # on 5432 does not block this container.
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
 
     # Named volume for durable data. Survives `docker compose down`, is
     # removed only with `docker compose down -v`.
@@ -59,12 +67,35 @@ services:
 
     # Healthcheck lets other services (added later) wait for the DB to be
     # ready via `depends_on: { condition: service_healthy }`.
+    #
+    # `$$` escapes the `$` so Compose does not interpolate it: the variables
+    # are resolved by the shell INSIDE the container, from the `environment`
+    # block above. This keeps the probe correct without restating credentials.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+
+    # PostgreSQL allocates parallel-query and hash-join workspace in /dev/shm.
+    # Docker's 64 MB default is enough to boot but shows up later as
+    # "could not resize shared memory segment" under real query load.
+    shm_size: 256mb
+
+    # Give PostgreSQL room for a clean shutdown before Docker sends SIGKILL.
+    # The official image sets STOPSIGNAL SIGINT (fast shutdown), so this
+    # window is normally unused — it exists so a checkpoint under load is
+    # never truncated mid-write.
+    stop_grace_period: 30s
+
+    # Cap container log growth. Without this the json-file driver grows
+    # without bound and eventually fills the Docker disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
     # Attach to a project-scoped network so future services resolve
     # `postgres` as a hostname.

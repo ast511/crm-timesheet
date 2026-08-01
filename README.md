@@ -18,9 +18,12 @@ crm-timesheet/
 │   ├── prisma/
 │   │   └── schema.prisma
 │   └── src/
+├── FEATURES/            # Per-feature change log (see FEATURES/README.md)
 ├── docker-compose.yml   # PostgreSQL only (for now)
 ├── .env                 # Real secrets — gitignored
 ├── .env.example         # Template committed to git
+├── .gitignore
+├── CLAUDE.md
 └── README.md
 ```
 
@@ -28,9 +31,32 @@ crm-timesheet/
 
 ## Prerequisites
 
-- Docker Desktop (Windows) / Docker Engine + Compose plugin (Ubuntu)
-- Node.js 20+ and npm
-- The `.env` file at the repo root (copy from `.env.example`)
+- **Docker Desktop 4.x** (Windows/macOS) or **Docker Engine 24+ with the
+  Compose v2 plugin** (Linux). Verify with:
+
+  ```bash
+  docker --version
+  docker compose version
+  ```
+
+  Compose **v2** is required — the commands below use `docker compose`
+  (space), not the legacy `docker-compose` (hyphen).
+- On Windows, Docker Desktop must be **running** before any command below.
+- Node.js 20+ and npm (for the backend/frontend, not for the database).
+- A `.env` file at the repo root:
+
+  ```powershell
+  # Windows (PowerShell)
+  Copy-Item .env.example .env
+  ```
+
+  ```bash
+  # Linux / macOS
+  cp .env.example .env
+  ```
+
+  Then edit `.env` and replace the placeholder password. `docker compose up`
+  fails fast with an explicit message if a required variable is missing.
 
 ---
 
@@ -42,31 +68,136 @@ Run all commands from the project root (where `docker-compose.yml` lives).
 |-----------------------|------------------------------------------------------|
 | Start (detached)      | `docker compose up -d`                               |
 | Start (foreground)    | `docker compose up`                                  |
-| Stop (keep data)      | `docker compose stop`                                |
+| Stop (keep containers)| `docker compose stop`                                |
+| Start again after stop| `docker compose start`                               |
+| Restart service       | `docker compose restart postgres`                    |
 | Stop + remove containers | `docker compose down`                             |
 | Stop + remove containers **and volumes** (wipes DB) | `docker compose down -v` |
 | Follow logs           | `docker compose logs -f postgres`                    |
-| Container status      | `docker compose ps`                                  |
-| Restart service       | `docker compose restart postgres`                    |
+| Last 100 log lines    | `docker compose logs --tail=100 postgres`            |
+| Container status + health | `docker compose ps`                              |
+| Validate the config   | `docker compose config`                              |
 | Pull newer image      | `docker compose pull && docker compose up -d`        |
+
+### Checking that PostgreSQL is healthy
+
+`docker compose ps` prints a `STATUS` column. Wait for `(healthy)` — not just
+`Up` — before connecting or running migrations:
+
+```text
+NAME                     STATUS                   PORTS
+crm-timesheet-postgres   Up 30 seconds (healthy)  127.0.0.1:5432->5432/tcp
+```
+
+The healthcheck runs `pg_isready` every 10s. `starting` means the first probe
+has not passed yet; `unhealthy` after ~1 minute means startup failed — check
+`docker compose logs postgres`.
+
+You can also probe it directly:
+
+```bash
+docker compose exec postgres pg_isready -U crm_user -d crm_timesheet
+```
 
 ### Connect to PostgreSQL
 
-Interactive `psql` inside the container:
+Interactive `psql` inside the container (substitute the values from your
+`.env`):
 
 ```bash
 docker compose exec postgres psql -U crm_user -d crm_timesheet
 ```
 
-From the host (needs `psql` installed locally):
+From the host (needs `psql` installed locally). The password is the one you
+set in `.env`:
 
 ```bash
-psql "postgresql://crm_user:change_me_strong_password@localhost:5432/crm_timesheet"
+psql "postgresql://crm_user:<your-password>@localhost:5432/crm_timesheet"
 ```
+
+> The port is published on `127.0.0.1` only, so the database is reachable
+> from this machine but not from the LAN. If a local PostgreSQL install
+> already owns port 5432, set `POSTGRES_PORT` in `.env` to a free port
+> (e.g. `5433`) and update `DATABASE_URL` to match.
+
+---
+
+## Docker volumes and data persistence
+
+### Where the data actually lives
+
+PostgreSQL stores its data directory at `/var/lib/postgresql/data` *inside*
+the container. Container filesystems are disposable — remove the container and
+that data is gone with it.
+
+`docker-compose.yml` therefore mounts a **named volume** over that path:
+
+```yaml
+volumes:
+  - postgres_data:/var/lib/postgresql/data
+```
+
+A named volume is storage managed by Docker with an independent lifecycle:
+it is **not** part of the container, and it is **not** a folder in this
+repository. This project's volume is named `crm-timesheet-postgres-data`.
+
+```bash
+docker volume ls                                  # list volumes
+docker volume inspect crm-timesheet-postgres-data # show its real location
+```
+
+Named volumes are used instead of a host bind-mount (`./pgdata:/var/lib/...`)
+because bind-mounts inherit host filesystem semantics — permissions and
+`fsync` behaviour differ between Windows, macOS and Linux, and on Windows they
+are noticeably slower and prone to permission errors with PostgreSQL. Named
+volumes behave identically on all three.
+
+### What survives what
+
+| Command | Container | Volume | Data |
+|---------|-----------|--------|------|
+| `docker compose stop`    | stopped, kept | kept | **kept** |
+| `docker compose start`   | started       | kept | **kept** |
+| `docker compose restart` | restarted     | kept | **kept** |
+| `docker compose down`    | **removed**   | kept | **kept** |
+| `docker compose up -d`   | recreated     | kept | **kept** |
+| `docker compose down -v` | **removed**   | **removed** | **DESTROYED** |
+
+### `down` vs `down -v`
+
+- **`docker compose down`** removes the containers and the project network.
+  The named volume is left untouched. The next `docker compose up -d` creates
+  a fresh container, mounts the same volume, and PostgreSQL finds its existing
+  data directory — every table and row is still there. This is the normal way
+  to shut the stack down.
+
+- **`docker compose down -v`** does everything `down` does *and* deletes the
+  named volume. PostgreSQL then re-runs `initdb` on the next start: new empty
+  database, credentials re-read from `.env`, all data permanently lost. There
+  is no undo and no prompt. Use it only to deliberately reset the database
+  from scratch.
+
+> Because credentials are only applied by `initdb` on first boot, changing
+> `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` in `.env` has **no
+> effect** on an existing volume. Applying new credentials requires
+> `docker compose down -v` — which destroys the data — or altering the role
+> from inside `psql`.
+
+### Collation
+
+The database is initialised with `--lc-collate=C --lc-ctype=C` (byte-order
+sorting, UTF-8 encoding). This is deterministic and fast, but `ORDER BY` on
+text sorts accented characters by byte value rather than by language rules.
+Changing this requires `down -v` (it is an `initdb`-time setting); it can also
+be overridden per column with `COLLATE` in a later migration.
 
 ---
 
 ## Prisma workflow
+
+> **Not wired up yet.** Prisma is not installed in `backend/` and no migration
+> exists, so the commands below do not run today. They describe the intended
+> workflow for the feature that introduces Prisma.
 
 Run from `backend/` after `npm install` and after PostgreSQL is up.
 
