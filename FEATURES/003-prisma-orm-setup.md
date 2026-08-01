@@ -1,6 +1,6 @@
 # Feature 003 — Prisma ORM Setup
 
-**Status:** Installed and verified; initial migration pending approval
+**Status:** Completed — the initial migration has since been applied (see Notes)
 **Date:** 2026-08-01
 
 ## Goal
@@ -491,10 +491,13 @@ docker compose exec postgres psql -U crm_user -d crm_timesheet -c '\d users'
 
 ## Notes
 
-**The migration is still pending.** `CLAUDE.md` and this feature's own brief
-both require explicit approval before running it, and Docker Desktop was not
-running at the time. Installation, generation and the full check suite are
-done; the database is still empty.
+**~~The migration is still pending.~~ Superseded.** This was true when the
+document was written — Docker Desktop was not running, and `CLAUDE.md` requires
+approval regardless. The migration has since been applied:
+`npx prisma migrate status` reports "Database schema is up to date", and
+[Feature 005](005-database-seeding.md) seeded the resulting tables. The
+migration also covers more than the `User` model described below; the schema
+had grown to six models by the time it ran.
 
 **`$connect()` is not a connectivity check** — the single most surprising
 finding here, and it invalidates a claim carried over from pre-v7 Prisma

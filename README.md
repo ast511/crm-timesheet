@@ -17,7 +17,9 @@ crm-timesheet/
 ├── backend/             # NestJS app        (runs on the host, e.g. :3000)
 │   ├── prisma/
 │   │   ├── schema.prisma
-│   │   └── migrations/  # Committed migration history
+│   │   ├── migrations/  # Committed migration history
+│   │   ├── seed.ts      # Seed orchestrator
+│   │   └── seeds/       # One file per seeded entity
 │   ├── prisma.config.ts # Prisma CLI configuration
 │   └── src/
 ├── FEATURES/            # Per-feature change log (see FEATURES/README.md)
@@ -204,6 +206,8 @@ Prisma **7**. Run everything from `backend/`, with PostgreSQL up and healthy.
 | Regenerate the client after a schema edit | `npm run prisma:generate` |
 | Create + apply a migration (development) | `npm run prisma:migrate -- --name <name>` |
 | Apply existing migrations (CI / production) | `npm run prisma:migrate:deploy` |
+| Populate the database with sample data | `npm run prisma:seed` |
+| Drop, re-migrate and re-seed the database | `npm run prisma:reset` |
 | Visual DB browser at http://localhost:5555 | `npm run prisma:studio` |
 
 `npm install` runs `prisma generate` automatically (`postinstall`), and
@@ -224,6 +228,12 @@ migrating.
   application. Prisma 7 ships no built-in driver, so the service opens the
   connection through the `@prisma/adapter-pg` driver adapter, again from
   `DATABASE_URL`.
+- **`backend/prisma/seed.ts`** and **`backend/prisma/seeds/`** — development
+  sample data: departments, positions, projects, users, employees and project
+  memberships. Every entity is upserted, so the seed can be run repeatedly
+  without creating duplicates. Accounts, the default password and the
+  `SEED_PASSWORD` override are documented in
+  [`FEATURES/005-database-seeding.md`](FEATURES/005-database-seeding.md).
 
 `DATABASE_URL` is the single source of the connection string for the CLI and
 the application alike. See [`FEATURES/003-prisma-orm-setup.md`](FEATURES/003-prisma-orm-setup.md)
@@ -241,6 +251,7 @@ docker compose up -d
 cd backend
 npm install
 npm run prisma:migrate
+npm run prisma:seed      # optional: sample data for development
 npm run start:dev
 
 # Terminal 3 — frontend

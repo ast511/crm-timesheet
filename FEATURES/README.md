@@ -37,3 +37,4 @@ behaviour, record that in the new document and link back to the old one.
 | 002 | [Docker & PostgreSQL Setup](002-docker-postgresql-setup.md) |
 | 003 | [Prisma ORM Setup](003-prisma-orm-setup.md) |
 | 004 | [API Foundation & Global Application Configuration](004-api-foundation-global-configuration.md) |
+| 005 | [Database Seeding](005-database-seeding.md) |

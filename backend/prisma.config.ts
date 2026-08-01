@@ -19,6 +19,10 @@ export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
+    // Prisma 7 reads the seed command from here rather than from
+    // `package.json`. Used by `prisma db seed` and re-run automatically at the
+    // end of `prisma migrate reset`.
+    seed: 'ts-node prisma/seed.ts',
   },
   // Used by Migrate and Studio only. The application connects through the
   // driver adapter in `src/prisma/prisma.service.ts`, from the same variable.
