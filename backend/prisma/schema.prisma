@@ -5,16 +5,30 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// As of Prisma 7 the connection URL no longer belongs here. It is configured
+// in `prisma.config.ts` (for Migrate) and passed to the driver adapter (for
+// PrismaClient). Neither exists yet — Prisma is not installed.
+// See https://www.prisma.io/docs/guides/upgrade-prisma-orm/v7
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
-// Example model — replace with your real domain.
+enum UserRole {
+  SUPERADMIN @map("superadmin")
+  ADMIN      @map("admin")
+  HR         @map("hr")
+  USER       @map("user")
+}
+
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
+  id       String  @id @default(cuid())
+  code_emp String  @unique
+  email    String  @unique
+  name     String?
+  username String? @unique
+
+  role UserRole @default(USER)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
