@@ -1,37 +1,29 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 
 import { AppModule } from './app.module';
-
-/** Fallback used when PORT is absent or not a valid number. */
-const DEFAULT_PORT = 3000;
+import { API_BASE_PATH } from './config/api.constants';
+import { configureApp } from './config/app.setup';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
-  // Applied globally so every future DTO is validated without per-controller
-  // wiring. `whitelist` strips unknown properties, `forbidNonWhitelisted`
-  // rejects them outright, `transform` produces real DTO instances.
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  // Every global concern (prefix, versioning, validation, CORS, shutdown
+  // hooks) lives in `configureApp`, so tests can boot an identically
+  // configured application.
+  configureApp(app);
 
-  // Makes Nest listen for termination signals and run `onModuleDestroy` on
-  // every provider. Without it, PrismaService never closes its connection pool
-  // on Ctrl+C or on the SIGTERM a container runtime sends.
-  app.enableShutdownHooks();
-
-  const configService = app.get(ConfigService);
-  const port = Number(configService.get<string>('PORT')) || DEFAULT_PORT;
+  // Already validated and coerced to a number by `validateEnvironment`, so
+  // there is no fallback to apply here.
+  const port = app.get(ConfigService).getOrThrow<number>('PORT');
 
   await app.listen(port);
 
-  Logger.log(`Backend is listening on http://localhost:${port}`, 'Bootstrap');
+  Logger.log(
+    `Backend is listening on http://localhost:${port}${API_BASE_PATH}`,
+    'Bootstrap',
+  );
 }
 
 void bootstrap();
