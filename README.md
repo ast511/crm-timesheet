@@ -16,7 +16,9 @@ crm-timesheet/
 ├── frontend/            # React + Vite app  (runs on the host, e.g. :5173)
 ├── backend/             # NestJS app        (runs on the host, e.g. :3000)
 │   ├── prisma/
-│   │   └── schema.prisma
+│   │   ├── schema.prisma
+│   │   └── migrations/  # Committed migration history
+│   ├── prisma.config.ts # Prisma CLI configuration
 │   └── src/
 ├── FEATURES/            # Per-feature change log (see FEATURES/README.md)
 ├── docker-compose.yml   # PostgreSQL only (for now)
@@ -195,51 +197,37 @@ be overridden per column with `COLLATE` in a later migration.
 
 ## Prisma workflow
 
-> **Not wired up yet.** Prisma is not installed in `backend/` and no migration
-> exists, so the commands below do not run today. They describe the intended
-> workflow for the feature that introduces Prisma.
+Prisma **7**. Run everything from `backend/`, with PostgreSQL up and healthy.
 
-Run from `backend/` after `npm install` and after PostgreSQL is up.
+| Action | Command |
+|--------|---------|
+| Regenerate the client after a schema edit | `npm run prisma:generate` |
+| Create + apply a migration (development) | `npm run prisma:migrate -- --name <name>` |
+| Apply existing migrations (CI / production) | `npm run prisma:migrate:deploy` |
+| Visual DB browser at http://localhost:5555 | `npm run prisma:studio` |
 
-```bash
-# 1. Scaffold prisma/ and add DATABASE_URL placeholder (only the first time)
-npx prisma init
+`npm install` runs `prisma generate` automatically (`postinstall`), and
+`prisma migrate dev` regenerates the client as part of its own run — so a
+manual `prisma:generate` is only needed after editing `schema.prisma` without
+migrating.
 
-# 2. Create + apply a migration and regenerate the client
-npx prisma migrate dev --name init
+### How it is wired
 
-# 3. Regenerate the Prisma client (auto-run by `migrate dev`, useful after schema edits)
-npx prisma generate
+- **`backend/prisma/schema.prisma`** — models and the `prisma-client`
+  generator, which emits TypeScript into `backend/src/generated/prisma`. That
+  directory is gitignored build output; never edit it by hand.
+- **`backend/prisma.config.ts`** — CLI configuration. Prisma 7 does not read
+  `.env` by itself, so this file loads `backend/.env` then the root `.env`
+  (first match wins, same order as `@nestjs/config`) and passes
+  `DATABASE_URL` to Migrate and Studio.
+- **`backend/src/prisma/`** — `PrismaModule` / `PrismaService` for the
+  application. Prisma 7 ships no built-in driver, so the service opens the
+  connection through the `@prisma/adapter-pg` driver adapter, again from
+  `DATABASE_URL`.
 
-# 4. Open the visual DB browser at http://localhost:5555
-npx prisma studio
-```
-
-### Prisma datasource (`backend/prisma/schema.prisma`)
-
-```prisma
-generator client {
-  provider = "prisma-client-js"
-}
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-// Example model — replace with your domain.
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-}
-```
-
-Prisma reads `DATABASE_URL` from `backend/.env` by default. Either:
-
-- symlink/copy the root `.env` into `backend/`, **or**
-- point `@nestjs/config` and Prisma at the root file via `dotenv -e ../.env ...`.
+`DATABASE_URL` is the single source of the connection string for the CLI and
+the application alike. See [`FEATURES/003-prisma-orm-setup.md`](FEATURES/003-prisma-orm-setup.md)
+for the full rationale.
 
 ---
 
@@ -252,7 +240,7 @@ docker compose up -d
 # Terminal 2 — backend
 cd backend
 npm install
-npx prisma migrate dev
+npm run prisma:migrate
 npm run start:dev
 
 # Terminal 3 — frontend

@@ -6,3 +6,4 @@ Append new features to the end of this table.
 | --- | ------- | ------ | ---- |
 | 001 | [Backend Initialization](001-backend-initialization.md) | Completed | 2026-08-01 |
 | 002 | [Docker & PostgreSQL Setup](002-docker-postgresql-setup.md) | Completed | 2026-08-01 |
+| 003 | [Prisma ORM Setup](003-prisma-orm-setup.md) | Migration pending | 2026-08-01 |

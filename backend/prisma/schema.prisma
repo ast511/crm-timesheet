@@ -1,13 +1,21 @@
 // Prisma schema for the CRM TimeSheet backend.
 // Docs: https://pris.ly/d/prisma-schema
 
+// `prisma-client` replaces the deprecated `prisma-client-js`: it emits plain
+// TypeScript instead of a package inside node_modules, so `output` is required.
+// The target sits under `src/` on purpose — tsc then compiles the client into
+// `dist/` along with everything else, and the build output stays `dist/main.js`.
+// The directory is gitignored; it is rebuilt by `prisma generate`.
+// `moduleFormat` is stated rather than inferred to match tsconfig's "commonjs".
 generator client {
-  provider = "prisma-client-js"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
 }
 
-// As of Prisma 7 the connection URL no longer belongs here. It is configured
-// in `prisma.config.ts` (for Migrate) and passed to the driver adapter (for
-// PrismaClient). Neither exists yet — Prisma is not installed.
+// As of Prisma 7 the connection URL no longer belongs here. Migrate and Studio
+// read it from `prisma.config.ts`; the application passes it to the driver
+// adapter in `src/prisma/prisma.service.ts`. Both resolve DATABASE_URL.
 // See https://www.prisma.io/docs/guides/upgrade-prisma-orm/v7
 datasource db {
   provider = "postgresql"
@@ -20,15 +28,149 @@ enum UserRole {
   USER       @map("user")
 }
 
+enum EmployeeStatus {
+  ACTIVE     @map("active")
+  INACTIVE   @map("inactive")
+  ON_LEAVE   @map("on_leave")
+  SUSPENDED  @map("suspended")
+  TERMINATED @map("terminated")
+}
+
+enum SeniorityLevel {
+  INTERN @map("intern")
+  JUNIOR @map("junior")
+  MID    @map("mid")
+  SENIOR @map("senior")
+  LEAD   @map("lead")
+}
+
 model User {
   id       String  @id @default(cuid())
-  code_emp String  @unique
   email    String  @unique
-  name     String?
   username String? @unique
 
-  role UserRole @default(USER)
+  passwordHash String @map("password_hash")
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  role     UserRole @default(USER)
+  isActive Boolean  @default(true) @map("is_active")
+
+  employee Employee?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Employee {
+  id String @id @default(cuid())
+
+  userId String @unique @map("user_id")
+  user   User   @relation(fields: [userId], references: [id])
+
+  employeeCode String @unique @map("employee_code")
+
+  firstName String @map("first_name")
+  lastName  String @map("last_name")
+
+  phone String?
+
+  hireDate DateTime @map("hire_date")
+
+  positionId String   @map("position_id")
+  position   Position @relation(fields: [positionId], references: [id])
+
+  projectMemberships ProjectMember[]
+
+  seniority SeniorityLevel
+
+  departmentId String     @map("department_id")
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  canReplaceOthers Boolean @default(false) @map("can_replace_others")
+
+  status EmployeeStatus
+
+  maxVacationDays Int @default(21) @map("max_vacation_days")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("employees")
+}
+
+model Position {
+  id   String @id @default(cuid())
+  code String @unique
+
+  name String @unique
+
+  employees Employee[]
+
+  description String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("positions")
+}
+
+model Department {
+  id   String @id @default(cuid())
+  code String @unique
+
+  name String @unique
+
+  employees Employee[]
+
+  description String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("departments")
+}
+
+model Project {
+  id String @id @default(cuid())
+
+  code String @unique
+
+  name String
+
+  description String?
+
+  isActive   Boolean @default(true) @map("is_active")
+  isArchived Boolean @default(false) @map("is_archived")
+
+  memberships ProjectMember[]
+
+  startDate DateTime? @map("start_date")
+  endDate   DateTime? @map("end_date")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  projectId  String
+  employeeId String
+
+  isProjectManager Boolean @default(false) @map("is_project_manager")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  joinedAt DateTime  @default(now()) @map("joined_at")
+  leftAt   DateTime? @map("left_at")
+
+  @@id([projectId, employeeId])
+  @@map("project_members")
 }

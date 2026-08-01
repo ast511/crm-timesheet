@@ -15,6 +15,15 @@
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
 
+    // Ambient globals available without an import: Jest's `describe` / `it` /
+    // `expect`, and Node's `process` / `Buffer`. Listing them explicitly means
+    // the set no longer depends on whatever happens to be present under
+    // node_modules/@types, so a transitive package cannot silently inject
+    // globals and the editor's language service cannot disagree with `tsc`.
+    // Everything else (@types/express, @types/supertest, ...) is still typed
+    // normally, because those are reached through imports rather than globals.
+    "types": ["jest", "node"],
+
     // Full strict mode: the project is TypeScript-only and production-oriented,
     // so unsound code should fail at compile time rather than at runtime.
     "strict": true,

@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthModule } from './health/health.module';
+import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
   imports: [
@@ -14,6 +15,8 @@ import { HealthModule } from './health/health.module';
       // `backend/.env`, when present, wins for machine-specific overrides.
       envFilePath: ['.env', '../.env'],
     }),
+    // Global, so feature modules inject PrismaService without re-importing it.
+    PrismaModule,
     HealthModule,
   ],
   controllers: [AppController],

@@ -21,6 +21,11 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
+  // Makes Nest listen for termination signals and run `onModuleDestroy` on
+  // every provider. Without it, PrismaService never closes its connection pool
+  // on Ctrl+C or on the SIGTERM a container runtime sends.
+  app.enableShutdownHooks();
+
   const configService = app.get(ConfigService);
   const port = Number(configService.get<string>('PORT')) || DEFAULT_PORT;
 

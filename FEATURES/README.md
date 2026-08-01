@@ -35,3 +35,4 @@ behaviour, record that in the new document and link back to the old one.
 | --- | --- |
 | 001 | [Backend Initialization](001-backend-initialization.md) |
 | 002 | [Docker & PostgreSQL Setup](002-docker-postgresql-setup.md) |
+| 003 | [Prisma ORM Setup](003-prisma-orm-setup.md) |

@@ -18,6 +18,12 @@ npm-debug.log*
 backend/prisma/*.db
 backend/prisma/migrations/dev/
 
+# Generated Prisma Client. Derived from schema.prisma, rebuilt by
+# `prisma generate` (wired to `postinstall`), so it is build output rather
+# than source. Committed migrations under backend/prisma/migrations/ are NOT
+# ignored — they are the schema's history and must be shared.
+backend/src/generated/
+
 # Docker
 # Database data lives in the named volume `crm-timesheet-postgres-data`,
 # managed by Docker outside the repository, so there is nothing to ignore

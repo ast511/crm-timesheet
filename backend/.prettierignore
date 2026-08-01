@@ -1,0 +1,8 @@
+# Prisma Client is generated code — never reformat it, it is overwritten on
+# every `prisma generate`.
+src/generated/
+
+# Build output and dependencies.
+dist/
+coverage/
+node_modules/
