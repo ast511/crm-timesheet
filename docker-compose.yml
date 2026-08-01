@@ -1,0 +1,91 @@
+# =============================================================================
+# Docker Compose file for the CRM TimeSheet project.
+#
+# This file currently provisions ONLY PostgreSQL. The React (Vite) frontend
+# and the NestJS backend are expected to run locally on the host during
+# development. Additional services (backend, frontend) can be appended later
+# without touching the PostgreSQL definition below.
+#
+# Compose Spec: v2 (the top-level `version:` key is intentionally omitted;
+# it is obsolete in Compose v2 and is now inferred from the spec itself).
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Services: long-running containers managed by Compose.
+# -----------------------------------------------------------------------------
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL database service.
+  # Reachable from the host at localhost:5432 and from other Compose services
+  # (once added) at the hostname `postgres` on port 5432.
+  # ---------------------------------------------------------------------------
+  postgres:
+    # Official PostgreSQL image. `16-alpine` pins a major version (stable API,
+    # automatic minor/patch upgrades on `docker compose pull`) on a small
+    # Alpine base. Avoid the `latest` tag in production — it makes upgrades
+    # implicit and non-reproducible.
+    image: postgres:16-alpine
+
+    # Explicit container name for easier `docker exec` / `docker logs`.
+    container_name: crm-timesheet-postgres
+
+    # Restart automatically unless the operator has explicitly stopped it.
+    # `unless-stopped` is preferred over `always` because it respects manual
+    # `docker stop` between reboots.
+    restart: unless-stopped
+
+    # Environment variables consumed by the postgres entrypoint on first boot
+    # to create the superuser, its password, and the default database.
+    # Values come from the `.env` file in the same directory as this file.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Force explicit locale/encoding — avoids surprises on Windows hosts.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+
+    # Publish the DB port on the host so the locally-running NestJS backend
+    # (and tools like DBeaver / psql / Prisma Studio) can reach it.
+    # Bind to 127.0.0.1 so the port is NOT exposed on the LAN by accident.
+    # Remove the `127.0.0.1:` prefix only if you truly need remote access.
+    ports:
+      - "127.0.0.1:5432:5432"
+
+    # Named volume for durable data. Survives `docker compose down`, is
+    # removed only with `docker compose down -v`.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    # Healthcheck lets other services (added later) wait for the DB to be
+    # ready via `depends_on: { condition: service_healthy }`.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    # Attach to a project-scoped network so future services resolve
+    # `postgres` as a hostname.
+    networks:
+      - crm-timesheet-net
+
+# -----------------------------------------------------------------------------
+# Named volumes: managed by Docker, independent of the host filesystem.
+# Named volumes are portable across Linux/Windows/macOS hosts and are the
+# recommended way to persist database data.
+# -----------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    name: crm-timesheet-postgres-data
+
+# -----------------------------------------------------------------------------
+# Networks: dedicated bridge network for this project. Adding a backend
+# service later (see README) means it can talk to `postgres:5432` directly
+# without going through the host.
+# -----------------------------------------------------------------------------
+networks:
+  crm-timesheet-net:
+    name: crm-timesheet-net
+    driver: bridge
