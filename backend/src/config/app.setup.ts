@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { AllExceptionsFilter } from '../common/filters/all-exceptions.filter';
+import { ResponseInterceptor } from '../common/interceptors/response.interceptor';
 import {
   API_DEFAULT_VERSION,
   API_PREFIX,
@@ -42,6 +44,14 @@ export function configureApp(app: INestApplication): void {
       transform: true,
     }),
   );
+
+  // The two halves of the response contract: the interceptor wraps every
+  // successful body, the filter renders every failure. Both are stateless and
+  // dependency-free, so they are instantiated here instead of being declared as
+  // APP_INTERCEPTOR / APP_FILTER providers — the wiring stays in this single
+  // function, next to the ValidationPipe whose errors the filter formats.
+  app.useGlobalInterceptors(new ResponseInterceptor());
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   app.enableCors(buildCorsOptions(app.get(ConfigService)));
 

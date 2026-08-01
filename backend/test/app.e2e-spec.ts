@@ -31,22 +31,36 @@ describe('Application endpoints (e2e)', () => {
     await app.close();
   });
 
-  it(`GET ${API_BASE_PATH} returns the greeting`, () => {
+  it(`GET ${API_BASE_PATH} returns the greeting in the success envelope`, () => {
     return request(app.getHttpServer())
       .get(API_BASE_PATH)
       .expect(200)
-      .expect({ message: 'Hello from the backend' });
+      .expect({ success: true, data: { message: 'Hello from the backend' } });
   });
 
   it(`GET ${API_BASE_PATH}/health returns the health status`, () => {
     return request(app.getHttpServer())
       .get(`${API_BASE_PATH}/health`)
       .expect(200)
-      .expect({ status: 'ok', service: 'backend' });
+      .expect({ success: true, data: { status: 'ok', service: 'backend' } });
   });
 
   it('GET /health without the prefix is not routed', () => {
     return request(app.getHttpServer()).get('/health').expect(404);
+  });
+
+  it('renders an unmatched route as the error envelope', async () => {
+    const response = await request(app.getHttpServer())
+      .get(`${API_BASE_PATH}/does-not-exist`)
+      .expect(404);
+
+    expect(response.body).toEqual({
+      success: false,
+      statusCode: 404,
+      message: expect.any(String) as unknown as string,
+      path: `${API_BASE_PATH}/does-not-exist`,
+      timestamp: expect.any(String) as unknown as string,
+    });
   });
 
   it('answers an allowed origin with the CORS headers', () => {

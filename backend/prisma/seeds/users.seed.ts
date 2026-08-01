@@ -76,7 +76,7 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0001',
     email: 'andrei.popescu@example.com',
-    username: 'andrei.popescu',
+    username: 'APO',
     role: UserRole.SUPERADMIN,
     isActive: true,
     firstName: 'Andrei',
@@ -93,7 +93,7 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0002',
     email: 'maria.ionescu@example.com',
-    username: 'maria.ionescu',
+    username: 'MIO',
     role: UserRole.ADMIN,
     isActive: true,
     firstName: 'Maria',
@@ -110,7 +110,7 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0003',
     email: 'elena.dumitrescu@example.com',
-    username: 'elena.dumitrescu',
+    username: 'EDU',
     role: UserRole.HR,
     isActive: true,
     firstName: 'Elena',
@@ -127,7 +127,7 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0004',
     email: 'cristian.stan@example.com',
-    username: 'cristian.stan',
+    username: 'CST',
     role: UserRole.USER,
     isActive: true,
     firstName: 'Cristian',
@@ -144,7 +144,7 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0005',
     email: 'ioana.marin@example.com',
-    username: 'ioana.marin',
+    username: 'IMA',
     role: UserRole.USER,
     isActive: true,
     firstName: 'Ioana',
@@ -161,7 +161,7 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0006',
     email: 'vlad.georgescu@example.com',
-    username: 'vlad.georgescu',
+    username: 'VGE',
     role: UserRole.USER,
     isActive: true,
     firstName: 'Vlad',
@@ -178,7 +178,7 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0007',
     email: 'alexandru.radu@example.com',
-    username: 'alexandru.radu',
+    username: 'ARA',
     role: UserRole.USER,
     isActive: true,
     firstName: 'Alexandru',
@@ -196,7 +196,7 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0008',
     email: 'gabriela.munteanu@example.com',
-    username: 'gabriela.munteanu',
+    username: 'GMU',
     role: UserRole.USER,
     isActive: true,
     firstName: 'Gabriela',
@@ -213,10 +213,10 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0009',
     email: 'stefan.constantin@example.com',
-    username: 'stefan.constantin',
+    username: 'SCO',
     role: UserRole.USER,
     isActive: false,
-    firstName: 'Ștefan',
+    firstName: 'Stefan',
     lastName: 'Constantin',
     phone: null,
     hireDate: '2022-07-04',
@@ -230,7 +230,7 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0010',
     email: 'diana.nistor@example.com',
-    username: 'diana.nistor',
+    username: 'DNI',
     role: UserRole.USER,
     isActive: true,
     firstName: 'Diana',
@@ -247,7 +247,7 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0011',
     email: 'mihai.barbu@example.com',
-    username: 'mihai.barbu',
+    username: 'MBA',
     role: UserRole.USER,
     isActive: false,
     firstName: 'Mihai',
@@ -264,7 +264,7 @@ const EMPLOYEE_ACCOUNTS = [
   {
     employeeCode: 'EMP-0012',
     email: 'andreea.voicu@example.com',
-    username: 'andreea.voicu',
+    username: 'AVO',
     role: UserRole.USER,
     isActive: false,
     firstName: 'Andreea',
