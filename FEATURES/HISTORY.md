@@ -16,3 +16,6 @@ Append new features to the end of this table.
 | 010 | [Employees Module](010-employees-module.md) | Completed | 2026-08-03 |
 | 011 | [Projects Module](011-projects-module.md) | Completed | 2026-08-03 |
 | 012 | [Project Status Consolidation](012-project-status-consolidation.md) | Completed | 2026-08-03 |
+| 013 | [Project Members Module](013-project-members-module.md) | Completed | 2026-08-03 |
+| 014 | [Project Roster Endpoint](014-project-roster-endpoint.md) | Completed | 2026-08-03 |
+| 015 | [Scoped Membership Endpoints](015-scoped-membership-endpoints.md) | Completed | 2026-08-03 |

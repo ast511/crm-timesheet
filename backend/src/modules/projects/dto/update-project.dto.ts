@@ -1,5 +1,6 @@
 import { IsBoolean, IsOptional } from 'class-validator';
 
+import { IsIsoDateString } from '../../../common/decorators/is-iso-date-string.decorator';
 import { ValidateIfPresent } from '../../../common/decorators/validate-if-present.decorator';
 import {
   ProjectPriority,
@@ -9,7 +10,6 @@ import {
   IsProjectClientName,
   IsProjectCode,
   IsProjectColor,
-  IsProjectDate,
   IsProjectDescription,
   IsProjectEstimatedHours,
   IsProjectName,
@@ -89,10 +89,10 @@ export class UpdateProjectDto {
    * constraint instead of failing against a value that is no longer there.
    */
   @IsOptional()
-  @IsProjectDate()
+  @IsIsoDateString()
   readonly startDate?: string | null;
 
   @IsOptional()
-  @IsProjectDate()
+  @IsIsoDateString()
   readonly endDate?: string | null;
 }

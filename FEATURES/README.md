@@ -45,3 +45,6 @@ behaviour, record that in the new document and link back to the old one.
 | 010 | [Employees Module](010-employees-module.md) |
 | 011 | [Projects Module](011-projects-module.md) |
 | 012 | [Project Status Consolidation](012-project-status-consolidation.md) |
+| 013 | [Project Members Module](013-project-members-module.md) |
+| 014 | [Project Roster Endpoint](014-project-roster-endpoint.md) |
+| 015 | [Scoped Membership Endpoints](015-scoped-membership-endpoints.md) |

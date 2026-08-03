@@ -1,5 +1,6 @@
 import { IsBoolean, IsOptional } from 'class-validator';
 
+import { IsIsoDateString } from '../../../common/decorators/is-iso-date-string.decorator';
 import { ValidateIfPresent } from '../../../common/decorators/validate-if-present.decorator';
 import {
   ProjectPriority,
@@ -9,7 +10,6 @@ import {
   IsProjectClientName,
   IsProjectCode,
   IsProjectColor,
-  IsProjectDate,
   IsProjectDescription,
   IsProjectEstimatedHours,
   IsProjectName,
@@ -84,10 +84,10 @@ export class CreateProjectDto {
 
   /** A project may be planned before its dates are known; both are nullable. */
   @IsOptional()
-  @IsProjectDate()
+  @IsIsoDateString()
   readonly startDate?: string | null;
 
   @IsOptional()
-  @IsProjectDate()
+  @IsIsoDateString()
   readonly endDate?: string | null;
 }

@@ -33,16 +33,6 @@ export const EMPLOYEE_NAME_MAX_LENGTH = 100;
  */
 export const EMPLOYEE_PHONE_MAX_LENGTH = 30;
 
-/**
- * Bound on a foreign key accepted from a client.
- *
- * Ids are cuids — 25 characters today — so this is headroom rather than a
- * format check: its job is to keep a megabyte of text out of an indexed lookup,
- * not to decide what a valid id looks like. An id of the right length that
- * matches no row is reported as a missing relation, which is the honest answer.
- */
-export const EMPLOYEE_RELATION_ID_MAX_LENGTH = 50;
-
 /** Bound on `?search=`, so a huge term cannot be pushed into a `LIKE` scan. */
 export const EMPLOYEE_SEARCH_MAX_LENGTH = 100;
 

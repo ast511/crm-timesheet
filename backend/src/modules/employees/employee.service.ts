@@ -224,18 +224,35 @@ export class EmployeeService {
   }
 
   /**
-   * Reports a missing employee.
+   * Whether an employee with this id exists.
    *
-   * Selects `id` alone: the caller only needs to know the row is there, and the
-   * full record — with its three joins — is read by the `update` that follows.
+   * Public because the project-members feature has to confirm an employee
+   * before assigning them to a project, and this module owns the `employees`
+   * table — the same hand-off `DepartmentService`, `PositionService` and
+   * `ProjectService` each make. It returns a boolean rather than throwing,
+   * because the caller knows what a missing employee means in its own request;
+   * here it would only be able to guess.
+   *
+   * `id` alone is selected: the caller needs a yes or a no, not a row.
    */
-  private async assertExists(id: string): Promise<void> {
+  async exists(id: string): Promise<boolean> {
     const employee = await this.prisma.employee.findUnique({
       where: { id },
       select: { id: true },
     });
 
-    if (employee === null) {
+    return employee !== null;
+  }
+
+  /**
+   * Reports a missing employee.
+   *
+   * Built on {@link exists}, which asks exactly the same question: the caller
+   * here only needs to know the row is there, and the full record — with its
+   * three joins — is read by the `update` that follows.
+   */
+  private async assertExists(id: string): Promise<void> {
+    if (!(await this.exists(id))) {
       throw new NotFoundException(notFoundMessage(id));
     }
   }

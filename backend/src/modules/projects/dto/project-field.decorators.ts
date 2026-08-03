@@ -1,7 +1,6 @@
 import { applyDecorators } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import {
-  IsDateString,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -35,6 +34,11 @@ import {
  * here, **optionality** stays on the DTO, because `@IsOptional()` — or
  * `@ValidateIfPresent()` — is what distinguishes "create" from "patch" and has
  * to be readable on the class it applies to.
+ *
+ * `startDate` and `endDate` are not here. They use the shared
+ * `@IsIsoDateString()`: Feature 013 found the same rule written for a third
+ * date column and moved it into `common/decorators`, since nothing in it was
+ * specific to a project.
  */
 
 /**
@@ -175,17 +179,4 @@ export function IsProjectStatus() {
 /** `projectPriority` — one of the `ProjectPriority` values, on the same terms. */
 export function IsProjectPriority() {
   return applyDecorators(IsEnum(ProjectPriority));
-}
-
-/**
- * `startDate` / `endDate` — an ISO-8601 date or timestamp, kept as a string.
- *
- * Validated rather than transformed: `@Type(() => Date)` would hand
- * `@IsDateString()` a `Date` to reject, and converting first with a bare
- * `new Date(value)` would accept `01/13/2020` — a format whose meaning depends
- * on which side of the Atlantic reads it. The string is parsed once, in the
- * service, where it is also compared against the other end of the range.
- */
-export function IsProjectDate() {
-  return applyDecorators(Trim(), IsString(), IsDateString());
 }

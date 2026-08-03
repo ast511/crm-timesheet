@@ -1,7 +1,6 @@
 import { applyDecorators } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import {
-  IsDateString,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -24,7 +23,6 @@ import {
   EMPLOYEE_MIN_VACATION_DAYS,
   EMPLOYEE_NAME_MAX_LENGTH,
   EMPLOYEE_PHONE_MAX_LENGTH,
-  EMPLOYEE_RELATION_ID_MAX_LENGTH,
 } from '../employee.constants';
 
 /**
@@ -34,6 +32,11 @@ import {
  * here, **optionality** stays on the DTO, because `@IsOptional()` is what
  * distinguishes "create" from "patch" and has to be readable on the class it
  * applies to.
+ *
+ * Two fields are *not* here. `hireDate` uses the shared `@IsIsoDateString()`
+ * and the three foreign keys use the shared `@IsRelationId()`: Feature 013
+ * found the same rules written a second time and moved both into
+ * `common/decorators`, since neither carried anything specific to an employee.
  */
 
 /**
@@ -104,19 +107,6 @@ export function IsEmployeePhone() {
   );
 }
 
-/**
- * `hireDate` — an ISO-8601 date or timestamp, kept as a string.
- *
- * Validated rather than transformed: `@Type(() => Date)` would hand
- * `@IsDateString()` a `Date` to reject, and converting first with a bare
- * `new Date(value)` would accept `01/13/2020` — a format whose meaning depends
- * on which side of the Atlantic reads it. The string is parsed once, in the
- * service, on its way into Prisma.
- */
-export function IsEmployeeHireDate() {
-  return applyDecorators(Trim(), IsString(), IsDateString());
-}
-
 /** `seniority` — one of the `SeniorityLevel` values the column accepts. */
 export function IsEmployeeSeniority() {
   return applyDecorators(IsEnum(SeniorityLevel));
@@ -139,21 +129,5 @@ export function IsEmployeeMaxVacationDays() {
     IsInt(),
     Min(EMPLOYEE_MIN_VACATION_DAYS),
     Max(EMPLOYEE_MAX_VACATION_DAYS),
-  );
-}
-
-/**
- * `userId` / `departmentId` / `positionId` — a foreign key as it arrives.
- *
- * Shape only. Whether the row exists is a question for the database, and the
- * service asks it before writing; a `@ParseUUIDPipe`-style format check would
- * reject cuids, which is what this schema generates.
- */
-export function IsRelationId() {
-  return applyDecorators(
-    Trim(),
-    IsString(),
-    IsNotEmpty(),
-    MaxLength(EMPLOYEE_RELATION_ID_MAX_LENGTH),
   );
 }

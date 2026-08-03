@@ -1,5 +1,7 @@
 import { IsBoolean, IsOptional } from 'class-validator';
 
+import { IsIsoDateString } from '../../../common/decorators/is-iso-date-string.decorator';
+import { IsRelationId } from '../../../common/decorators/is-relation-id.decorator';
 import { ValidateIfPresent } from '../../../common/decorators/validate-if-present.decorator';
 import {
   EmployeeStatus,
@@ -7,13 +9,11 @@ import {
 } from '../../../generated/prisma/enums';
 import {
   IsEmployeeCode,
-  IsEmployeeHireDate,
   IsEmployeeMaxVacationDays,
   IsEmployeeName,
   IsEmployeePhone,
   IsEmployeeSeniority,
   IsEmployeeStatus,
-  IsRelationId,
 } from './employee-field.decorators';
 
 /**
@@ -45,7 +45,7 @@ export class CreateEmployeeDto {
   @IsEmployeePhone()
   readonly phone?: string | null;
 
-  @IsEmployeeHireDate()
+  @IsIsoDateString()
   readonly hireDate!: string;
 
   @IsRelationId()

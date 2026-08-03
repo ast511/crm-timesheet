@@ -8,6 +8,7 @@ import { HealthModule } from './health/health.module';
 import { DepartmentModule } from './modules/departments/department.module';
 import { EmployeeModule } from './modules/employees/employee.module';
 import { PositionModule } from './modules/positions/position.module';
+import { ProjectMemberModule } from './modules/project-members/project-member.module';
 import { ProjectModule } from './modules/projects/project.module';
 import { UserModule } from './modules/users/user.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -33,6 +34,7 @@ import { PrismaModule } from './prisma/prisma.module';
     UserModule,
     EmployeeModule,
     ProjectModule,
+    ProjectMemberModule,
   ],
   controllers: [AppController],
   providers: [AppService],

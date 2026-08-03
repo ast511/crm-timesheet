@@ -6,6 +6,7 @@ import {
   MaxLength,
 } from 'class-validator';
 
+import { IsRelationId } from '../../../common/decorators/is-relation-id.decorator';
 import { ToBoolean } from '../../../common/decorators/to-boolean.decorator';
 import { Trim } from '../../../common/decorators/trim.decorator';
 import { SortQueryDto } from '../../../common/dto/sort-query.dto';
@@ -22,7 +23,6 @@ import {
 import {
   IsEmployeeSeniority,
   IsEmployeeStatus,
-  IsRelationId,
 } from './employee-field.decorators';
 
 /**
