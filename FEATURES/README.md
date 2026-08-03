@@ -39,3 +39,5 @@ behaviour, record that in the new document and link back to the old one.
 | 004 | [API Foundation & Global Application Configuration](004-api-foundation-global-configuration.md) |
 | 005 | [Database Seeding](005-database-seeding.md) |
 | 006 | [Shared Backend Infrastructure](006-shared-backend-infrastructure.md) |
+| 007 | [Departments Module](007-departments-module.md) |
+| 008 | [Positions Module](008-positions-module.md) |

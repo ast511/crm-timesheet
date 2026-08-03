@@ -63,6 +63,87 @@ describe('Application endpoints (e2e)', () => {
     });
   });
 
+  /**
+   * Only requests the `ValidationPipe` rejects before the handler runs, so the
+   * suite still needs no database. What they prove is the wiring: the module is
+   * mounted under the versioned prefix, its DTOs are applied by the global pipe,
+   * and a rejection is rendered as the error envelope rather than Nest's
+   * default body.
+   */
+  describe('departments', () => {
+    const DEPARTMENTS_PATH = `${API_BASE_PATH}/departments`;
+
+    it('rejects a page size above the shared cap', () => {
+      return request(app.getHttpServer())
+        .get(DEPARTMENTS_PATH)
+        .query({ limit: 101 })
+        .expect(400)
+        .expect(({ body }: { body: { success: boolean } }) => {
+          expect(body.success).toBe(false);
+        });
+    });
+
+    it('rejects a column that is not sortable', () => {
+      return request(app.getHttpServer())
+        .get(DEPARTMENTS_PATH)
+        .query({ sortBy: 'description' })
+        .expect(400);
+    });
+
+    it('reports every missing field of a creation payload at once', async () => {
+      const response = await request(app.getHttpServer())
+        .post(DEPARTMENTS_PATH)
+        .send({})
+        .expect(400);
+
+      const { message } = response.body as { message: string[] };
+
+      expect(message).toEqual(expect.arrayContaining([expect.any(String)]));
+      expect(message.join(' ')).toMatch(/code/);
+      expect(message.join(' ')).toMatch(/name/);
+    });
+  });
+
+  /**
+   * The same three checks against the second module, which is what makes them
+   * worth repeating: they prove `PositionModule` is mounted under the versioned
+   * prefix with its own DTOs, rather than that the `ValidationPipe` works — the
+   * departments block already established that.
+   */
+  describe('positions', () => {
+    const POSITIONS_PATH = `${API_BASE_PATH}/positions`;
+
+    it('rejects a page size above the shared cap', () => {
+      return request(app.getHttpServer())
+        .get(POSITIONS_PATH)
+        .query({ limit: 101 })
+        .expect(400)
+        .expect(({ body }: { body: { success: boolean } }) => {
+          expect(body.success).toBe(false);
+        });
+    });
+
+    it('rejects a column that is not sortable', () => {
+      return request(app.getHttpServer())
+        .get(POSITIONS_PATH)
+        .query({ sortBy: 'description' })
+        .expect(400);
+    });
+
+    it('reports every missing field of a creation payload at once', async () => {
+      const response = await request(app.getHttpServer())
+        .post(POSITIONS_PATH)
+        .send({})
+        .expect(400);
+
+      const { message } = response.body as { message: string[] };
+
+      expect(message).toEqual(expect.arrayContaining([expect.any(String)]));
+      expect(message.join(' ')).toMatch(/code/);
+      expect(message.join(' ')).toMatch(/name/);
+    });
+  });
+
   it('answers an allowed origin with the CORS headers', () => {
     return request(app.getHttpServer())
       .get(`${API_BASE_PATH}/health`)

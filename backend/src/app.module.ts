@@ -5,6 +5,8 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { validateEnvironment } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { DepartmentModule } from './modules/departments/department.module';
+import { PositionModule } from './modules/positions/position.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -22,6 +24,9 @@ import { PrismaModule } from './prisma/prisma.module';
     // Global, so feature modules inject PrismaService without re-importing it.
     PrismaModule,
     HealthModule,
+    // Business modules. Each one owns a resource under `/api/v1`.
+    DepartmentModule,
+    PositionModule,
   ],
   controllers: [AppController],
   providers: [AppService],
