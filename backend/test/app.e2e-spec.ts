@@ -144,6 +144,66 @@ describe('Application endpoints (e2e)', () => {
     });
   });
 
+  /**
+   * The users block asserts what is specific to this module rather than
+   * repeating the two blocks above: that `passwordHash` is not a field a client
+   * can supply, and that the boolean filter accepts exactly two spellings. Both
+   * are rejected by the `ValidationPipe` before the handler runs, so the suite
+   * still needs no database.
+   */
+  describe('users', () => {
+    const USERS_PATH = `${API_BASE_PATH}/users`;
+
+    it('rejects a page size above the shared cap', () => {
+      return request(app.getHttpServer())
+        .get(USERS_PATH)
+        .query({ limit: 101 })
+        .expect(400)
+        .expect(({ body }: { body: { success: boolean } }) => {
+          expect(body.success).toBe(false);
+        });
+    });
+
+    it('rejects a column that is not sortable', () => {
+      return request(app.getHttpServer())
+        .get(USERS_PATH)
+        .query({ sortBy: 'passwordHash' })
+        .expect(400);
+    });
+
+    it('rejects a boolean filter that is neither true nor false', () => {
+      return request(app.getHttpServer())
+        .get(USERS_PATH)
+        .query({ isActive: 'yes' })
+        .expect(400);
+    });
+
+    it('reports every missing field of a creation payload at once', async () => {
+      const response = await request(app.getHttpServer())
+        .post(USERS_PATH)
+        .send({})
+        .expect(400);
+
+      const { message } = response.body as { message: string[] };
+
+      expect(message.join(' ')).toMatch(/email/);
+      expect(message.join(' ')).toMatch(/password/);
+      expect(message.join(' ')).toMatch(/role/);
+    });
+
+    it('refuses a password hash supplied by the client', () => {
+      return request(app.getHttpServer())
+        .post(USERS_PATH)
+        .send({
+          email: 'ana.pop@example.com',
+          password: 'correct horse battery',
+          role: 'ADMIN',
+          passwordHash: '$2b$12$abcdefghij',
+        })
+        .expect(400);
+    });
+  });
+
   it('answers an allowed origin with the CORS headers', () => {
     return request(app.getHttpServer())
       .get(`${API_BASE_PATH}/health`)

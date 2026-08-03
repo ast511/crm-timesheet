@@ -12,3 +12,4 @@ Append new features to the end of this table.
 | 006 | [Shared Backend Infrastructure](006-shared-backend-infrastructure.md) | Completed | 2026-08-01 |
 | 007 | [Departments Module](007-departments-module.md) | Completed | 2026-08-03 |
 | 008 | [Positions Module](008-positions-module.md) | Completed | 2026-08-03 |
+| 009 | [Users Module](009-users-module.md) | Completed | 2026-08-03 |

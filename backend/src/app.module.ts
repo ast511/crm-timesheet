@@ -7,6 +7,7 @@ import { validateEnvironment } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { DepartmentModule } from './modules/departments/department.module';
 import { PositionModule } from './modules/positions/position.module';
+import { UserModule } from './modules/users/user.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -27,6 +28,7 @@ import { PrismaModule } from './prisma/prisma.module';
     // Business modules. Each one owns a resource under `/api/v1`.
     DepartmentModule,
     PositionModule,
+    UserModule,
   ],
   controllers: [AppController],
   providers: [AppService],

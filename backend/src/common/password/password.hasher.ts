@@ -31,8 +31,12 @@ export const BCRYPT_COST_FACTOR = 12;
  * bcrypt hashes at most 72 bytes and silently ignores the rest. Left
  * unchecked, two long passwords sharing their first 72 bytes would be
  * interchangeable, so the limit is enforced rather than tolerated.
+ *
+ * Exported so request validation can reject an over-long password with a `400`
+ * naming the field, instead of letting `hashPassword` throw inside a service
+ * and surface as a `500`. Both enforce it, and both read the same number.
  */
-const MAX_PASSWORD_BYTES = 72;
+export const MAX_PASSWORD_BYTES = 72;
 
 /** Hashes a plain-text password. The salt is generated per call by bcrypt. */
 export async function hashPassword(plainPassword: string): Promise<string> {
