@@ -143,6 +143,26 @@ export class PositionService {
     await this.prisma.position.delete({ where: { id } });
   }
 
+  /**
+   * Whether a position with this id exists.
+   *
+   * Public because the employees module has to confirm a position before
+   * assigning someone to it, and this module owns the `positions` table — the
+   * hand-off `PositionModule` describes. It returns a boolean rather than
+   * throwing, because the caller knows what a missing position means in its own
+   * request; here it would only be able to guess.
+   *
+   * `id` alone is selected: the caller needs a yes or a no, not a row.
+   */
+  async exists(id: string): Promise<boolean> {
+    const position = await this.prisma.position.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    return position !== null;
+  }
+
   /** Loads a position by id or reports it missing. */
   private async findOrThrow(id: string): Promise<PositionModel> {
     const position = await this.prisma.position.findUnique({ where: { id } });

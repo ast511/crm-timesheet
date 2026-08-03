@@ -1,0 +1,89 @@
+import { IsBoolean, IsOptional } from 'class-validator';
+
+import { ValidateIfPresent } from '../../../common/decorators/validate-if-present.decorator';
+import {
+  EmployeeStatus,
+  SeniorityLevel,
+} from '../../../generated/prisma/enums';
+import {
+  IsEmployeeCode,
+  IsEmployeeHireDate,
+  IsEmployeeMaxVacationDays,
+  IsEmployeeName,
+  IsEmployeePhone,
+  IsEmployeeSeniority,
+  IsEmployeeStatus,
+  IsRelationId,
+} from './employee-field.decorators';
+
+/**
+ * Body of `PATCH /api/v1/employees/:id`.
+ *
+ * Every field is optional, and an absent one means "leave it alone" — Prisma
+ * omits `undefined` from the `UPDATE`, so a partial body never blanks a column
+ * the client did not mention. `phone: null` (or `""`) is the explicit way to
+ * remove a phone number, which is a different request from omitting it.
+ *
+ * The three foreign keys stay editable, because all three changes are ordinary
+ * events: people transfer between departments, get promoted into a new
+ * position, and — rarely, after an account is recreated — have their login
+ * re-pointed. Each one is re-validated exactly as it is on creation, so a patch
+ * cannot leave the row referencing something that does not exist, and moving a
+ * user to a second employee is still refused.
+ *
+ * Note which fields carry `@ValidateIfPresent()` and which carry
+ * `@IsOptional()`: `phone` is the only nullable column, so it is the only field
+ * where `null` is a value rather than a mistake. Everywhere else `null` is a
+ * `400`, because `@IsOptional()` alone would skip the constraints and let it
+ * through to a column that cannot hold it.
+ */
+export class UpdateEmployeeDto {
+  @ValidateIfPresent()
+  @IsEmployeeCode()
+  readonly employeeCode?: string;
+
+  @ValidateIfPresent()
+  @IsEmployeeName()
+  readonly firstName?: string;
+
+  @ValidateIfPresent()
+  @IsEmployeeName()
+  readonly lastName?: string;
+
+  /** The one nullable column: `null` clears it rather than failing. */
+  @IsOptional()
+  @IsEmployeePhone()
+  readonly phone?: string | null;
+
+  @ValidateIfPresent()
+  @IsEmployeeHireDate()
+  readonly hireDate?: string;
+
+  @ValidateIfPresent()
+  @IsRelationId()
+  readonly userId?: string;
+
+  @ValidateIfPresent()
+  @IsRelationId()
+  readonly departmentId?: string;
+
+  @ValidateIfPresent()
+  @IsRelationId()
+  readonly positionId?: string;
+
+  @ValidateIfPresent()
+  @IsEmployeeSeniority()
+  readonly seniority?: SeniorityLevel;
+
+  @ValidateIfPresent()
+  @IsEmployeeStatus()
+  readonly status?: EmployeeStatus;
+
+  @ValidateIfPresent()
+  @IsBoolean()
+  readonly canReplaceOthers?: boolean;
+
+  @ValidateIfPresent()
+  @IsEmployeeMaxVacationDays()
+  readonly maxVacationDays?: number;
+}

@@ -482,4 +482,45 @@ describe('UserService', () => {
       });
     });
   });
+
+  /**
+   * The hand-off to the employees module. It answers two questions from one
+   * read — does the account exist, and is an employee already holding it —
+   * because linking a user requires both, and `remove` above needs the same
+   * pair.
+   */
+  describe('findEmployeeLink', () => {
+    it('reports a free account', async () => {
+      prisma.user.findUnique.mockResolvedValue({ employee: null });
+
+      await expect(service.findEmployeeLink('usr-1')).resolves.toEqual({
+        employeeId: null,
+      });
+    });
+
+    it('names the employee already holding the account', async () => {
+      prisma.user.findUnique.mockResolvedValue({ employee: { id: 'emp-1' } });
+
+      await expect(service.findEmployeeLink('usr-1')).resolves.toEqual({
+        employeeId: 'emp-1',
+      });
+    });
+
+    it('returns null when there is no such account', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.findEmployeeLink('missing')).resolves.toBeNull();
+    });
+
+    it('reads nothing but ids, so no secret is pulled out of PostgreSQL', async () => {
+      prisma.user.findUnique.mockResolvedValue({ employee: null });
+
+      await service.findEmployeeLink('usr-1');
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'usr-1' },
+        select: { employee: { select: { id: true } } },
+      });
+    });
+  });
 });

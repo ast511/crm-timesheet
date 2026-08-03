@@ -153,6 +153,26 @@ export class DepartmentService {
     await this.prisma.department.delete({ where: { id } });
   }
 
+  /**
+   * Whether a department with this id exists.
+   *
+   * Public because the employees module has to confirm a department before
+   * assigning someone to it, and this module owns the `departments` table — the
+   * hand-off `DepartmentModule` describes. It returns a boolean rather than
+   * throwing, because the caller knows what a missing department means in its
+   * own request; here it would only be able to guess.
+   *
+   * `id` alone is selected: the caller needs a yes or a no, not a row.
+   */
+  async exists(id: string): Promise<boolean> {
+    const department = await this.prisma.department.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    return department !== null;
+  }
+
   /** Loads a department by id or reports it missing. */
   private async findOrThrow(id: string): Promise<DepartmentModel> {
     const department = await this.prisma.department.findUnique({

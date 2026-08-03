@@ -329,4 +329,30 @@ describe('DepartmentService', () => {
       expect(prisma.department.delete).not.toHaveBeenCalled();
     });
   });
+
+  /** The hand-off to the employees module: a yes or a no, not a row. */
+  describe('exists', () => {
+    it('reports a department that is there', async () => {
+      prisma.department.findUnique.mockResolvedValue({ id: 'dep-1' });
+
+      await expect(service.exists('dep-1')).resolves.toBe(true);
+    });
+
+    it('reports one that is not', async () => {
+      prisma.department.findUnique.mockResolvedValue(null);
+
+      await expect(service.exists('missing')).resolves.toBe(false);
+    });
+
+    it('reads the id alone rather than the whole record', async () => {
+      prisma.department.findUnique.mockResolvedValue({ id: 'dep-1' });
+
+      await service.exists('dep-1');
+
+      expect(prisma.department.findUnique).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        select: { id: true },
+      });
+    });
+  });
 });

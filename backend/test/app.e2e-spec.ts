@@ -204,6 +204,69 @@ describe('Application endpoints (e2e)', () => {
     });
   });
 
+  /**
+   * The employees block asserts what is specific to this module: a payload is
+   * expected to name all three relations, the two enum fields are closed
+   * vocabularies, and the entitlement is a positive integer. All of it is
+   * rejected by the `ValidationPipe` before the handler runs, so the suite
+   * still needs no database — which is also why the relation checks themselves
+   * (does this department exist?) are not exercised here.
+   */
+  describe('employees', () => {
+    const EMPLOYEES_PATH = `${API_BASE_PATH}/employees`;
+
+    it('rejects a page size above the shared cap', () => {
+      return request(app.getHttpServer())
+        .get(EMPLOYEES_PATH)
+        .query({ limit: 101 })
+        .expect(400)
+        .expect(({ body }: { body: { success: boolean } }) => {
+          expect(body.success).toBe(false);
+        });
+    });
+
+    it('rejects a column that is not sortable', () => {
+      return request(app.getHttpServer())
+        .get(EMPLOYEES_PATH)
+        .query({ sortBy: 'maxVacationDays' })
+        .expect(400);
+    });
+
+    it('rejects a status outside the enum', () => {
+      return request(app.getHttpServer())
+        .get(EMPLOYEES_PATH)
+        .query({ status: 'RETIRED' })
+        .expect(400);
+    });
+
+    it('reports every missing field of a creation payload at once', async () => {
+      const response = await request(app.getHttpServer())
+        .post(EMPLOYEES_PATH)
+        .send({})
+        .expect(400);
+
+      const { message } = response.body as { message: string[] };
+      const reported = message.join(' ');
+
+      expect(reported).toMatch(/employeeCode/);
+      expect(reported).toMatch(/firstName/);
+      expect(reported).toMatch(/lastName/);
+      expect(reported).toMatch(/hireDate/);
+      expect(reported).toMatch(/userId/);
+      expect(reported).toMatch(/departmentId/);
+      expect(reported).toMatch(/positionId/);
+      expect(reported).toMatch(/seniority/);
+      expect(reported).toMatch(/status/);
+    });
+
+    it('rejects a vacation entitlement of zero days', () => {
+      return request(app.getHttpServer())
+        .patch(`${EMPLOYEES_PATH}/emp-1`)
+        .send({ maxVacationDays: 0 })
+        .expect(400);
+    });
+  });
+
   it('answers an allowed origin with the CORS headers', () => {
     return request(app.getHttpServer())
       .get(`${API_BASE_PATH}/health`)

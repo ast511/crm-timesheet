@@ -328,4 +328,30 @@ describe('PositionService', () => {
       expect(prisma.position.delete).not.toHaveBeenCalled();
     });
   });
+
+  /** The hand-off to the employees module: a yes or a no, not a row. */
+  describe('exists', () => {
+    it('reports a position that is there', async () => {
+      prisma.position.findUnique.mockResolvedValue({ id: 'pos-1' });
+
+      await expect(service.exists('pos-1')).resolves.toBe(true);
+    });
+
+    it('reports one that is not', async () => {
+      prisma.position.findUnique.mockResolvedValue(null);
+
+      await expect(service.exists('missing')).resolves.toBe(false);
+    });
+
+    it('reads the id alone rather than the whole record', async () => {
+      prisma.position.findUnique.mockResolvedValue({ id: 'pos-1' });
+
+      await service.exists('pos-1');
+
+      expect(prisma.position.findUnique).toHaveBeenCalledWith({
+        where: { id: 'pos-1' },
+        select: { id: true },
+      });
+    });
+  });
 });

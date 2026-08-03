@@ -42,3 +42,4 @@ behaviour, record that in the new document and link back to the old one.
 | 007 | [Departments Module](007-departments-module.md) |
 | 008 | [Positions Module](008-positions-module.md) |
 | 009 | [Users Module](009-users-module.md) |
+| 010 | [Employees Module](010-employees-module.md) |

@@ -37,6 +37,12 @@ interface UniqueUserFields {
   readonly username?: string | null;
 }
 
+/** What an existing account says about the employee holding it. */
+export interface UserEmployeeLink {
+  /** Id of the employee already linked to the account, or `null` if free. */
+  readonly employeeId: string | null;
+}
+
 /**
  * Every rule about users lives here; the controller only routes.
  *
@@ -163,22 +169,42 @@ export class UserService {
    * different snapshots.
    */
   async remove(id: string): Promise<void> {
+    const link = await this.findEmployeeLink(id);
+
+    if (link === null) {
+      throw new NotFoundException(notFoundMessage(id));
+    }
+
+    if (link.employeeId !== null) {
+      throw new ConflictException(
+        `User ${id} cannot be deleted while employee ${link.employeeId} is linked to it`,
+      );
+    }
+
+    await this.prisma.user.delete({ where: { id } });
+  }
+
+  /**
+   * Reports whether an account exists and whether an employee already holds it,
+   * in one query. `null` means there is no such account.
+   *
+   * Public because the employees module needs both answers before linking a
+   * user — the account has to exist, and `Employee.userId` is unique, so it
+   * must not already be taken — and this module owns the `users` table, which
+   * is what keeps "never return the password hash" a rule with one enforcement
+   * point. Nothing but ids is selected, so nothing sensitive is read.
+   *
+   * The two facts are returned rather than thrown, because a missing account is
+   * a `404` when this module deletes one and a `400` when the employees module
+   * validates a body; only the caller can tell which.
+   */
+  async findEmployeeLink(id: string): Promise<UserEmployeeLink | null> {
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: { employee: { select: { id: true } } },
     });
 
-    if (user === null) {
-      throw new NotFoundException(notFoundMessage(id));
-    }
-
-    if (user.employee !== null) {
-      throw new ConflictException(
-        `User ${id} cannot be deleted while employee ${user.employee.id} is linked to it`,
-      );
-    }
-
-    await this.prisma.user.delete({ where: { id } });
+    return user === null ? null : { employeeId: user.employee?.id ?? null };
   }
 
   /**
