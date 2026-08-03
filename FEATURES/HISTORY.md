@@ -14,3 +14,5 @@ Append new features to the end of this table.
 | 008 | [Positions Module](008-positions-module.md) | Completed | 2026-08-03 |
 | 009 | [Users Module](009-users-module.md) | Completed | 2026-08-03 |
 | 010 | [Employees Module](010-employees-module.md) | Completed | 2026-08-03 |
+| 011 | [Projects Module](011-projects-module.md) | Completed | 2026-08-03 |
+| 012 | [Project Status Consolidation](012-project-status-consolidation.md) | Completed | 2026-08-03 |

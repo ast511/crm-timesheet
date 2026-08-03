@@ -44,6 +44,23 @@ enum SeniorityLevel {
   LEAD   @map("lead")
 }
 
+/// Where a project is in its lifecycle. `ON_HOLD` is spelled with an
+/// underscore, not a hyphen, to match `EmployeeStatus.ON_LEAVE` — the stored
+/// value is what every query, export and enum literal has to repeat, so the two
+/// vocabularies staying consistent matters more than the hyphen does.
+enum ProjectStatus {
+  ACTIVE    @map("active")
+  COMPLETED @map("completed")
+  ON_HOLD   @map("on_hold")
+  CANCELLED @map("cancelled")
+}
+
+enum ProjectPriority {
+  LOW    @map("low")
+  MEDIUM @map("medium")
+  HIGH   @map("high")
+}
+
 model User {
   id       String  @id @default(cuid())
   email    String  @unique
@@ -142,9 +159,32 @@ model Project {
 
   name String
 
+  /// Customer the work is billed to. Required: an internal project names the
+  /// company itself rather than leaving the column empty.
+  clientName String @map("client_name")
+
   description String?
 
-  isActive   Boolean @default(true) @map("is_active")
+  /// Budgeted effort in whole hours. `0` means "not estimated yet", which is
+  /// why the column has a default instead of being nullable.
+  estimatedHours Int @default(0) @map("estimated_hours")
+
+  /// UI accent, stored as `#RRGGBB`. Seven characters is exactly the format,
+  /// so the length is part of the column rather than only an API rule.
+  color String? @db.VarChar(7)
+
+  /// Lifecycle state. Defaulted rather than required, so the column has an
+  /// answer for the rows that existed before this feature and for a project
+  /// created without an opinion about it.
+  projectStatus ProjectStatus @default(ACTIVE) @map("project_status")
+
+  /// Scheduling priority, defaulted to the middle of the scale for the same
+  /// reason: an unstated priority is "normal", not "unknown".
+  projectPriority ProjectPriority @default(MEDIUM) @map("project_priority")
+
+  /// Hidden from normal listings without being deleted. A separate axis from
+  /// `projectStatus`: a completed project and a cancelled one can both be
+  /// archived, and the distinction between them survives the archiving.
   isArchived Boolean @default(false) @map("is_archived")
 
   memberships ProjectMember[]

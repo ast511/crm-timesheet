@@ -43,3 +43,5 @@ behaviour, record that in the new document and link back to the old one.
 | 008 | [Positions Module](008-positions-module.md) |
 | 009 | [Users Module](009-users-module.md) |
 | 010 | [Employees Module](010-employees-module.md) |
+| 011 | [Projects Module](011-projects-module.md) |
+| 012 | [Project Status Consolidation](012-project-status-consolidation.md) |

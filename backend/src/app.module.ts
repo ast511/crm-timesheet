@@ -8,6 +8,7 @@ import { HealthModule } from './health/health.module';
 import { DepartmentModule } from './modules/departments/department.module';
 import { EmployeeModule } from './modules/employees/employee.module';
 import { PositionModule } from './modules/positions/position.module';
+import { ProjectModule } from './modules/projects/project.module';
 import { UserModule } from './modules/users/user.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -31,6 +32,7 @@ import { PrismaModule } from './prisma/prisma.module';
     PositionModule,
     UserModule,
     EmployeeModule,
+    ProjectModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -12,3 +12,17 @@
 export function toIsoTimestamp(date: Date = new Date()): string {
   return date.toISOString();
 }
+
+/**
+ * The same rendering for a column that may hold no date at all.
+ *
+ * Separate from {@link toIsoTimestamp} rather than folded into it, because that
+ * function defaults an *absent* argument to "now" — exactly the wrong answer for
+ * a `null` a nullable column deliberately stores. Feature 011 is the first
+ * resource with optional dates (`Project.startDate` / `endDate`); the vacations
+ * and time-entry features have more, so the null-handling is written once here
+ * instead of as a ternary in each entity mapper.
+ */
+export function toNullableIsoTimestamp(date: Date | null): string | null {
+  return date === null ? null : toIsoTimestamp(date);
+}
