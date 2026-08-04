@@ -136,7 +136,15 @@ model Employee {
 
   status EmployeeStatus
 
-  maxVacationDays Int @default(21) @map("max_vacation_days")
+  /// Leave granted to this person, one row per leave type per year.
+  ///
+  /// This replaces the `maxVacationDays` column Feature 010 put here. That
+  /// column held one number for one unnamed kind of leave, with no year on it,
+  /// so it could not say how many days somebody had in 2026 as opposed to 2027
+  /// and could not say anything at all about medical or unpaid leave. The
+  /// balances carry the year and the leave type, which is the grain HR actually
+  /// grants in.
+  leaveBalances EmployeeLeaveBalance[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -447,10 +455,97 @@ model LeaveType {
   /// `requiresApproval`, which describe the type rather than its availability.
   isActive Boolean @default(true) @map("is_active")
 
+  /// The per-employee, per-year grants of this kind of leave.
+  ///
+  /// The first relation into `leave_types`, and the reason Feature 021's note
+  /// about `DELETE /leave-types/:id` now has something to count: a type somebody
+  /// holds a balance in can no longer be deleted freely.
+  balances EmployeeLeaveBalance[]
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("leave_types")
+}
+
+/// How much leave one employee has, of one kind, in one year.
+///
+/// The row HR creates by hand. Nothing here is derived from a contract, a
+/// seniority level or a hire date, and **nothing is created automatically** —
+/// adding an employee grants them nothing until somebody allocates it. That is
+/// deliberate: entitlement is negotiated, and a number the system invented would
+/// be indistinguishable from a number somebody agreed to.
+///
+/// **`remainingDays` is not a column, and must never become one.** It is
+/// `allocatedDays + carriedOverDays - usedDays`, computed by the API on the way
+/// out. Storing it would give the same fact two homes, and the day an `UPDATE`
+/// touched one and not the other, the database would hold a balance that
+/// contradicts its own parts. The three stored numbers are the single source of
+/// truth; the fourth is a view of them.
+///
+/// The three are separate columns rather than one running total because they
+/// answer different questions and are written by different hands: HR sets
+/// `allocatedDays`, a year-end job will set `carriedOverDays`, and the Leave
+/// Requests feature will move `usedDays`. A single total would lose which of
+/// the three changed, and with it any way to audit a balance that looks wrong.
+model EmployeeLeaveBalance {
+  id String @id @default(cuid())
+
+  employeeId String   @map("employee_id")
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  leaveTypeId String    @map("leave_type_id")
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  /// The calendar year the grant belongs to — 2026, not a date range. Leave is
+  /// budgeted by the year everywhere this company operates, and a year is what
+  /// the unique constraint needs to make "one balance per person per type per
+  /// year" statable.
+  year Int
+
+  /// Days granted for this year by HR. Required and not defaulted: a balance
+  /// exists because somebody decided a number, and `0` is a decision that has to
+  /// be typed rather than one the schema makes on their behalf.
+  allocatedDays Int @map("allocated_days")
+
+  /// Days brought forward from earlier years. Defaulted to `0`, which is the
+  /// answer for a first year and for a company that carries nothing over.
+  ///
+  /// Kept apart from `allocatedDays` because the two expire differently and are
+  /// consumed in a different order — carried-over days first, oldest year first,
+  /// as the Leave Requests feature will implement. Added together at entry, that
+  /// ordering could never be applied.
+  carriedOverDays Int @default(0) @map("carried_over_days")
+
+  /// Days already consumed by approved leave. Defaulted to `0`.
+  ///
+  /// Maintained by hand in this feature and by the Leave Requests feature later,
+  /// which is why it is a plain column rather than a count of request rows: the
+  /// requests do not exist yet, and a balance opened with days already taken —
+  /// an employee joining mid-year from another system — has to be expressible.
+  usedDays Int @default(0) @map("used_days")
+
+  /// Free-text HR note: why the allocation is what it is. Optional, and read by
+  /// nothing — it is for the person who opens this screen next year and wonders.
+  notes String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// One balance per employee, per leave type, per year — the rule the feature
+  /// is built on, stated where it cannot be bypassed. `EmployeeLeaveBalanceService`
+  /// checks it first to produce a `409` naming the three values, but this index
+  /// is what closes the race between that check and the insert.
+  @@unique([employeeId, leaveTypeId, year])
+  /// `?leaveTypeId=` and `?year=` are the two filters the unique index above
+  /// cannot serve: it leads with `employee_id`, so neither of the others can use
+  /// it on its own. Unlike the configuration tables — which hold tens of rows
+  /// and are deliberately left unindexed — this one grows by every employee ×
+  /// every leave type × every year, forever, so the scan it would otherwise do
+  /// gets steadily more expensive.
+  @@index([leaveTypeId])
+  @@index([year])
+  @@map("employee_leave_balances")
 }
 
 /// An address notified when leave activity needs attention.

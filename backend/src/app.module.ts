@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { validateEnvironment } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { DepartmentModule } from './modules/departments/department.module';
+import { EmployeeLeaveBalancesModule } from './modules/employee-leave-balances/employee-leave-balances.module';
 import { EmployeeModule } from './modules/employees/employee.module';
 import { LeaveConfigurationModule } from './modules/leave-configuration/leave-configuration.module';
 import { PositionModule } from './modules/positions/position.module';
@@ -49,6 +50,10 @@ import { PrismaModule } from './prisma/prisma.module';
     // exist and who is notified about them. It grants no leave and records no
     // request — those are later features.
     LeaveConfigurationModule,
+    // Data rather than configuration, and the first module in the leave area
+    // that is: how many days each person actually has, per leave type and per
+    // year. Allocated by hand; nothing here approves or deducts anything.
+    EmployeeLeaveBalancesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

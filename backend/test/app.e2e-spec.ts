@@ -228,7 +228,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a column that is not sortable', () => {
       return request(app.getHttpServer())
         .get(EMPLOYEES_PATH)
-        .query({ sortBy: 'maxVacationDays' })
+        .query({ sortBy: 'phone' })
         .expect(400);
     });
 
@@ -259,10 +259,15 @@ describe('Application endpoints (e2e)', () => {
       expect(reported).toMatch(/status/);
     });
 
-    it('rejects a vacation entitlement of zero days', () => {
+    /**
+     * Feature 022 moved leave entitlement out of this resource into
+     * `employee_leave_balances`, so the field is no longer merely out of range —
+     * it is unknown, which `forbidNonWhitelisted` rejects.
+     */
+    it('rejects a vacation entitlement, which this resource no longer has', () => {
       return request(app.getHttpServer())
         .patch(`${EMPLOYEES_PATH}/emp-1`)
-        .send({ maxVacationDays: 0 })
+        .send({ maxVacationDays: 21 })
         .expect(400);
     });
   });

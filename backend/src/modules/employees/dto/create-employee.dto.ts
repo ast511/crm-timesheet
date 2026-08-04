@@ -9,7 +9,6 @@ import {
 } from '../../../generated/prisma/enums';
 import {
   IsEmployeeCode,
-  IsEmployeeMaxVacationDays,
   IsEmployeeName,
   IsEmployeePhone,
   IsEmployeeSeniority,
@@ -26,9 +25,14 @@ import {
  *
  * `seniority` and `status` are required for a different reason: the columns
  * have no default, so there is no value for an omission to fall back to.
- * `canReplaceOthers` and `maxVacationDays` do have defaults (`false` and `21`),
- * which are left to the schema rather than repeated here, so each stays one
- * decision made in one place.
+ * `canReplaceOthers` does have one (`false`), which is left to the schema rather
+ * than repeated here, so it stays one decision made in one place.
+ *
+ * **No leave is granted by creating an employee.** `maxVacationDays` used to be
+ * here and went with the column in Feature 022; leave is now allocated
+ * deliberately, per leave type and per year, through
+ * `POST /api/v1/employee-leave-balances`. A new employee therefore starts with
+ * no balances at all, which is the honest state until HR decides the numbers.
  */
 export class CreateEmployeeDto {
   @IsEmployeeCode()
@@ -70,9 +74,4 @@ export class CreateEmployeeDto {
   @ValidateIfPresent()
   @IsBoolean()
   readonly canReplaceOthers?: boolean;
-
-  /** Omitted, the schema's 21 applies; `null` is rejected, as above. */
-  @ValidateIfPresent()
-  @IsEmployeeMaxVacationDays()
-  readonly maxVacationDays?: number;
 }

@@ -60,7 +60,6 @@ interface EmployeeAccountSeed {
   readonly status: EmployeeStatus;
 
   readonly canReplaceOthers: boolean;
-  readonly maxVacationDays: number;
 }
 
 /**
@@ -88,7 +87,6 @@ const EMPLOYEE_ACCOUNTS = [
     seniority: SeniorityLevel.LEAD,
     status: EmployeeStatus.ACTIVE,
     canReplaceOthers: true,
-    maxVacationDays: 25,
   },
   {
     employeeCode: 'EMP-0002',
@@ -105,7 +103,6 @@ const EMPLOYEE_ACCOUNTS = [
     seniority: SeniorityLevel.SENIOR,
     status: EmployeeStatus.ACTIVE,
     canReplaceOthers: true,
-    maxVacationDays: 23,
   },
   {
     employeeCode: 'EMP-0003',
@@ -122,7 +119,6 @@ const EMPLOYEE_ACCOUNTS = [
     seniority: SeniorityLevel.SENIOR,
     status: EmployeeStatus.ACTIVE,
     canReplaceOthers: true,
-    maxVacationDays: 22,
   },
   {
     employeeCode: 'EMP-0004',
@@ -139,7 +135,6 @@ const EMPLOYEE_ACCOUNTS = [
     seniority: SeniorityLevel.SENIOR,
     status: EmployeeStatus.ACTIVE,
     canReplaceOthers: true,
-    maxVacationDays: 22,
   },
   {
     employeeCode: 'EMP-0005',
@@ -156,7 +151,6 @@ const EMPLOYEE_ACCOUNTS = [
     seniority: SeniorityLevel.MID,
     status: EmployeeStatus.ACTIVE,
     canReplaceOthers: false,
-    maxVacationDays: 21,
   },
   {
     employeeCode: 'EMP-0006',
@@ -173,7 +167,6 @@ const EMPLOYEE_ACCOUNTS = [
     seniority: SeniorityLevel.JUNIOR,
     status: EmployeeStatus.ACTIVE,
     canReplaceOthers: false,
-    maxVacationDays: 21,
   },
   {
     employeeCode: 'EMP-0007',
@@ -191,7 +184,6 @@ const EMPLOYEE_ACCOUNTS = [
     // On parental leave: the account still signs in, the employee does not work.
     status: EmployeeStatus.ON_LEAVE,
     canReplaceOthers: false,
-    maxVacationDays: 21,
   },
   {
     employeeCode: 'EMP-0008',
@@ -208,7 +200,6 @@ const EMPLOYEE_ACCOUNTS = [
     seniority: SeniorityLevel.MID,
     status: EmployeeStatus.ACTIVE,
     canReplaceOthers: true,
-    maxVacationDays: 21,
   },
   {
     employeeCode: 'EMP-0009',
@@ -225,7 +216,6 @@ const EMPLOYEE_ACCOUNTS = [
     seniority: SeniorityLevel.JUNIOR,
     status: EmployeeStatus.INACTIVE,
     canReplaceOthers: false,
-    maxVacationDays: 21,
   },
   {
     employeeCode: 'EMP-0010',
@@ -242,7 +232,6 @@ const EMPLOYEE_ACCOUNTS = [
     seniority: SeniorityLevel.INTERN,
     status: EmployeeStatus.ACTIVE,
     canReplaceOthers: false,
-    maxVacationDays: 18,
   },
   {
     employeeCode: 'EMP-0011',
@@ -259,7 +248,6 @@ const EMPLOYEE_ACCOUNTS = [
     seniority: SeniorityLevel.JUNIOR,
     status: EmployeeStatus.SUSPENDED,
     canReplaceOthers: false,
-    maxVacationDays: 21,
   },
   {
     employeeCode: 'EMP-0012',
@@ -276,7 +264,6 @@ const EMPLOYEE_ACCOUNTS = [
     seniority: SeniorityLevel.SENIOR,
     status: EmployeeStatus.TERMINATED,
     canReplaceOthers: false,
-    maxVacationDays: 21,
   },
 ] as const satisfies readonly EmployeeAccountSeed[];
 
@@ -385,7 +372,6 @@ export async function seedUsersAndEmployees(
         seniority: account.seniority,
         status: account.status,
         canReplaceOthers: account.canReplaceOthers,
-        maxVacationDays: account.maxVacationDays,
       };
 
       return prisma.employee.upsert({

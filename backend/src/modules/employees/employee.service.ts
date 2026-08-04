@@ -150,7 +150,6 @@ export class EmployeeService {
         seniority: dto.seniority,
         status: dto.status,
         canReplaceOthers: dto.canReplaceOthers,
-        maxVacationDays: dto.maxVacationDays,
       },
       select: EMPLOYEE_PUBLIC_SELECT,
     });
@@ -221,7 +220,6 @@ export class EmployeeService {
           seniority: dto.seniority,
           status: dto.status,
           canReplaceOthers: dto.canReplaceOthers,
-          maxVacationDays: dto.maxVacationDays,
         },
         select: EMPLOYEE_PUBLIC_SELECT,
       });
@@ -243,34 +241,49 @@ export class EmployeeService {
   /**
    * Hard-deletes an employee nothing depends on.
    *
-   * Project memberships are counted rather than cascaded: a membership records
-   * that this person worked on that project, and deleting it to remove a
-   * personnel record would rewrite the project's history. The `409` asks the
-   * caller to remove the memberships first, or to set the employee's status to
-   * `TERMINATED`, which is what the enum is for — a decision only a human
-   * should make.
+   * Two relations are counted rather than cascaded, for the same reason and with
+   * different consequences:
    *
-   * The count is part of the existence query, so the common case is one round
-   * trip and a `404` and a `409` cannot be decided from two different
-   * snapshots. `projectMemberships` is the only relation `Employee` is on the
-   * far side of today; the features that add vacations and time entries will
-   * each add a line here.
+   * - **Project memberships** record that this person worked on that project,
+   *   and deleting them to remove a personnel record would rewrite the project's
+   *   history.
+   * - **Leave balances** record what this person was granted and has taken. They
+   *   are the ledger behind every leave request the next feature will judge, and
+   *   removing the person would leave those days unaccounted for.
+   *
+   * The `409` asks the caller to clear whichever of the two is in the way, or to
+   * set the employee's status to `TERMINATED` — which is what the enum is for,
+   * and a decision only a human should make.
+   *
+   * Both counts are part of the existence query, so the common case is one round
+   * trip and a `404` and a `409` cannot be decided from two different snapshots.
+   * Both are also backed by `ON DELETE RESTRICT` in the schema: without this
+   * check the database would refuse the delete anyway, but as a driver error
+   * surfacing as a `500` rather than a message naming what is in the way.
    */
   async remove(id: string): Promise<void> {
     const employee = await this.prisma.employee.findUnique({
       where: { id },
-      select: { _count: { select: { projectMemberships: true } } },
+      select: {
+        _count: { select: { projectMemberships: true, leaveBalances: true } },
+      },
     });
 
     if (employee === null) {
       throw new NotFoundException(notFoundMessage(id));
     }
 
-    const { projectMemberships } = employee._count;
+    const { projectMemberships, leaveBalances } = employee._count;
 
     if (projectMemberships > 0) {
       throw new ConflictException(
         `Employee ${id} cannot be deleted while ${projectMemberships} project membership(s) reference it`,
+      );
+    }
+
+    if (leaveBalances > 0) {
+      throw new ConflictException(
+        `Employee ${id} cannot be deleted while ${leaveBalances} leave balance(s) reference it`,
       );
     }
 

@@ -74,7 +74,6 @@ describe('UpdateEmployeeDto', () => {
     ['a null seniority', { seniority: null }],
     ['a null status', { status: null }],
     ['a null canReplaceOthers', { canReplaceOthers: null }],
-    ['a null maxVacationDays', { maxVacationDays: null }],
   ])('rejects %s, since the column is not nullable', async (_case, body) => {
     await expect(validate(body)).rejects.toThrow();
   });
@@ -83,7 +82,12 @@ describe('UpdateEmployeeDto', () => {
     ['a blank position id', { positionId: '   ' }],
     ['a hire date that is not a date', { hireDate: 'yesterday' }],
     ['a status outside the enum', { status: 'RETIRED' }],
-    ['a vacation entitlement of zero', { maxVacationDays: 0 }],
+    // `maxVacationDays` went with its column in Feature 022; sending it is now
+    // an unknown property, which is a 400 for a different reason than before.
+    [
+      'a vacation entitlement, which this resource no longer has',
+      { maxVacationDays: 21 },
+    ],
     ['an unknown property', { salary: 5000 }],
   ])('rejects %s', async (_case, body) => {
     await expect(validate(body)).rejects.toThrow();

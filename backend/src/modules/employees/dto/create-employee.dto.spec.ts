@@ -6,8 +6,6 @@ import {
 } from '../../../generated/prisma/enums';
 import {
   EMPLOYEE_CODE_MAX_LENGTH,
-  EMPLOYEE_MAX_VACATION_DAYS,
-  EMPLOYEE_MIN_VACATION_DAYS,
   EMPLOYEE_NAME_MAX_LENGTH,
   EMPLOYEE_PHONE_MAX_LENGTH,
 } from '../employee.constants';
@@ -46,12 +44,11 @@ describe('CreateEmployeeDto', () => {
     status: EmployeeStatus.ACTIVE,
   };
 
-  it('accepts a payload without the two defaulted fields', async () => {
+  it('accepts a payload without the defaulted field', async () => {
     const dto = await validate(VALID);
 
     expect(dto.employeeCode).toBe('EMP-0001');
     expect(dto.canReplaceOthers).toBeUndefined();
-    expect(dto.maxVacationDays).toBeUndefined();
     expect(dto.phone).toBeUndefined();
   });
 
@@ -145,26 +142,20 @@ describe('CreateEmployeeDto', () => {
     ['a lower-cased seniority', { ...VALID, seniority: 'senior' }],
     ['a status outside the enum', { ...VALID, status: 'RETIRED' }],
     ['a non-boolean canReplaceOthers', { ...VALID, canReplaceOthers: 'yes' }],
-    ['a non-integer maxVacationDays', { ...VALID, maxVacationDays: 21.5 }],
-    ['maxVacationDays as a string', { ...VALID, maxVacationDays: '21' }],
     ['an unknown property', { ...VALID, salary: 5000 }],
     ['a null department id', { ...VALID, departmentId: null }],
     ['a null canReplaceOthers', { ...VALID, canReplaceOthers: null }],
-    ['a null maxVacationDays', { ...VALID, maxVacationDays: null }],
   ])('rejects %s', async (_case, body) => {
     await expect(validate(body)).rejects.toThrow();
   });
 
-  it('rejects a vacation entitlement of zero days', async () => {
-    await expect(
-      validate({ ...VALID, maxVacationDays: EMPLOYEE_MIN_VACATION_DAYS - 1 }),
-    ).rejects.toThrow();
-  });
-
-  it('rejects a vacation entitlement above a year', async () => {
-    await expect(
-      validate({ ...VALID, maxVacationDays: EMPLOYEE_MAX_VACATION_DAYS + 1 }),
-    ).rejects.toThrow();
+  /**
+   * Feature 022 moved leave out of this resource entirely: entitlement is a row
+   * per leave type per year in `employee_leave_balances`, so creating an
+   * employee grants nothing and the old field is now simply unknown here.
+   */
+  it('rejects a vacation entitlement, which this resource no longer has', async () => {
+    await expect(validate({ ...VALID, maxVacationDays: 21 })).rejects.toThrow();
   });
 
   it.each([

@@ -54,3 +54,4 @@ behaviour, record that in the new document and link back to the old one.
 | 019 | [Public Holiday Validity Years](019-public-holiday-validity-years.md) |
 | 020 | [Termination Closes Project Memberships](020-termination-closes-memberships.md) |
 | 021 | [Leave Configuration](021-leave-configuration.md) |
+| 022 | [Employee Leave Balances](022-employee-leave-balances.md) |

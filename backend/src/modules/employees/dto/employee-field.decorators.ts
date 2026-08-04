@@ -2,13 +2,10 @@ import { applyDecorators } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import {
   IsEnum,
-  IsInt,
   IsNotEmpty,
   IsString,
   Matches,
-  Max,
   MaxLength,
-  Min,
 } from 'class-validator';
 
 import { Trim } from '../../../common/decorators/trim.decorator';
@@ -19,8 +16,6 @@ import {
 import {
   EMPLOYEE_CODE_MAX_LENGTH,
   EMPLOYEE_CODE_PATTERN,
-  EMPLOYEE_MAX_VACATION_DAYS,
-  EMPLOYEE_MIN_VACATION_DAYS,
   EMPLOYEE_NAME_MAX_LENGTH,
   EMPLOYEE_PHONE_MAX_LENGTH,
 } from '../employee.constants';
@@ -117,17 +112,8 @@ export function IsEmployeeStatus() {
   return applyDecorators(IsEnum(EmployeeStatus));
 }
 
-/**
- * `maxVacationDays` — a whole number of days, strictly positive and bounded.
- *
- * `@IsInt()` and not `@Type(() => Number)`: this arrives in a JSON body, where
- * `21` and `"21"` are genuinely different values, and coercing the string would
- * accept a payload the client should fix.
+/*
+ * `IsEmployeeMaxVacationDays()` was removed with the column it validated, in
+ * Feature 022. The equivalent rules now guard `EmployeeLeaveBalance`, where the
+ * days are stated per leave type and per year.
  */
-export function IsEmployeeMaxVacationDays() {
-  return applyDecorators(
-    IsInt(),
-    Min(EMPLOYEE_MIN_VACATION_DAYS),
-    Max(EMPLOYEE_MAX_VACATION_DAYS),
-  );
-}

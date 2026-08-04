@@ -36,7 +36,6 @@ const EMPLOYEE = {
   seniority: SeniorityLevel.SENIOR,
   status: EmployeeStatus.ACTIVE,
   canReplaceOthers: true,
-  maxVacationDays: 21,
   department: { id: 'dep-1', code: 'DEV', name: 'Development' },
   position: { id: 'pos-1', code: 'DEV-SR', name: 'Senior Developer' },
   user: {
@@ -480,7 +479,6 @@ describe('EmployeeService', () => {
           seniority: SeniorityLevel.LEAD,
           status: undefined,
           canReplaceOthers: undefined,
-          maxVacationDays: undefined,
         },
         select: EMPLOYEE_PUBLIC_SELECT,
       });
@@ -574,15 +572,31 @@ describe('EmployeeService', () => {
   });
 
   describe('remove', () => {
-    it('deletes an employee no project membership references', async () => {
+    it('deletes an employee nothing references', async () => {
       prisma.employee.findUnique.mockResolvedValue({
-        _count: { projectMemberships: 0 },
+        _count: { projectMemberships: 0, leaveBalances: 0 },
       });
 
       await expect(service.remove('emp-1')).resolves.toBeUndefined();
       expect(prisma.employee.delete).toHaveBeenCalledWith({
         where: { id: 'emp-1' },
       });
+    });
+
+    /**
+     * Feature 022's relation. A balance is the ledger behind every leave day
+     * this person was granted or took, and `ON DELETE RESTRICT` would refuse the
+     * delete anyway — as a 500 rather than a message naming what is in the way.
+     */
+    it('throws 409 while a leave balance still references it', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        _count: { projectMemberships: 0, leaveBalances: 3 },
+      });
+
+      await expect(service.remove('emp-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.employee.delete).not.toHaveBeenCalled();
     });
 
     it('throws 404 for an unknown id', async () => {
@@ -596,7 +610,7 @@ describe('EmployeeService', () => {
 
     it('throws 409 while a project membership still references it', async () => {
       prisma.employee.findUnique.mockResolvedValue({
-        _count: { projectMemberships: 2 },
+        _count: { projectMemberships: 2, leaveBalances: 0 },
       });
 
       await expect(service.remove('emp-1')).rejects.toMatchObject({
@@ -608,9 +622,9 @@ describe('EmployeeService', () => {
       expect(prisma.employee.delete).not.toHaveBeenCalled();
     });
 
-    it('decides both answers from one read', async () => {
+    it('decides every answer from one read', async () => {
       prisma.employee.findUnique.mockResolvedValue({
-        _count: { projectMemberships: 0 },
+        _count: { projectMemberships: 0, leaveBalances: 0 },
       });
 
       await service.remove('emp-1');

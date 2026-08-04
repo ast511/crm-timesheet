@@ -144,32 +144,67 @@ export class LeaveTypesService {
   }
 
   /**
-   * Hard-deletes a leave type.
+   * Hard-deletes a leave type nothing depends on.
    *
-   * Nothing refers to a leave type yet — the table has no relations — so there
-   * is no history to protect and no count to guard the delete with, unlike
-   * `DepartmentService.remove`. Existence is checked first so an unknown id is a
-   * `404` naming it rather than Prisma's `P2025` surfacing as a `500`.
+   * Feature 021 wrote this method without a guard and said one belonged to
+   * "the feature that creates the relation, where it can count the rows it
+   * introduced". Feature 022 is that feature: `EmployeeLeaveBalance` points here,
+   * so balances are counted now, exactly the way `DepartmentService.remove`
+   * counts employees.
    *
-   * **This changes when leave requests arrive.** A type somebody has taken leave
-   * under is the reason those days were not worked, and deleting it would strip
-   * that reason from a record of the past. The guard belongs to the feature that
-   * creates the relation, where it can count the rows it introduced; adding a
-   * count against a table that does not exist would be a guess at its shape.
-   * `isActive: false` is what retires a type in the meantime, and it is what an
-   * administrator should reach for — `DELETE` is for a row entered by mistake.
+   * A balance records what somebody was granted of *this* kind of leave; deleting
+   * the type would leave those days belonging to nothing. The `409` asks the
+   * caller to remove the balances first, or — far more likely what they meant —
+   * to set `isActive: false`, which retires the type without touching anything
+   * recorded against it. `DELETE` remains for a row entered by mistake.
+   *
+   * The count is part of the existence query, so the common case is one round
+   * trip and a `404` and a `409` cannot be decided from two different snapshots.
+   * The `ON DELETE RESTRICT` on the foreign key backs the same rule from the
+   * database's side: without this check the delete would still fail, but as a
+   * driver error surfacing as a `500` rather than a message naming the problem.
    */
   async remove(id: string): Promise<void> {
     const leaveType = await this.prisma.leaveType.findUnique({
       where: { id },
-      select: { id: true },
+      select: { _count: { select: { balances: true } } },
     });
 
     if (leaveType === null) {
       throw new NotFoundException(notFoundMessage(id));
     }
 
+    const { balances } = leaveType._count;
+
+    if (balances > 0) {
+      throw new ConflictException(
+        `Leave type ${id} cannot be deleted while ${balances} employee leave balance(s) reference it. Set isActive to false to retire it instead`,
+      );
+    }
+
     await this.prisma.leaveType.delete({ where: { id } });
+  }
+
+  /**
+   * Whether a leave type with this id exists.
+   *
+   * Public because the employee-leave-balances module has to confirm a type
+   * before recording a grant against it, and this module owns the `leave_types`
+   * table — the same hand-off `DepartmentService`, `PositionService` and
+   * `ProjectService` each make with their own `exists`. It returns a boolean
+   * rather than throwing, because the caller knows what a missing type means in
+   * its own request — a `400` naming a body field — while here it could only
+   * guess.
+   *
+   * `id` alone is selected: the caller needs a yes or a no, not a row.
+   */
+  async exists(id: string): Promise<boolean> {
+    const leaveType = await this.prisma.leaveType.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    return leaveType !== null;
   }
 
   /** Loads a leave type by id or reports it missing. */

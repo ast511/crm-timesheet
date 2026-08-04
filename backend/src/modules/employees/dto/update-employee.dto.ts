@@ -9,7 +9,6 @@ import {
 } from '../../../generated/prisma/enums';
 import {
   IsEmployeeCode,
-  IsEmployeeMaxVacationDays,
   IsEmployeeName,
   IsEmployeePhone,
   IsEmployeeSeniority,
@@ -82,8 +81,4 @@ export class UpdateEmployeeDto {
   @ValidateIfPresent()
   @IsBoolean()
   readonly canReplaceOthers?: boolean;
-
-  @ValidateIfPresent()
-  @IsEmployeeMaxVacationDays()
-  readonly maxVacationDays?: number;
 }

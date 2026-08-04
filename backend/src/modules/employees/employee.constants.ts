@@ -36,18 +36,12 @@ export const EMPLOYEE_PHONE_MAX_LENGTH = 30;
 /** Bound on `?search=`, so a huge term cannot be pushed into a `LIKE` scan. */
 export const EMPLOYEE_SEARCH_MAX_LENGTH = 100;
 
-/**
- * Vacation entitlement bounds.
- *
- * The minimum is the rule the feature states — strictly more than zero — and an
- * employee with no vacation at all is a data-entry mistake rather than a
- * contract. The maximum is a sanity bound: a year's worth of days is already
- * past any entitlement anyone negotiates, and without it a typo can store a
- * number that later arithmetic has to defend against.
+/*
+ * The vacation-entitlement bounds that used to live here went with
+ * `maxVacationDays` in Feature 022. Entitlement is now a row per employee, per
+ * leave type, per year — `EmployeeLeaveBalance` — and its bounds belong beside
+ * it, in `employee-leave-balance.constants.ts`.
  */
-export const EMPLOYEE_MIN_VACATION_DAYS = 1;
-
-export const EMPLOYEE_MAX_VACATION_DAYS = 365;
 
 /**
  * Columns `?sortBy=` accepts.

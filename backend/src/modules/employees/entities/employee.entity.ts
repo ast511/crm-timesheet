@@ -69,7 +69,6 @@ export interface EmployeeEntity {
   seniority: SeniorityLevel;
   status: EmployeeStatus;
   canReplaceOthers: boolean;
-  maxVacationDays: number;
   department: EmployeeDepartmentSummary;
   position: EmployeePositionSummary;
   user: EmployeeUserSummary;
@@ -100,7 +99,6 @@ export const EMPLOYEE_PUBLIC_SELECT = {
   seniority: true,
   status: true,
   canReplaceOthers: true,
-  maxVacationDays: true,
   department: { select: { id: true, code: true, name: true } },
   position: { select: { id: true, code: true, name: true } },
   user: {
@@ -134,7 +132,6 @@ export type EmployeeWithRelationsRow = Pick<
   | 'seniority'
   | 'status'
   | 'canReplaceOthers'
-  | 'maxVacationDays'
   | 'createdAt'
   | 'updatedAt'
 > & {
@@ -157,7 +154,6 @@ export function toEmployeeEntity(
     seniority: employee.seniority,
     status: employee.status,
     canReplaceOthers: employee.canReplaceOthers,
-    maxVacationDays: employee.maxVacationDays,
     department: {
       id: employee.department.id,
       code: employee.department.code,

@@ -353,8 +353,10 @@ describe('LeaveTypesService', () => {
   });
 
   describe('remove', () => {
-    it('deletes a leave type that exists', async () => {
-      prisma.leaveType.findUnique.mockResolvedValue({ id: 'lvt-1' });
+    it('deletes a leave type nothing depends on', async () => {
+      prisma.leaveType.findUnique.mockResolvedValue({
+        _count: { balances: 0 },
+      });
 
       await service.remove('lvt-1');
 
@@ -370,6 +372,33 @@ describe('LeaveTypesService', () => {
         NotFoundException,
       );
       expect(prisma.leaveType.delete).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The guard Feature 021 said belonged to "the feature that creates the
+     * relation". Feature 022 created it, so a type somebody holds a balance in
+     * can no longer be deleted out from under those days.
+     */
+    it('refuses to delete a leave type employees hold balances in', async () => {
+      prisma.leaveType.findUnique.mockResolvedValue({
+        _count: { balances: 4 },
+      });
+
+      await expect(service.remove('lvt-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.leaveType.delete).not.toHaveBeenCalled();
+    });
+
+    /** The 409 points at the thing an administrator probably meant instead. */
+    it('names the count and suggests retiring the type', async () => {
+      prisma.leaveType.findUnique.mockResolvedValue({
+        _count: { balances: 4 },
+      });
+
+      await expect(service.remove('lvt-1')).rejects.toThrow(
+        /4 employee leave balance\(s\).*isActive/,
+      );
     });
   });
 });

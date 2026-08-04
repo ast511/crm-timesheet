@@ -119,7 +119,7 @@ export interface ProjectMemberAssignmentEntry extends ProjectMembershipPeriod {
  * A `select` rather than an `include` throughout, and here that choice does the
  * most work of any module. This row joins to two tables that themselves join to
  * two more; `include` would return every column of each — an employee's
- * `phone`, `maxVacationDays` and `hireDate`, a project's description and
+ * `phone`, `canReplaceOthers` and `hireDate`, a project's description and
  * estimate, a department's `isActive` — and, through `Employee.user`, would put
  * `User.passwordHash` one careless nesting away from a roster endpoint. It
  * would also keep publishing every column added to any of those five tables

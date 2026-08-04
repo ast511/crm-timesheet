@@ -100,7 +100,7 @@ describe('EmployeeQueryDto', () => {
   });
 
   it.each([
-    ['a column that is not sortable', { sortBy: 'maxVacationDays' }],
+    ['a column that is not sortable', { sortBy: 'phone' }],
     ['a related column', { sortBy: 'department' }],
     ['a column that does not exist', { sortBy: 'id; DROP TABLE' }],
     ['an unknown direction', { sortOrder: 'sideways' }],
