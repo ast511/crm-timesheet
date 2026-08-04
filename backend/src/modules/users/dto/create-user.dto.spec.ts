@@ -1,9 +1,9 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
 
+import { EMAIL_MAX_LENGTH } from '../../../common/constants/email.constants';
 import { MAX_PASSWORD_BYTES } from '../../../common/password/password.hasher';
 import { UserRole } from '../../../generated/prisma/enums';
 import {
-  USER_EMAIL_MAX_LENGTH,
   USER_PASSWORD_MIN_LENGTH,
   USER_USERNAME_MAX_LENGTH,
 } from '../user.constants';
@@ -112,7 +112,7 @@ describe('CreateUserDto', () => {
   });
 
   it.each([
-    ['email', USER_EMAIL_MAX_LENGTH],
+    ['email', EMAIL_MAX_LENGTH],
     ['username', USER_USERNAME_MAX_LENGTH],
   ])('rejects a %s above its maximum length', async (field, maxLength) => {
     // Kept a valid address so it is the length that fails, not the format.

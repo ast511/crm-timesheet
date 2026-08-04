@@ -61,6 +61,21 @@ enum ProjectPriority {
   HIGH   @map("high")
 }
 
+/// A day of the week, declared Monday-first because that is the order the
+/// business works in and the order a European calendar renders. The
+/// declaration order is not cosmetic: it is what `WorkSchedule.workingDays` is
+/// sorted by, so the stored array always reads as a week rather than as the
+/// order somebody happened to tick the boxes in.
+enum Weekday {
+  MONDAY    @map("monday")
+  TUESDAY   @map("tuesday")
+  WEDNESDAY @map("wednesday")
+  THURSDAY  @map("thursday")
+  FRIDAY    @map("friday")
+  SATURDAY  @map("saturday")
+  SUNDAY    @map("sunday")
+}
+
 model User {
   id       String  @id @default(cuid())
   email    String  @unique
@@ -213,4 +228,92 @@ model ProjectMember {
 
   @@id([projectId, employeeId])
   @@map("project_members")
+}
+
+/// The company's working schedule — one row, for the whole application.
+///
+/// Configuration rather than data: it describes how the company works, not
+/// something that happened. The Timesheets module will read it to decide
+/// whether an entry is acceptable; nothing here computes anything.
+///
+/// **Only one row may exist**, and that is enforced by the primary key rather
+/// than by the service alone. `id` has a constant default, so an INSERT that
+/// does not name an id lands on the same key as the existing configuration and
+/// is rejected as a duplicate primary key instead of quietly becoming a second
+/// one. The literal is `WORK_SCHEDULE_ID` in
+/// `src/modules/work-schedule/work-schedule.constants.ts`; the two must stay in
+/// step, which is why both sides say so.
+model WorkSchedule {
+  id String @id @default("work_schedule")
+
+  /// Which weekdays are working days. A PostgreSQL array of the `Weekday` enum,
+  /// so the column itself rejects a value that is not a day of the week — a
+  /// `String[]` would have accepted `"Funday"`. Held in `Weekday` declaration
+  /// order; duplicates are rejected by the DTO, since an array column cannot
+  /// express that.
+  workingDays Weekday[] @map("working_days")
+
+  /// `HH:mm`, 24-hour. Stored as text rather than as `time`, because the value
+  /// is a wall-clock label — "the office opens at 09:00" — not an instant, and
+  /// the `timestamp`-backed alternative would drag a date and a timezone along
+  /// with it. `varchar(5)` is exactly the format's width, so the shape is part
+  /// of the column and not only an API rule.
+  workStartTime String @map("work_start_time") @db.VarChar(5)
+  workEndTime   String @map("work_end_time") @db.VarChar(5)
+
+  /// Hour bounds, as `decimal(5,2)` — never `double`.
+  ///
+  /// Half hours (`0.5`) and quarter hours (`0.25`) are the granularity people
+  /// actually book, and these are the numbers the Timesheets module will
+  /// compare against and sum. Binary floating point cannot hold `0.1` exactly,
+  /// so a column of totals would drift by fractions of a second per row and a
+  /// `>=` comparison at the boundary would come out differently depending on
+  /// how the value was reached. `decimal` is exact for both.
+  ///
+  /// `(5, 2)` allows up to `999.99` with two decimals: comfortably past the 168
+  /// hours in a week, and it makes a third decimal a rejected value rather than
+  /// a silently rounded one.
+  minHoursPerEntry Decimal @map("min_hours_per_entry") @db.Decimal(5, 2)
+  maxHoursPerEntry Decimal @map("max_hours_per_entry") @db.Decimal(5, 2)
+  maxHoursPerDay   Decimal @map("max_hours_per_day") @db.Decimal(5, 2)
+
+  standardHoursPerDay  Decimal @map("standard_hours_per_day") @db.Decimal(5, 2)
+  standardHoursPerWeek Decimal @map("standard_hours_per_week") @db.Decimal(5, 2)
+
+  /// Informational only. It is recorded so a payroll export, a report or a
+  /// future policy can state the company's lunch break, and it is deliberately
+  /// subtracted from nothing: hours are what an employee books, and quietly
+  /// removing an hour from a day somebody logged would make the stored total
+  /// disagree with what they entered.
+  lunchBreakHours Decimal @map("lunch_break_hours") @db.Decimal(5, 2)
+
+  approvalEmails TimesheetApprovalEmail[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("work_schedules")
+}
+
+/// An address notified when a timesheet needs approval.
+///
+/// A table rather than an array column on `WorkSchedule`, because each address
+/// is addressable on its own: `DELETE /work-schedule/emails/:id` removes one
+/// without rewriting the rest, and `email` gets a unique index that an array
+/// could not have.
+model TimesheetApprovalEmail {
+  id String @id @default(cuid())
+
+  /// Unique across the table, not merely within one schedule. There is exactly
+  /// one schedule, so the two are the same set today — and stating it on the
+  /// column is what makes the duplicate check a database guarantee rather than
+  /// a race between a read and a write.
+  email String @unique
+
+  workScheduleId String       @map("work_schedule_id")
+  workSchedule   WorkSchedule @relation(fields: [workScheduleId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("timesheet_approval_emails")
 }

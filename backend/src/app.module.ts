@@ -11,6 +11,7 @@ import { PositionModule } from './modules/positions/position.module';
 import { ProjectMemberModule } from './modules/project-members/project-member.module';
 import { ProjectModule } from './modules/projects/project.module';
 import { UserModule } from './modules/users/user.module';
+import { WorkScheduleModule } from './modules/work-schedule/work-schedule.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -35,6 +36,9 @@ import { PrismaModule } from './prisma/prisma.module';
     EmployeeModule,
     ProjectModule,
     ProjectMemberModule,
+    // Configuration rather than a resource: one row describing how the company
+    // works, which the Timesheets module will validate against.
+    WorkScheduleModule,
   ],
   controllers: [AppController],
   providers: [AppService],

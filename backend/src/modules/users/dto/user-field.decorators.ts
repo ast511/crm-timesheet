@@ -1,9 +1,7 @@
 import { applyDecorators } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import {
-  IsEmail,
   IsEnum,
-  IsNotEmpty,
   IsString,
   MaxLength,
   MinLength,
@@ -14,7 +12,6 @@ import {
 import { MAX_PASSWORD_BYTES } from '../../../common/password/password.hasher';
 import { UserRole } from '../../../generated/prisma/enums';
 import {
-  USER_EMAIL_MAX_LENGTH,
   USER_PASSWORD_MIN_LENGTH,
   USER_USERNAME_MAX_LENGTH,
 } from '../user.constants';
@@ -34,25 +31,12 @@ import {
  */
 
 /**
- * `email` — trimmed, lower-cased, then checked.
- *
- * Lower-casing is normalisation, not cosmetics. PostgreSQL's unique index is
- * case-sensitive, so without folding, `Ana@example.com` and `ana@example.com`
- * would be two accounts as far as the database is concerned, while every mail
- * server on the receiving end treats the domain — and, in practice, the
- * mailbox — as one. Folding at the edge makes that index the real guarantee.
+ * `email` is not declared here. It uses the shared `@IsEmailAddress()`:
+ * Feature 016 needed the same trim, the same lower-casing and the same RFC
+ * bound for timesheet approval addresses, so the rule moved to
+ * `common/decorators` rather than being copied — the same journey
+ * `@IsIsoDateString()` made in Feature 013.
  */
-export function IsUserEmail() {
-  return applyDecorators(
-    Transform(({ value }: { value: unknown }) =>
-      typeof value === 'string' ? value.trim().toLowerCase() : value,
-    ),
-    IsString(),
-    IsNotEmpty(),
-    IsEmail(),
-    MaxLength(USER_EMAIL_MAX_LENGTH),
-  );
-}
 
 /**
  * `username` — trimmed, and blank collapses to `null`.

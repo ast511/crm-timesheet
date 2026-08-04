@@ -1,8 +1,8 @@
 import { IsBoolean, IsOptional } from 'class-validator';
 
+import { IsEmailAddress } from '../../../common/decorators/is-email-address.decorator';
 import { UserRole } from '../../../generated/prisma/enums';
 import {
-  IsUserEmail,
   IsUserPassword,
   IsUserRole,
   IsUserUsername,
@@ -27,7 +27,7 @@ import {
  * `forbidNonWhitelisted` turns an attempt to supply one into a `400`.
  */
 export class CreateUserDto {
-  @IsUserEmail()
+  @IsEmailAddress()
   readonly email!: string;
 
   @IsOptional()

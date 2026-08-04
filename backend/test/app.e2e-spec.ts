@@ -267,6 +267,78 @@ describe('Application endpoints (e2e)', () => {
     });
   });
 
+  /**
+   * The work-schedule block asserts what is specific to this module: the
+   * configuration is written with a `PUT` at a path carrying no id, a partial
+   * body is refused because that `PUT` replaces rather than merges, and the
+   * approval addresses live under the schedule rather than at a collection of
+   * their own. All of it is rejected by the `ValidationPipe` before the handler
+   * runs, so the suite still needs no database — which is also why the "not
+   * configured yet" 404 is not exercised here.
+   */
+  describe('work schedule', () => {
+    const WORK_SCHEDULE_PATH = `${API_BASE_PATH}/work-schedule`;
+
+    it('reports every missing field of a configuration at once', async () => {
+      const response = await request(app.getHttpServer())
+        .put(WORK_SCHEDULE_PATH)
+        .send({})
+        .expect(400);
+
+      const { message } = response.body as { message: string[] };
+      const reported = message.join(' ');
+
+      expect(reported).toMatch(/workingDays/);
+      expect(reported).toMatch(/workStartTime/);
+      expect(reported).toMatch(/workEndTime/);
+      expect(reported).toMatch(/minHoursPerEntry/);
+      expect(reported).toMatch(/maxHoursPerEntry/);
+      expect(reported).toMatch(/maxHoursPerDay/);
+      expect(reported).toMatch(/standardHoursPerDay/);
+      expect(reported).toMatch(/standardHoursPerWeek/);
+      expect(reported).toMatch(/lunchBreakHours/);
+    });
+
+    it('rejects a working day that is not a weekday', async () => {
+      const response = await request(app.getHttpServer())
+        .put(WORK_SCHEDULE_PATH)
+        .send({ workingDays: ['FUNDAY'] })
+        .expect(400);
+
+      const { message } = response.body as { message: string[] };
+
+      expect(message.join(' ')).toMatch(/workingDays/);
+    });
+
+    it('rejects a start time that is not HH:mm', () => {
+      return request(app.getHttpServer())
+        .put(WORK_SCHEDULE_PATH)
+        .send({ workStartTime: '9am' })
+        .expect(400);
+    });
+
+    it('rejects an approval address that is not an address', () => {
+      return request(app.getHttpServer())
+        .post(`${WORK_SCHEDULE_PATH}/emails`)
+        .send({ email: 'not-an-email' })
+        .expect(400);
+    });
+
+    it('refuses a schedule id supplied alongside an approval address', () => {
+      return request(app.getHttpServer())
+        .post(`${WORK_SCHEDULE_PATH}/emails`)
+        .send({ email: 'hr@example.com', workScheduleId: 'work_schedule' })
+        .expect(400);
+    });
+
+    /** There is one configuration, so no route addresses one by id. */
+    it('does not route a configuration by id', () => {
+      return request(app.getHttpServer())
+        .get(`${WORK_SCHEDULE_PATH}/work_schedule`)
+        .expect(404);
+    });
+  });
+
   it('answers an allowed origin with the CORS headers', () => {
     return request(app.getHttpServer())
       .get(`${API_BASE_PATH}/health`)

@@ -2,18 +2,15 @@
  * The user module's magic numbers and literals, in one place.
  *
  * The database columns are unbounded `text`, so these lengths are an API-level
- * contract rather than a schema mirror. The one number *not* declared here is
- * the password maximum: bcrypt's 72-byte ceiling is a property of the hashing
- * algorithm, not of this module, so it is imported from
- * `common/password/password.hasher` where the algorithm is chosen.
+ * contract rather than a schema mirror. Two numbers are *not* declared here,
+ * because neither is a property of this module:
+ *
+ * - the password maximum — bcrypt's 72-byte ceiling, which belongs to the
+ *   hashing algorithm and lives in `common/password/password.hasher`;
+ * - the email maximum — RFC 5321's 254 characters, which belongs to email and
+ *   lives in `common/constants/email.constants.ts`, where Feature 016 put it so
+ *   the users module and the work-schedule module bound an address identically.
  */
-
-/**
- * RFC 5321 caps a forward path at 254 characters, which is the longest address
- * that can actually be delivered to. Bounding it here keeps a megabyte of text
- * out of a `LIKE` scan on the search path.
- */
-export const USER_EMAIL_MAX_LENGTH = 254;
 
 /** Short sign-in handle — `APO`, `mionescu` — not a display name. */
 export const USER_USERNAME_MAX_LENGTH = 50;

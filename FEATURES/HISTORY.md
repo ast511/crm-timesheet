@@ -19,3 +19,4 @@ Append new features to the end of this table.
 | 013 | [Project Members Module](013-project-members-module.md) | Completed | 2026-08-03 |
 | 014 | [Project Roster Endpoint](014-project-roster-endpoint.md) | Completed | 2026-08-03 |
 | 015 | [Scoped Membership Endpoints](015-scoped-membership-endpoints.md) | Completed | 2026-08-03 |
+| 016 | [Work Schedule Configuration](016-work-schedule-configuration.md) | Completed | 2026-08-04 |

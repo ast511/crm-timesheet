@@ -12,6 +12,7 @@ import {
   seededEmailsByRole,
   seedUsersAndEmployees,
 } from './seeds/users.seed';
+import { seedWorkSchedule } from './seeds/work-schedule.seed';
 
 /**
  * Database seed entry point — orchestration only.
@@ -26,6 +27,10 @@ import {
  *   departments ─┐
  *   positions  ──┴─> users + employees ─┐
  *   projects ──────────────────────────┴─> project members
+ *   work schedule ─> timesheet approval emails
+ *
+ * The schedule is independent of everything above it, so its position in the
+ * order is arbitrary; it runs last because it is the newest.
  *
  * Run it with `npm run prisma:seed` (or `npx prisma db seed`). It is
  * idempotent: every entity is upserted on a unique natural key, so running it
@@ -70,6 +75,8 @@ async function main(): Promise<void> {
       'project members',
       await seedProjectMembers(prisma, { projects, employees }),
     );
+
+    report('timesheet approval emails', await seedWorkSchedule(prisma));
 
     printSignInSummary();
   } finally {

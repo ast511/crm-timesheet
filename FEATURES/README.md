@@ -48,3 +48,4 @@ behaviour, record that in the new document and link back to the old one.
 | 013 | [Project Members Module](013-project-members-module.md) |
 | 014 | [Project Roster Endpoint](014-project-roster-endpoint.md) |
 | 015 | [Scoped Membership Endpoints](015-scoped-membership-endpoints.md) |
+| 016 | [Work Schedule Configuration](016-work-schedule-configuration.md) |
