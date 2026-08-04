@@ -381,6 +381,100 @@ model PublicHoliday {
   @@map("public_holidays")
 }
 
+/// A kind of leave an employee can take — annual, medical, unpaid, and so on.
+///
+/// Configuration rather than data, like [WorkSchedule] and [PublicHoliday]: it
+/// describes what leave the company recognises, not that anybody took any. No
+/// employee, balance or request refers to it yet; the modules that introduce
+/// those will point at this table rather than repeating its vocabulary.
+///
+/// Both `code` and `label` are unique, and they are unique for different
+/// reasons. `code` is the natural key an export, an integration or a URL quotes
+/// (`ANNUAL`); `label` is what a person reads on a form ("Annual Leave"), and
+/// two rows sharing one would be indistinguishable on every screen that lists
+/// them. `LeaveTypesService` folds case before either check, since PostgreSQL's
+/// unique indexes do not.
+model LeaveType {
+  id String @id @default(cuid())
+
+  code  String @unique
+  label String @unique
+
+  /// The *name* of an icon — `umbrella-beach`, `hospital`, `baby` — never the
+  /// icon itself. A CSV export, a native app and a PDF report each need their
+  /// own drawing of the same idea, and only the frontend knows which set it
+  /// ships, so this column holds a key into that set rather than a picture.
+  ///
+  /// The API bounds the length (50) and requires it to be non-empty, and states
+  /// nothing else about the spelling: icon sets disagree on one, and a pattern
+  /// would reject whichever set the frontend actually uses.
+  icon String
+
+  /// UI accent, stored as `#RRGGBB`. Seven characters is exactly the format, so
+  /// the length is part of the column rather than only an API rule — the same
+  /// call `Project.color` makes.
+  color String? @db.VarChar(7)
+
+  description String?
+
+  /// The number of days HR is *suggested* when it creates an employee's annual
+  /// balance for this leave type.
+  ///
+  /// **Nothing is allocated by this column.** It is a default a future feature
+  /// will pre-fill a form with, not an entitlement: entitlement is per employee
+  /// and per year — it depends on seniority, on the contract, on days carried
+  /// over — and none of those facts live here. A balance table owned by that
+  /// feature will hold the numbers that were actually granted, so changing this
+  /// value never silently rewrites what somebody was already given.
+  ///
+  /// Nullable, because "no suggestion" is a real answer: medical leave is
+  /// granted against a certificate rather than out of a pot, and `0` would claim
+  /// an allocation of zero days instead.
+  defaultAllocatedDays Int? @map("default_allocated_days")
+
+  /// Whether a request of this type has to be approved before it counts.
+  /// Defaulted to `true` because approval is the norm — annual leave is agreed
+  /// in advance — and the exception is deliberate: medical leave is notified,
+  /// not requested. Read by the Leave Requests module; nothing here acts on it.
+  requiresApproval Boolean @default(true) @map("requires_approval")
+
+  /// Whether the days are paid. Defaulted to `true` for the same reason:
+  /// unpaid leave is the exception that has to be stated.
+  isPaid Boolean @default(true) @map("is_paid")
+
+  /// Hidden from new requests without being deleted, so leave already recorded
+  /// against a retired type keeps its meaning. A separate axis from `isPaid` and
+  /// `requiresApproval`, which describe the type rather than its availability.
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("leave_types")
+}
+
+/// An address notified when leave activity needs attention.
+///
+/// A table rather than an array column, for the reason [TimesheetApprovalEmail]
+/// is one: each address is addressable on its own, so
+/// `DELETE /leave-notification-emails/:id` removes one without rewriting the
+/// rest, and `email` gets a unique index that an array could not have.
+///
+/// Unlike [TimesheetApprovalEmail] it carries no foreign key to anything. There
+/// is no configuration row for it to hang off — the list *is* the
+/// configuration, maintained as its own resource, and `PATCH` corrects a typo
+/// in an address rather than deleting and re-adding it.
+model LeaveNotificationEmail {
+  id String @id @default(cuid())
+
+  email String @unique
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("leave_notification_emails")
+}
+
 /// An address notified when a timesheet needs approval.
 ///
 /// A table rather than an array column on `WorkSchedule`, because each address

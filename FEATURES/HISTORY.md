@@ -24,3 +24,4 @@ Append new features to the end of this table.
 | 018 | [Public Holiday Calendar Endpoints](018-public-holiday-calendar-endpoints.md) | Completed | 2026-08-04 |
 | 019 | [Public Holiday Validity Years](019-public-holiday-validity-years.md) | Completed | 2026-08-04 |
 | 020 | [Termination Closes Project Memberships](020-termination-closes-memberships.md) | Completed | 2026-08-04 |
+| 021 | [Leave Configuration](021-leave-configuration.md) | Completed | 2026-08-04 |

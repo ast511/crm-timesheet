@@ -7,6 +7,7 @@ import { validateEnvironment } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { DepartmentModule } from './modules/departments/department.module';
 import { EmployeeModule } from './modules/employees/employee.module';
+import { LeaveConfigurationModule } from './modules/leave-configuration/leave-configuration.module';
 import { PositionModule } from './modules/positions/position.module';
 import { ProjectMemberModule } from './modules/project-members/project-member.module';
 import { ProjectModule } from './modules/projects/project.module';
@@ -44,6 +45,10 @@ import { PrismaModule } from './prisma/prisma.module';
     // says which weekdays are worked, this says which of them the company is
     // nevertheless closed on.
     PublicHolidayModule,
+    // Configuration as well, and the third of the same set: which kinds of leave
+    // exist and who is notified about them. It grants no leave and records no
+    // request — those are later features.
+    LeaveConfigurationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

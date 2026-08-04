@@ -53,3 +53,4 @@ behaviour, record that in the new document and link back to the old one.
 | 018 | [Public Holiday Calendar Endpoints](018-public-holiday-calendar-endpoints.md) |
 | 019 | [Public Holiday Validity Years](019-public-holiday-validity-years.md) |
 | 020 | [Termination Closes Project Memberships](020-termination-closes-memberships.md) |
+| 021 | [Leave Configuration](021-leave-configuration.md) |
