@@ -152,33 +152,44 @@ export class LeaveTypesService {
    * so balances are counted now, exactly the way `DepartmentService.remove`
    * counts employees.
    *
-   * A balance records what somebody was granted of *this* kind of leave; deleting
-   * the type would leave those days belonging to nothing. The `409` asks the
-   * caller to remove the balances first, or — far more likely what they meant —
-   * to set `isActive: false`, which retires the type without touching anything
-   * recorded against it. `DELETE` remains for a row entered by mistake.
+   * A balance records what somebody was granted of *this* kind of leave and a
+   * request records an absence taken against it; deleting the type would leave
+   * both belonging to nothing. Feature 023 added the second relation, and it is
+   * counted here for the same reason and in the same breath.
    *
-   * The count is part of the existence query, so the common case is one round
+   * The `409` asks the caller to remove whatever is in the way first, or — far
+   * more likely what they meant — to set `isActive: false`, which retires the
+   * type without touching anything recorded against it. Since Feature 023 that
+   * flag actually stops new requests, so retiring is now a complete answer
+   * rather than a half one. `DELETE` remains for a row entered by mistake.
+   *
+   * Both counts are part of the existence query, so the common case is one round
    * trip and a `404` and a `409` cannot be decided from two different snapshots.
-   * The `ON DELETE RESTRICT` on the foreign key backs the same rule from the
+   * The `ON DELETE RESTRICT` on each foreign key backs the same rule from the
    * database's side: without this check the delete would still fail, but as a
    * driver error surfacing as a `500` rather than a message naming the problem.
    */
   async remove(id: string): Promise<void> {
     const leaveType = await this.prisma.leaveType.findUnique({
       where: { id },
-      select: { _count: { select: { balances: true } } },
+      select: { _count: { select: { balances: true, requests: true } } },
     });
 
     if (leaveType === null) {
       throw new NotFoundException(notFoundMessage(id));
     }
 
-    const { balances } = leaveType._count;
+    const { balances, requests } = leaveType._count;
 
     if (balances > 0) {
       throw new ConflictException(
         `Leave type ${id} cannot be deleted while ${balances} employee leave balance(s) reference it. Set isActive to false to retire it instead`,
+      );
+    }
+
+    if (requests > 0) {
+      throw new ConflictException(
+        `Leave type ${id} cannot be deleted while ${requests} leave request(s) reference it. Set isActive to false to retire it instead`,
       );
     }
 
@@ -205,6 +216,39 @@ export class LeaveTypesService {
     });
 
     return leaveType !== null;
+  }
+
+  /**
+   * The two facts a leave request has to know about a type before it can be
+   * filed against it, or `null` when there is no such type.
+   *
+   * Public for the reason {@link exists} is, and it does not replace it: the
+   * balances module asks only whether a type is there, while Feature 023 asks
+   * two further things and would otherwise need a second round trip or — worse —
+   * a query into `leave_types` from another module.
+   *
+   * - `requiresApproval` decides the whole shape of the write. `false` means the
+   *   request is created `APPROVED` and the days come out of the balance
+   *   immediately; `true` means it is created `PENDING` and nothing is deducted
+   *   until somebody decides. This is the column Feature 021 added and said
+   *   nothing here would act on — and nothing here does. The branch is the
+   *   caller's; this only reports the fact.
+   * - `isActive` is what makes retiring a type actually stop new requests. A
+   *   retired type keeps answering for the leave already recorded against it,
+   *   which is why it is a flag rather than a delete, and refusing new requests
+   *   is the other half of that.
+   *
+   * `null` for a missing type rather than a thrown `404`: the caller knows what
+   * an absent type means in its own request — a `400` naming a body field — while
+   * here it could only guess.
+   */
+  async findPolicy(
+    id: string,
+  ): Promise<{ requiresApproval: boolean; isActive: boolean } | null> {
+    return this.prisma.leaveType.findUnique({
+      where: { id },
+      select: { requiresApproval: true, isActive: true },
+    });
   }
 
   /** Loads a leave type by id or reports it missing. */

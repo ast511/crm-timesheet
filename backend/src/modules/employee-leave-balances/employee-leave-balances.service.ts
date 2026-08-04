@@ -20,6 +20,7 @@ import { EmployeeLeaveBalanceQueryDto } from './dto/employee-leave-balance-query
 import { UpdateEmployeeLeaveBalanceDto } from './dto/update-employee-leave-balance.dto';
 import { LeaveBalanceSortField } from './employee-leave-balance.constants';
 import {
+  computeRemainingDays,
   EmployeeLeaveBalanceEntity,
   LEAVE_BALANCE_PUBLIC_SELECT,
   toLeaveBalanceEntity,
@@ -37,6 +38,35 @@ interface BalanceKey {
   readonly employeeId: string;
   readonly leaveTypeId: string;
   readonly year: number;
+}
+
+/**
+ * One year's balance, reduced to what a consumer needs to draw on it.
+ *
+ * `remainingDays` is the computed value, never a column — see
+ * {@link computeRemainingDays}. The three stored numbers are deliberately not
+ * published here: a caller consuming leave has no business writing
+ * `allocatedDays`, and handing it the row would invite exactly that.
+ */
+export interface AvailableLeaveBalance {
+  readonly id: string;
+  readonly year: number;
+  readonly remainingDays: number;
+}
+
+/**
+ * The narrowing every consumption question shares: one person, one kind of
+ * leave, and the last year that may be drawn on.
+ */
+export interface BalanceConsumptionScope {
+  readonly employeeId: string;
+  readonly leaveTypeId: string;
+  /**
+   * The latest year a balance may be taken from, inclusive — in practice the
+   * year the leave itself falls in. See {@link EmployeeLeaveBalancesService.findAvailable}
+   * for why a later year is not merely unhelpful but wrong.
+   */
+  readonly upToYear: number;
 }
 
 /**
@@ -199,6 +229,143 @@ export class EmployeeLeaveBalancesService {
     await this.prisma.employeeLeaveBalance.delete({ where: { id } });
   }
 
+  /**
+   * The balances a request may draw on, oldest year first, each with what is
+   * left in it.
+   *
+   * Feature 022 said this module would grow methods like this one when a feature
+   * had a reason to ask, rather than guessing at their shape in advance. Feature
+   * 023 is that feature, and it asks two things: how much is available, and take
+   * it. Both live here rather than in the leave-requests module, so
+   * `employee_leave_balances` keeps exactly one owner and `usedDays` keeps
+   * exactly one writer.
+   *
+   * **Oldest first is the whole ordering, and it is not cosmetic.** Days carried
+   * over from earlier years expire before this year's do, so consuming the
+   * newest first would quietly let the oldest lapse unused — the employee would
+   * lose days they were entitled to, and nothing in the data would say why.
+   *
+   * **`upToYear` bounds the other end, and that bound is a rule rather than a
+   * convenience.** A balance for a year later than the leave is next year's
+   * entitlement, already entered by HR; spending it on this year's absence would
+   * let somebody take twenty-one days in September and have HR discover in
+   * January that the year had already been drawn. Leave taken in a year is paid
+   * for by that year or by one before it.
+   *
+   * Rows with nothing left are dropped rather than returned as zero: a consumer
+   * walking the list should not have to skip them, and an overdrawn balance — a
+   * negative remainder, which Feature 022 deliberately allows — must never be
+   * treated as a debt the next year's allocation silently settles.
+   *
+   * `client` defaults to the pooled connection so a read-only caller needs to
+   * know nothing about transactions; {@link consume} passes its own so the check
+   * and the write see one snapshot.
+   */
+  async findAvailable(
+    { employeeId, leaveTypeId, upToYear }: BalanceConsumptionScope,
+    client: Prisma.TransactionClient = this.prisma,
+  ): Promise<AvailableLeaveBalance[]> {
+    const balances = await client.employeeLeaveBalance.findMany({
+      where: { employeeId, leaveTypeId, year: { lte: upToYear } },
+      orderBy: { year: SortOrder.ASC },
+      select: {
+        id: true,
+        year: true,
+        allocatedDays: true,
+        carriedOverDays: true,
+        usedDays: true,
+      },
+    });
+
+    return balances
+      .map((balance) => ({
+        id: balance.id,
+        year: balance.year,
+        remainingDays: computeRemainingDays(balance),
+      }))
+      .filter(({ remainingDays }) => remainingDays > 0);
+  }
+
+  /**
+   * How many days are available in total, across every year that may be drawn
+   * on.
+   *
+   * The question a request asks *before* it is approved — a `PENDING` request
+   * has to be refused for insufficient leave at the moment it is filed, not
+   * weeks later when somebody clicks approve — and the reason this is separate
+   * from {@link consume} rather than folded into it.
+   */
+  async countAvailableDays(scope: BalanceConsumptionScope): Promise<number> {
+    const balances = await this.findAvailable(scope);
+
+    return balances.reduce(
+      (total, { remainingDays }) => total + remainingDays,
+      0,
+    );
+  }
+
+  /**
+   * Draws `days` from the balances, oldest year first, and records it.
+   *
+   * The only writer of `usedDays` outside `POST` and `PATCH` on a balance, and
+   * the single place the consumption rule exists. It walks the list
+   * {@link findAvailable} returns, taking as much from each year as that year has
+   * left before moving to the next, so a five-day absence backed by two days
+   * carried over from 2025 spends those two and three of 2026's.
+   *
+   * **`tx` is required, not optional.** Approving a request writes the request's
+   * status and every balance it consumes, and either all of that happens or none
+   * of it does: a status written without the deduction would give somebody free
+   * leave, and a deduction written without the status would take days for an
+   * absence no record shows. The caller owns that transaction because the caller
+   * is what makes it atomic — the same call `ProjectMemberService.closeOpenMemberships`
+   * makes.
+   *
+   * The availability is re-read *inside* the transaction rather than passed in
+   * from the caller's earlier check. Between filing a request and approving it,
+   * another approval may have consumed the same balance, and a check made
+   * against the older snapshot would overdraw it. The `400` this throws on a
+   * shortfall is therefore a real answer HR can act on, not a redundant guard.
+   *
+   * The updates are sequential rather than concurrent, and deliberately so:
+   * `Promise.all` over them would issue interleaved writes inside one
+   * transaction for no gain, since at most a handful of years are ever touched.
+   */
+  async consume(
+    scope: BalanceConsumptionScope,
+    days: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const balances = await this.findAvailable(scope, tx);
+    const available = balances.reduce(
+      (total, { remainingDays }) => total + remainingDays,
+      0,
+    );
+
+    if (available < days) {
+      throw new BadRequestException([
+        insufficientLeaveMessage(available, days),
+      ]);
+    }
+
+    let outstanding = days;
+
+    for (const balance of balances) {
+      if (outstanding === 0) {
+        break;
+      }
+
+      const taken = Math.min(balance.remainingDays, outstanding);
+
+      await tx.employeeLeaveBalance.update({
+        where: { id: balance.id },
+        data: { usedDays: { increment: taken } },
+      });
+
+      outstanding -= taken;
+    }
+  }
+
   /** Confirms the balance is there, or reports it missing. */
   private async assertExists(id: string): Promise<void> {
     const balance = await this.prisma.employeeLeaveBalance.findUnique({
@@ -289,6 +456,24 @@ export class EmployeeLeaveBalancesService {
 /** Message used for every 404 path, so they cannot drift apart. */
 function notFoundMessage(id: string): string {
   return `Employee leave balance ${id} was not found`;
+}
+
+/**
+ * Reported when a request asks for more leave than the employee holds.
+ *
+ * It states both numbers, because "not enough leave" alone leaves the person
+ * unable to act: knowing they have four days and asked for five tells them to
+ * shorten the request, and tells HR whether an allocation is missing.
+ *
+ * Exported so the leave-requests module reports a shortfall it detects before
+ * approval in the same words this one reports a shortfall detected during it —
+ * two messages for one condition would read as two different problems.
+ */
+export function insufficientLeaveMessage(
+  available: number,
+  requested: number,
+): string {
+  return `Insufficient leave: ${String(requested)} working day(s) requested, ${String(available)} day(s) available`;
 }
 
 /**

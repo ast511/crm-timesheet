@@ -74,6 +74,25 @@ enum HolidayType {
   VARIABLE @map("variable")
 }
 
+/// Where a leave request is in its lifecycle.
+///
+/// Four states and exactly one transition out of the first: `PENDING` may
+/// become any of the other three, and none of those three becomes anything.
+/// That is deliberate, and it is what makes "a decision never moves balances
+/// back" a rule the state machine can keep rather than a promise the service
+/// has to remember. See `LeaveRequestsService.decide` for the whole argument.
+///
+/// `CANCELLED` is a decision recorded against a request that was still waiting,
+/// not an undo of an approval — an approved leave whose days have already been
+/// deducted has no path back through this enum, because giving it one without
+/// also releasing the days would leave the balance describing leave nobody took.
+enum LeaveRequestStatus {
+  PENDING   @map("pending")
+  APPROVED  @map("approved")
+  REJECTED  @map("rejected")
+  CANCELLED @map("cancelled")
+}
+
 /// A day of the week, declared Monday-first because that is the order the
 /// business works in and the order a European calendar renders. The
 /// declaration order is not cosmetic: it is what `WorkSchedule.workingDays` is
@@ -145,6 +164,23 @@ model Employee {
   /// balances carry the year and the leave type, which is the grain HR actually
   /// grants in.
   leaveBalances EmployeeLeaveBalance[]
+
+  /// Leave this person has asked for — the requests they own.
+  leaveRequests LeaveRequest[]
+
+  /// Leave requests this person decided on, as HR or an administrator.
+  ///
+  /// A second relation to the same table, which is why both ends carry an
+  /// explicit name: without one Prisma cannot tell which foreign key each side
+  /// belongs to. The two are genuinely different facts — `leaveRequests` is
+  /// leave somebody asked for, this is leave somebody granted or refused — and
+  /// a single relation could not express that one person may appear in both
+  /// roles on different rows, which is exactly what happens when an HR manager
+  /// books their own holiday.
+  processedLeaveRequests LeaveRequest[] @relation("LeaveRequestProcessor")
+
+  /// Requests naming this person as the one covering the work.
+  leaveRequestReplacements LeaveRequestReplacement[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -462,10 +498,168 @@ model LeaveType {
   /// holds a balance in can no longer be deleted freely.
   balances EmployeeLeaveBalance[]
 
+  /// The requests filed against this kind of leave.
+  ///
+  /// The second relation into `leave_types`, and the one that finally gives
+  /// `requiresApproval` a reader: Feature 023 branches on it when a request is
+  /// created, so a type that needs no approval produces an `APPROVED` request
+  /// and deducts the days straight away.
+  requests LeaveRequest[]
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("leave_types")
+}
+
+/// One employee's request to be away from work, over one span of dates, of one
+/// kind of leave.
+///
+/// The first table in this schema that is neither configuration nor a standing
+/// grant: it records something that *happened* — somebody asked, and somebody
+/// answered. Everything before it describes how the company works or what each
+/// person holds; this describes an event, which is why it is the only table with
+/// a lifecycle column and the only one that writes to another table
+/// (`employee_leave_balances.used_days`) as a consequence of its own writes.
+///
+/// **`requestedWorkingDays` is not a column, and must never become one.** It is
+/// computed on every read from the work schedule, the public holidays and the
+/// span — see `WorkingDaysService`. Storing it would freeze an answer that
+/// depends on three tables the company keeps editing: correcting a holiday HR
+/// entered on the wrong date would leave every request that spanned it holding a
+/// day count nothing in the database agrees with, and no reader could tell which
+/// of the two was right. The same argument `EmployeeLeaveBalance.remainingDays`
+/// rests on, applied to a value with three inputs instead of three columns.
+///
+/// The days a request actually consumed *are* recorded, but as
+/// `employee_leave_balances.used_days` rather than here: that is the ledger, and
+/// a request is the document that moved it.
+model LeaveRequest {
+  id String @id @default(cuid())
+
+  /// The person who will be away. Never changes after creation — a request
+  /// filed by the wrong person is deleted while it is still `PENDING`, not
+  /// reassigned, because reassigning it would move consumed days between two
+  /// people's balances with no record that it happened.
+  employeeId String   @map("employee_id")
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  leaveTypeId String    @map("leave_type_id")
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  /// The span requested, both ends inclusive — the same convention
+  /// [PublicHoliday] uses, and for the same reason: a one-day absence stores the
+  /// same date twice rather than leaving an end null, so "which days is this
+  /// person away" never has a special case.
+  ///
+  /// These are calendar dates, not instants. A client posts `2026-09-07` and the
+  /// column holds UTC midnight; every comparison in the application is made in
+  /// UTC so the answer cannot depend on where the server is deployed.
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+
+  /// Why the person is asking. Nullable, because "no reason given" is a real
+  /// answer rather than a missing one: leave of a type that requires no approval
+  /// is notified rather than requested, and demanding an explanation for a
+  /// medical absence would put a diagnosis in a column read by every screen that
+  /// lists requests.
+  reason String?
+
+  /// Where the request stands. Defaulted to `PENDING`, which is what a request
+  /// is the instant it is filed; a type that needs no approval is written
+  /// straight to `APPROVED` by the service, in the same statement.
+  status LeaveRequestStatus @default(PENDING)
+
+  /// Who decided, and when.
+  ///
+  /// **Two columns rather than one, and both nullable.** They are separate
+  /// because they answer different questions and can be absent for different
+  /// reasons: a request approved automatically — `LeaveType.requiresApproval =
+  /// false` — has a `processedAt`, because the decision happened at a moment,
+  /// but no `processedById`, because no person made it. Folding them into one
+  /// column, or deriving either from `status` and `updatedAt`, would lose that
+  /// distinction: `updatedAt` moves whenever any column does, so it cannot say
+  /// when the decision was taken, and `status` alone cannot tell an automatic
+  /// approval from a human one.
+  ///
+  /// `processedById` is an employee rather than a user, so the decision can be
+  /// rendered as a name beside the request without a second join through
+  /// `users`. It is `SetNull` on delete, unlike every other foreign key here:
+  /// the fact that a decision was made survives the decider leaving the company,
+  /// and `processedAt` keeps saying when it happened.
+  processedById String?   @map("processed_by_id")
+  processedBy   Employee? @relation("LeaveRequestProcessor", fields: [processedById], references: [id], onDelete: SetNull)
+  processedAt   DateTime? @map("processed_at")
+
+  /// Why the decision went the way it did. Required by the API for `REJECTED`
+  /// and `CANCELLED` and refused for `APPROVED`, but nullable in the column: an
+  /// approval carries no explanation, and the automatic approvals have nobody to
+  /// write one.
+  decisionReason String? @map("decision_reason")
+
+  /// Who covers the work. At least one, enforced by the API rather than by the
+  /// schema — a column cannot require a row in another table to exist.
+  replacements LeaveRequestReplacement[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// The three reads this table is built for, in the order they run hottest.
+  ///
+  /// Unlike the configuration tables of Features 016–021 — tens of rows, left
+  /// unindexed on purpose — this one gains rows forever and is queried by
+  /// employee on every `/me` request and by overlap on every write.
+  ///
+  /// `[employeeId, status]` serves both: listing one person's requests, and the
+  /// overlap check that asks whether *this* person already has an `APPROVED`
+  /// request touching the span. The composite leads with the selective column.
+  @@index([employeeId, status])
+  @@index([leaveTypeId])
+  /// The HR list defaults to the current year and orders by date, both of which
+  /// are ranges over this column.
+  @@index([startDate])
+  @@map("leave_requests")
+}
+
+/// One person named as cover for one leave request.
+///
+/// A table rather than an array column on [LeaveRequest], for the reason
+/// [TimesheetApprovalEmail] is one — but here the argument is stronger, because
+/// each entry is a *foreign key*: an array of ids would be a relation the
+/// database could not enforce, so a replacement could name an employee who had
+/// since been deleted and nothing would notice.
+///
+/// The primary key is the pair, which states the rule directly: a person may
+/// cover a request once. Listing somebody twice is not a stronger nomination,
+/// and without the constraint it would silently double every count taken over
+/// this table.
+///
+/// There is no `id` and no `updatedAt`. Nothing about a nomination is editable —
+/// changing who covers a request is removing one row and adding another, which
+/// is what the API does when a `PENDING` request is patched — so the pair is the
+/// whole identity and a surrogate key would only add a second way to name it.
+model LeaveRequestReplacement {
+  leaveRequestId String       @map("leave_request_id")
+  /// `Cascade`, and the only cascade in this schema. A nomination is part of the
+  /// request rather than a fact of its own: it says nothing once the request it
+  /// belongs to is gone, so deleting a `PENDING` request takes its replacements
+  /// with it. Every other foreign key here is `RESTRICT`, because everything
+  /// else they point at outlives them.
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+
+  /// `RESTRICT`, like every other reference to a person: an employee who is
+  /// covering somebody's leave cannot be deleted out from under the request.
+  employeeId String   @map("employee_id")
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([leaveRequestId, employeeId])
+  /// The primary key leads with `leave_request_id`, so "which requests is this
+  /// person covering" — the question the replacement-availability check asks on
+  /// every write — cannot use it.
+  @@index([employeeId])
+  @@map("leave_request_replacements")
 }
 
 /// How much leave one employee has, of one kind, in one year.

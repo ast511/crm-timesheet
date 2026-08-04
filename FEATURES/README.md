@@ -55,3 +55,4 @@ behaviour, record that in the new document and link back to the old one.
 | 020 | [Termination Closes Project Memberships](020-termination-closes-memberships.md) |
 | 021 | [Leave Configuration](021-leave-configuration.md) |
 | 022 | [Employee Leave Balances](022-employee-leave-balances.md) |
+| 023 | [Leave Requests](023-leave-requests.md) |

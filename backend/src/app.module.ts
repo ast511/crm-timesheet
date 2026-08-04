@@ -9,6 +9,7 @@ import { DepartmentModule } from './modules/departments/department.module';
 import { EmployeeLeaveBalancesModule } from './modules/employee-leave-balances/employee-leave-balances.module';
 import { EmployeeModule } from './modules/employees/employee.module';
 import { LeaveConfigurationModule } from './modules/leave-configuration/leave-configuration.module';
+import { LeaveRequestsModule } from './modules/leave-requests/leave-requests.module';
 import { PositionModule } from './modules/positions/position.module';
 import { ProjectMemberModule } from './modules/project-members/project-member.module';
 import { ProjectModule } from './modules/projects/project.module';
@@ -54,6 +55,11 @@ import { PrismaModule } from './prisma/prisma.module';
     // that is: how many days each person actually has, per leave type and per
     // year. Allocated by hand; nothing here approves or deducts anything.
     EmployeeLeaveBalancesModule,
+    // The module that joins the leave area up: it reads all four above — the
+    // schedule, the holidays, the types and the balances — and is the only one
+    // that deducts. Approving a request is the first write in this application
+    // that moves another module's data.
+    LeaveRequestsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

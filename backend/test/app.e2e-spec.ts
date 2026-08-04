@@ -344,6 +344,135 @@ describe('Application endpoints (e2e)', () => {
     });
   });
 
+  /**
+   * The leave-requests block asserts what is specific to Feature 023: two
+   * collections under one prefix that must not swallow each other, a header
+   * standing in for authentication until it exists, and the fields a client is
+   * refused because the server decides them. Everything here is rejected before
+   * a handler runs, so the suite still needs no database — which is also why the
+   * balance, overlap and working-day rules are exercised in the service spec
+   * rather than here.
+   */
+  describe('leave requests', () => {
+    const LEAVE_REQUESTS_PATH = `${API_BASE_PATH}/leave-requests`;
+    const MY_LEAVE_REQUESTS_PATH = `${API_BASE_PATH}/me/leave-requests`;
+    const EMPLOYEE_HEADER = 'x-employee-id';
+
+    it('reports every missing field of a request at once', async () => {
+      const response = await request(app.getHttpServer())
+        .post(MY_LEAVE_REQUESTS_PATH)
+        .set(EMPLOYEE_HEADER, 'emp-1')
+        .send({})
+        .expect(400);
+
+      const { message } = response.body as { message: string[] };
+      const reported = message.join(' ');
+
+      expect(reported).toMatch(/leaveTypeId/);
+      expect(reported).toMatch(/startDate/);
+      expect(reported).toMatch(/endDate/);
+      expect(reported).toMatch(/replacementEmployeeIds/);
+    });
+
+    it('refuses a request with no replacement, which is the feature’s rule', () => {
+      return request(app.getHttpServer())
+        .post(MY_LEAVE_REQUESTS_PATH)
+        .set(EMPLOYEE_HEADER, 'emp-1')
+        .send({
+          leaveTypeId: 'lvt-1',
+          startDate: '2026-09-07',
+          endDate: '2026-09-11',
+          replacementEmployeeIds: [],
+        })
+        .expect(400);
+    });
+
+    /**
+     * The requester is the caller, not a field — which is what keeps `/me`
+     * honest and what will stop being settable at all once auth exists.
+     */
+    it('refuses an employee id supplied in the body', () => {
+      return request(app.getHttpServer())
+        .post(MY_LEAVE_REQUESTS_PATH)
+        .set(EMPLOYEE_HEADER, 'emp-1')
+        .send({ employeeId: 'emp-2' })
+        .expect(400);
+    });
+
+    /** An employee does not decide whether their own leave is approved. */
+    it('refuses a status supplied when filing', () => {
+      return request(app.getHttpServer())
+        .post(MY_LEAVE_REQUESTS_PATH)
+        .set(EMPLOYEE_HEADER, 'emp-1')
+        .send({ status: 'APPROVED' })
+        .expect(400);
+    });
+
+    /** Computed from three tables on every read; a client cannot state it. */
+    it('refuses a working-day count supplied by the client', () => {
+      return request(app.getHttpServer())
+        .post(MY_LEAVE_REQUESTS_PATH)
+        .set(EMPLOYEE_HEADER, 'emp-1')
+        .send({ requestedWorkingDays: 5 })
+        .expect(400);
+    });
+
+    it('requires the employee header on a /me route', async () => {
+      const response = await request(app.getHttpServer())
+        .get(MY_LEAVE_REQUESTS_PATH)
+        .expect(400);
+
+      expect(JSON.stringify(response.body)).toContain(EMPLOYEE_HEADER);
+    });
+
+    /**
+     * That `/me/leave-requests` is not swallowed by `/leave-requests/:id` is
+     * asserted in `leave-requests/routing.spec.ts` rather than here, and
+     * deliberately so: with a real module behind it the `/me` list reaches its
+     * handler and answers a perfectly correct 404 for an employee that does not
+     * exist — indistinguishable, from outside, from the routing failure the
+     * check is meant to catch. The routing spec mocks the service, so the two
+     * outcomes stay distinct.
+     */
+
+    /** There is no way back into the undecided state, from any endpoint. */
+    it('refuses PENDING as a decision', () => {
+      return request(app.getHttpServer())
+        .patch(`${LEAVE_REQUESTS_PATH}/lvr-1/status`)
+        .set(EMPLOYEE_HEADER, 'emp-9')
+        .send({ status: 'PENDING' })
+        .expect(400);
+    });
+
+    it('refuses a decider supplied in the body rather than the header', () => {
+      return request(app.getHttpServer())
+        .patch(`${LEAVE_REQUESTS_PATH}/lvr-1/status`)
+        .set(EMPLOYEE_HEADER, 'emp-9')
+        .send({ status: 'APPROVED', processedById: 'emp-8' })
+        .expect(400);
+    });
+
+    /** Leave is asked for by the person taking it, and never erased by HR. */
+    it('has no POST or DELETE on the HR collection', async () => {
+      await request(app.getHttpServer()).post(LEAVE_REQUESTS_PATH).expect(404);
+      await request(app.getHttpServer())
+        .delete(`${LEAVE_REQUESTS_PATH}/lvr-1`)
+        .expect(404);
+    });
+
+    it('rejects a page size above the shared cap', () => {
+      return request(app.getHttpServer())
+        .get(`${LEAVE_REQUESTS_PATH}?limit=1000`)
+        .expect(400);
+    });
+
+    it('rejects a column that is not sortable', () => {
+      return request(app.getHttpServer())
+        .get(`${LEAVE_REQUESTS_PATH}?sortBy=requestedWorkingDays`)
+        .expect(400);
+    });
+  });
+
   it('answers an allowed origin with the CORS headers', () => {
     return request(app.getHttpServer())
       .get(`${API_BASE_PATH}/health`)

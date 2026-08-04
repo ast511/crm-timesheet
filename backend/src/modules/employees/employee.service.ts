@@ -248,16 +248,29 @@ export class EmployeeService {
    *   and deleting them to remove a personnel record would rewrite the project's
    *   history.
    * - **Leave balances** record what this person was granted and has taken. They
-   *   are the ledger behind every leave request the next feature will judge, and
-   *   removing the person would leave those days unaccounted for.
+   *   are the ledger behind every leave request, and removing the person would
+   *   leave those days unaccounted for.
+   * - **Leave requests** record absences they asked for and were granted or
+   *   refused. Deleting them to remove a personnel record would erase the
+   *   explanation for the days their balances say were used.
+   * - **Replacement nominations** record that this person was covering somebody
+   *   else's work. They belong to *another* employee's request, so removing them
+   *   would silently leave that request with less cover than it was approved
+   *   with — possibly none.
    *
-   * The `409` asks the caller to clear whichever of the two is in the way, or to
-   * set the employee's status to `TERMINATED` — which is what the enum is for,
-   * and a decision only a human should make.
+   * `processedLeaveRequests` is deliberately **not** counted, and that is the one
+   * asymmetry here. A decision survives the person who made it: the foreign key
+   * is `ON DELETE SET NULL` rather than `RESTRICT`, `processedAt` keeps saying
+   * when it happened, and counting it would make an HR manager undeletable for
+   * as long as any request they ever touched exists.
    *
-   * Both counts are part of the existence query, so the common case is one round
+   * The `409` asks the caller to clear whichever count is in the way, or to set
+   * the employee's status to `TERMINATED` — which is what the enum is for, and a
+   * decision only a human should make.
+   *
+   * Every count is part of the existence query, so the common case is one round
    * trip and a `404` and a `409` cannot be decided from two different snapshots.
-   * Both are also backed by `ON DELETE RESTRICT` in the schema: without this
+   * All are also backed by `ON DELETE RESTRICT` in the schema: without this
    * check the database would refuse the delete anyway, but as a driver error
    * surfacing as a `500` rather than a message naming what is in the way.
    */
@@ -265,7 +278,14 @@ export class EmployeeService {
     const employee = await this.prisma.employee.findUnique({
       where: { id },
       select: {
-        _count: { select: { projectMemberships: true, leaveBalances: true } },
+        _count: {
+          select: {
+            projectMemberships: true,
+            leaveBalances: true,
+            leaveRequests: true,
+            leaveRequestReplacements: true,
+          },
+        },
       },
     });
 
@@ -273,19 +293,7 @@ export class EmployeeService {
       throw new NotFoundException(notFoundMessage(id));
     }
 
-    const { projectMemberships, leaveBalances } = employee._count;
-
-    if (projectMemberships > 0) {
-      throw new ConflictException(
-        `Employee ${id} cannot be deleted while ${projectMemberships} project membership(s) reference it`,
-      );
-    }
-
-    if (leaveBalances > 0) {
-      throw new ConflictException(
-        `Employee ${id} cannot be deleted while ${leaveBalances} leave balance(s) reference it`,
-      );
-    }
+    assertNothingReferences(id, employee._count);
 
     await this.prisma.employee.delete({ where: { id } });
   }
@@ -433,6 +441,44 @@ export class EmployeeService {
 /** Message used for every 404 path, so they cannot drift apart. */
 function notFoundMessage(id: string): string {
   return `Employee ${id} was not found`;
+}
+
+/**
+ * What each relation is called in the `409`, keyed by the count that guards it.
+ *
+ * A table rather than four `if` blocks, because the four differ only in a noun:
+ * written out, the fourth copy is the one whose message says "leave balance"
+ * while counting requests. Adding a relation to `remove` is adding a line here,
+ * and the type makes forgetting one a build error rather than a silent hole.
+ */
+const REFERENCE_LABELS = {
+  projectMemberships: 'project membership',
+  leaveBalances: 'leave balance',
+  leaveRequests: 'leave request',
+  leaveRequestReplacements: 'leave request replacement',
+} as const;
+
+/**
+ * Refuses to delete an employee anything still points at.
+ *
+ * The counts are reported one at a time rather than all at once — unlike the
+ * missing-relation checks above, which return an array — because this is not a
+ * form the caller can correct field by field. It is a single answer: this record
+ * is referenced, and here is the first thing in the way.
+ */
+function assertNothingReferences(
+  id: string,
+  counts: Record<keyof typeof REFERENCE_LABELS, number>,
+): void {
+  for (const [relation, label] of Object.entries(REFERENCE_LABELS)) {
+    const count = counts[relation as keyof typeof REFERENCE_LABELS];
+
+    if (count > 0) {
+      throw new ConflictException(
+        `Employee ${id} cannot be deleted while ${count} ${label}(s) reference it`,
+      );
+    }
+  }
 }
 
 /**

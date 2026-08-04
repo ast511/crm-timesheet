@@ -1,5 +1,10 @@
 import { applyDecorators } from '@nestjs/common';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  MaxLength,
+  ValidationOptions,
+} from 'class-validator';
 
 import { RELATION_ID_MAX_LENGTH } from '../constants/relation.constants';
 import { Trim } from './trim.decorator';
@@ -20,12 +25,20 @@ import { Trim } from './trim.decorator';
  * It sits beside `@Trim()`, `@ToBoolean()` and `@ValidateIfPresent()` because it
  * is the same kind of thing: a transport concern with nothing resource-specific
  * in it.
+ *
+ * `options` is forwarded to each of the three rules, which exists for one
+ * caller: `{ each: true }`, so a property holding a *list* of foreign keys gets
+ * the same treatment element by element. Feature 023's
+ * `replacementEmployeeIds` is that property. The alternative — spelling the
+ * three rules out again with `each` on each of them — is the duplication this
+ * decorator was extracted to prevent, and the copy would be the one that forgot
+ * the length bound. `@Trim()` is applied once and handles arrays itself.
  */
-export function IsRelationId() {
+export function IsRelationId(options?: ValidationOptions) {
   return applyDecorators(
     Trim(),
-    IsString(),
-    IsNotEmpty(),
-    MaxLength(RELATION_ID_MAX_LENGTH),
+    IsString(options),
+    IsNotEmpty(options),
+    MaxLength(RELATION_ID_MAX_LENGTH, options),
   );
 }

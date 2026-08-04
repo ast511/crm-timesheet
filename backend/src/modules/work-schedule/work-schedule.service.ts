@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 
 import { SortOrder } from '../../common/enums/sort-order.enum';
+import type { Weekday } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateTimesheetApprovalEmailDto } from './dto/create-timesheet-approval-email.dto';
 import { UpdateWorkScheduleDto } from './dto/update-work-schedule.dto';
@@ -109,6 +110,44 @@ export class WorkScheduleService {
     });
 
     return toWorkScheduleEntity(saved);
+  }
+
+  /**
+   * Which weekdays the company works.
+   *
+   * Public because Feature 023 is the first module with a reason to compute
+   * against the schedule, and this module owns `work_schedules` — the same
+   * hand-off `DepartmentService`, `PositionService` and `LeaveTypesService` each
+   * make with their `exists`. `WorkingDaysService` counts the working days in a
+   * leave span, and this one column is all it needs from here.
+   *
+   * It returns the array rather than the whole entity on purpose: publishing
+   * `find()` to a consumer would hand it eight hour figures it has no business
+   * reading, and would make every future column of this table part of the
+   * contract between the two modules.
+   *
+   * A `404` when nothing has been configured, which is the same answer `find()`
+   * gives and for the same reason: without knowing which weekdays are worked, a
+   * day count is not a number anything can guess, and a default would be a guess
+   * dressed as an answer. The message names the request that fixes it, so a
+   * caller who meets this while filing leave is told what is actually missing.
+   *
+   * This is the only computation-adjacent method here, and it still computes
+   * nothing: it reports the configuration, and the module that has a reason to
+   * count does the counting. That is the division the class doc describes, kept
+   * intact.
+   */
+  async findWorkingDays(): Promise<Weekday[]> {
+    const schedule = await this.prisma.workSchedule.findUnique({
+      where: { id: WORK_SCHEDULE_ID },
+      select: { workingDays: true },
+    });
+
+    if (schedule === null) {
+      throw new NotFoundException(NOT_CONFIGURED_MESSAGE);
+    }
+
+    return schedule.workingDays;
   }
 
   /**

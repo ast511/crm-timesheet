@@ -26,3 +26,4 @@ Append new features to the end of this table.
 | 020 | [Termination Closes Project Memberships](020-termination-closes-memberships.md) | Completed | 2026-08-04 |
 | 021 | [Leave Configuration](021-leave-configuration.md) | Completed | 2026-08-04 |
 | 022 | [Employee Leave Balances](022-employee-leave-balances.md) | Completed | 2026-08-04 |
+| 023 | [Leave Requests](023-leave-requests.md) | Completed | 2026-08-04 |

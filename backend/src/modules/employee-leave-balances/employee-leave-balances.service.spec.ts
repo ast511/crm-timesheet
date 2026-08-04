@@ -548,4 +548,149 @@ describe('EmployeeLeaveBalancesService', () => {
       expect(prisma.employeeLeaveBalance.delete).not.toHaveBeenCalled();
     });
   });
+
+  /**
+   * The three methods Feature 023 needed and Feature 022 deliberately did not
+   * guess at in advance. They are what makes this service the only writer of
+   * `usedDays` outside its own POST and PATCH.
+   */
+  describe('consumption', () => {
+    /** Two years, oldest first, as a leave request would draw on them. */
+    const YEARS = [
+      {
+        id: 'elb-2025',
+        year: 2025,
+        allocatedDays: 21,
+        carriedOverDays: 0,
+        usedDays: 19,
+      },
+      {
+        id: 'elb-2026',
+        year: 2026,
+        allocatedDays: 21,
+        carriedOverDays: 0,
+        usedDays: 0,
+      },
+    ];
+
+    const SCOPE = {
+      employeeId: 'emp-1',
+      leaveTypeId: 'lvt-1',
+      upToYear: 2026,
+    };
+
+    describe('findAvailable', () => {
+      it('never reads a year later than the one it was given', async () => {
+        prisma.employeeLeaveBalance.findMany.mockResolvedValue([]);
+
+        await service.findAvailable(SCOPE);
+
+        expect(prisma.employeeLeaveBalance.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              employeeId: 'emp-1',
+              leaveTypeId: 'lvt-1',
+              year: { lte: 2026 },
+            },
+            orderBy: { year: SortOrder.ASC },
+          }),
+        );
+      });
+
+      it('computes what is left rather than reading a column', async () => {
+        prisma.employeeLeaveBalance.findMany.mockResolvedValue(YEARS);
+
+        expect(await service.findAvailable(SCOPE)).toEqual([
+          { id: 'elb-2025', year: 2025, remainingDays: 2 },
+          { id: 'elb-2026', year: 2026, remainingDays: 21 },
+        ]);
+      });
+
+      it('drops an exhausted year instead of returning a zero to skip', async () => {
+        prisma.employeeLeaveBalance.findMany.mockResolvedValue([
+          { ...YEARS[0], usedDays: 21 },
+          YEARS[1],
+        ]);
+
+        const available = await service.findAvailable(SCOPE);
+
+        expect(available.map(({ year }) => year)).toEqual([2026]);
+      });
+
+      it('drops an overdrawn year rather than letting the next one settle it', async () => {
+        prisma.employeeLeaveBalance.findMany.mockResolvedValue([
+          { ...YEARS[0], usedDays: 25 },
+          YEARS[1],
+        ]);
+
+        expect(await service.findAvailable(SCOPE)).toEqual([
+          { id: 'elb-2026', year: 2026, remainingDays: 21 },
+        ]);
+      });
+    });
+
+    describe('countAvailableDays', () => {
+      it('sums what is left across every year in scope', async () => {
+        prisma.employeeLeaveBalance.findMany.mockResolvedValue(YEARS);
+
+        expect(await service.countAvailableDays(SCOPE)).toBe(23);
+      });
+
+      it('is zero when nothing has been allocated', async () => {
+        prisma.employeeLeaveBalance.findMany.mockResolvedValue([]);
+
+        expect(await service.countAvailableDays(SCOPE)).toBe(0);
+      });
+    });
+
+    describe('consume', () => {
+      const tx = () => ({
+        employeeLeaveBalance: {
+          findMany: prisma.employeeLeaveBalance.findMany,
+          update: prisma.employeeLeaveBalance.update,
+        },
+      });
+
+      it('takes the oldest year first, so carried-over days cannot lapse', async () => {
+        prisma.employeeLeaveBalance.findMany.mockResolvedValue(YEARS);
+
+        await service.consume(SCOPE, 5, tx() as never);
+
+        expect(prisma.employeeLeaveBalance.update).toHaveBeenNthCalledWith(1, {
+          where: { id: 'elb-2025' },
+          data: { usedDays: { increment: 2 } },
+        });
+        expect(prisma.employeeLeaveBalance.update).toHaveBeenNthCalledWith(2, {
+          where: { id: 'elb-2026' },
+          data: { usedDays: { increment: 3 } },
+        });
+      });
+
+      it('stops as soon as the request is covered', async () => {
+        prisma.employeeLeaveBalance.findMany.mockResolvedValue(YEARS);
+
+        await service.consume(SCOPE, 2, tx() as never);
+
+        expect(prisma.employeeLeaveBalance.update).toHaveBeenCalledTimes(1);
+      });
+
+      it('refuses a request the balances cannot cover, and writes nothing', async () => {
+        prisma.employeeLeaveBalance.findMany.mockResolvedValue(YEARS);
+
+        await expect(
+          service.consume(SCOPE, 24, tx() as never),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(prisma.employeeLeaveBalance.update).not.toHaveBeenCalled();
+      });
+
+      it('re-reads availability inside the transaction it was handed', async () => {
+        prisma.employeeLeaveBalance.findMany.mockResolvedValue(YEARS);
+        const client = tx();
+
+        await service.consume(SCOPE, 1, client as never);
+
+        expect(client.employeeLeaveBalance.findMany).toHaveBeenCalled();
+      });
+    });
+  });
 });
