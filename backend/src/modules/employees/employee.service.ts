@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -12,9 +14,11 @@ import {
   toSkipTake,
 } from '../../common/utils/pagination.util';
 import type { Prisma } from '../../generated/prisma/client';
+import { EmployeeStatus } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DepartmentService } from '../departments/department.service';
 import { PositionService } from '../positions/position.service';
+import { ProjectMemberService } from '../project-members/project-member.service';
 import { UserService } from '../users/user.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EmployeeQueryDto } from './dto/employee-query.dto';
@@ -46,7 +50,7 @@ interface EmployeeRelationIds {
  *
  * What makes this module more than a fourth copy of the same CRUD shape is that
  * an employee is defined by three relations rather than by its own columns, and
- * two concerns follow from that:
+ * three concerns follow from that:
  *
  * 1. **A referenced row has to exist before it can be pointed at.** The
  *    database would say so too, but as a foreign-key violation surfacing as a
@@ -54,6 +58,10 @@ interface EmployeeRelationIds {
  * 2. **A user belongs to exactly one employee.** `Employee.userId` is unique,
  *    so linking an account a second time is a conflict, not a validation error,
  *    and is reported as one.
+ * 3. **Terminating somebody is not just a column change.** An employee who has
+ *    left the company cannot still be on a project, so `TERMINATED` also ends
+ *    their open memberships — see {@link EmployeeService.update}. This is the
+ *    first place in the codebase where writing one resource writes another.
  *
  * The three referenced tables are read through the services that own them —
  * `UserService`, `DepartmentService`, `PositionService` — which is the hand-off
@@ -69,6 +77,12 @@ export class EmployeeService {
     private readonly users: UserService,
     private readonly departments: DepartmentService,
     private readonly positions: PositionService,
+    // `forwardRef` because the dependency is mutual: memberships ask this
+    // service about a person, and this service asks them to close when that
+    // person is terminated. See `ProjectMemberService`'s constructor for why
+    // the write lives there rather than here.
+    @Inject(forwardRef(() => ProjectMemberService))
+    private readonly projectMembers: ProjectMemberService,
   ) {}
 
   /**
@@ -155,32 +169,72 @@ export class EmployeeService {
    *
    * The employee's own id is excluded from both, so re-sending the values it
    * already holds is not a conflict with itself.
+   *
+   * **A status becoming `TERMINATED` also ends the person's open project
+   * memberships**, because somebody who has left the company cannot still be on
+   * a project — the invariant `ProjectMemberService` documents. Three things
+   * about how that is done are deliberate:
+   *
+   * - **It is one transaction.** Either the employee is terminated and their
+   *   memberships close, or neither happens. Two separate writes could leave a
+   *   terminated employee on a project if the second one failed, which is the
+   *   exact state this feature exists to prevent.
+   * - **`leftAt` is the employee's own `updatedAt`,** read back from the same
+   *   transaction rather than a second `new Date()`. The membership ends at the
+   *   moment the person was terminated, not a few milliseconds after it.
+   * - **Only a *transition* triggers it.** Re-sending `TERMINATED` on somebody
+   *   already terminated changes nothing, so it must not stamp a fresh `leftAt`
+   *   on memberships created since — which is why the stored status is read
+   *   first, and why {@link findStatusOrThrow} replaced the plain existence
+   *   check.
+   *
+   * The reverse is not symmetrical: moving an employee back to `ACTIVE` does not
+   * reopen anything. Which projects somebody rejoins is not derivable from the
+   * fact that they returned, so it stays an explicit decision — a `PATCH` on the
+   * membership, or a new one.
    */
   async update(id: string, dto: UpdateEmployeeDto): Promise<EmployeeEntity> {
-    await this.assertExists(id);
+    const currentStatus = await this.findStatusOrThrow(id);
+
     await this.assertRelationsExist(dto, id);
     await this.assertEmployeeCodeIsFree(dto.employeeCode, id);
 
-    const updated = await this.prisma.employee.update({
-      where: { id },
-      // `undefined` is omitted from the UPDATE by Prisma, so an absent field is
-      // left alone while an explicit `null` phone clears the column.
-      data: {
-        employeeCode: dto.employeeCode,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        phone: dto.phone,
-        hireDate:
-          dto.hireDate === undefined ? undefined : new Date(dto.hireDate),
-        userId: dto.userId,
-        departmentId: dto.departmentId,
-        positionId: dto.positionId,
-        seniority: dto.seniority,
-        status: dto.status,
-        canReplaceOthers: dto.canReplaceOthers,
-        maxVacationDays: dto.maxVacationDays,
-      },
-      select: EMPLOYEE_PUBLIC_SELECT,
+    const isBeingTerminated =
+      dto.status === EmployeeStatus.TERMINATED &&
+      currentStatus !== EmployeeStatus.TERMINATED;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const employee = await tx.employee.update({
+        where: { id },
+        // `undefined` is omitted from the UPDATE by Prisma, so an absent field
+        // is left alone while an explicit `null` phone clears the column.
+        data: {
+          employeeCode: dto.employeeCode,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          phone: dto.phone,
+          hireDate:
+            dto.hireDate === undefined ? undefined : new Date(dto.hireDate),
+          userId: dto.userId,
+          departmentId: dto.departmentId,
+          positionId: dto.positionId,
+          seniority: dto.seniority,
+          status: dto.status,
+          canReplaceOthers: dto.canReplaceOthers,
+          maxVacationDays: dto.maxVacationDays,
+        },
+        select: EMPLOYEE_PUBLIC_SELECT,
+      });
+
+      if (isBeingTerminated) {
+        await this.projectMembers.closeOpenMemberships(
+          id,
+          employee.updatedAt,
+          tx,
+        );
+      }
+
+      return employee;
     });
 
     return toEmployeeEntity(updated);
@@ -224,37 +278,47 @@ export class EmployeeService {
   }
 
   /**
-   * Whether an employee with this id exists.
+   * This employee's status, or `null` when there is no such employee.
    *
    * Public because the project-members feature has to confirm an employee
    * before assigning them to a project, and this module owns the `employees`
    * table — the same hand-off `DepartmentService`, `PositionService` and
-   * `ProjectService` each make. It returns a boolean rather than throwing,
-   * because the caller knows what a missing employee means in its own request;
-   * here it would only be able to guess.
+   * `ProjectService` each make with their `exists`.
    *
-   * `id` alone is selected: the caller needs a yes or a no, not a row.
+   * It answers with the status rather than a boolean because "is this person
+   * there" and "are they still with the company" are now both asked at the same
+   * moment, by the same caller, and one query answers both. `null` for a missing
+   * employee rather than a thrown `404`: the caller knows what an absent
+   * employee means in its own request — a `400` naming a body field, for
+   * project members — while here it could only guess.
+   *
+   * One column is selected: the caller needs an answer, not a row.
    */
-  async exists(id: string): Promise<boolean> {
+  async findStatus(id: string): Promise<EmployeeStatus | null> {
     const employee = await this.prisma.employee.findUnique({
       where: { id },
-      select: { id: true },
+      select: { status: true },
     });
 
-    return employee !== null;
+    return employee?.status ?? null;
   }
 
   /**
-   * Reports a missing employee.
+   * The stored status, or a `404` if the employee is not there.
    *
-   * Built on {@link exists}, which asks exactly the same question: the caller
-   * here only needs to know the row is there, and the full record — with its
-   * three joins — is read by the `update` that follows.
+   * Built on {@link findStatus}, which asks exactly the same question. It is
+   * what `update` needs before writing: the existence check it has always made,
+   * plus the one value that decides whether this write is a termination. The
+   * full record — with its three joins — is read by the update itself.
    */
-  private async assertExists(id: string): Promise<void> {
-    if (!(await this.exists(id))) {
+  private async findStatusOrThrow(id: string): Promise<EmployeeStatus> {
+    const status = await this.findStatus(id);
+
+    if (status === null) {
       throw new NotFoundException(notFoundMessage(id));
     }
+
+    return status;
   }
 
   /**

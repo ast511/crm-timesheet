@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 
 import { EmployeeModule } from '../employees/employee.module';
 import { ProjectModule } from '../projects/project.module';
@@ -14,8 +14,13 @@ import { ProjectMembersController } from './project-members.controller';
  * carry. The other two *are* imported, because this is the module that finally
  * uses what they export — `ProjectModule` and `EmployeeModule` each documented,
  * when they were written, that project memberships should confirm a referenced
- * row through their service rather than query its table directly. Neither
- * imports this module back, so the graph stays acyclic.
+ * row through their service rather than query its table directly.
+ *
+ * `EmployeeModule` now imports this one back, which is why it is wrapped in
+ * `forwardRef` here and there. Feature 020 made the two mutual: terminating an
+ * employee ends their open memberships, and those rows belong to this module —
+ * so the write lives here and the employees module calls it, rather than
+ * reaching into a table it does not own.
  *
  * This is the first module that is a join rather than a table: it owns no
  * resource of its own, only the relationship between two that already existed.
@@ -26,7 +31,7 @@ import { ProjectMembersController } from './project-members.controller';
  * exists before recording anything against it.
  */
 @Module({
-  imports: [ProjectModule, EmployeeModule],
+  imports: [ProjectModule, forwardRef(() => EmployeeModule)],
   // Two controllers, no top-level path of its own. Memberships are a
   // sub-resource of a project (read and write) and a read-only view on an
   // employee, so both live under paths the other two modules own — declared

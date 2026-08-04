@@ -6,6 +6,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { SortOrder } from '../../common/enums/sort-order.enum';
+import { EmployeeStatus } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmployeeService } from '../employees/employee.service';
 import { ProjectService } from '../projects/project.service';
@@ -95,12 +96,13 @@ describe('ProjectMemberService', () => {
       count: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
+      updateMany: jest.Mock;
       delete: jest.Mock;
     };
     $transaction: jest.Mock;
   };
   let projects: { exists: jest.Mock; findOne: jest.Mock };
-  let employees: { exists: jest.Mock; findOne: jest.Mock };
+  let employees: { findStatus: jest.Mock; findOne: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -110,6 +112,7 @@ describe('ProjectMemberService', () => {
         count: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
         delete: jest.fn(),
       },
       // The real client resolves the batch; the mock only has to await the
@@ -124,7 +127,7 @@ describe('ProjectMemberService', () => {
       findOne: jest.fn().mockResolvedValue(PROJECT_ENTITY),
     };
     employees = {
-      exists: jest.fn().mockResolvedValue(true),
+      findStatus: jest.fn().mockResolvedValue(EmployeeStatus.ACTIVE),
       findOne: jest.fn().mockResolvedValue(EMPLOYEE_ENTITY),
     };
 
@@ -438,7 +441,7 @@ describe('ProjectMemberService', () => {
       await service.create('prj-1', CREATE_BODY);
 
       expect(projects.exists).toHaveBeenCalledWith('prj-1');
-      expect(employees.exists).toHaveBeenCalledWith('emp-1');
+      expect(employees.findStatus).toHaveBeenCalledWith('emp-1');
     });
 
     it('answers 404 for a project that does not exist — it is the collection', async () => {
@@ -451,7 +454,7 @@ describe('ProjectMemberService', () => {
     });
 
     it('answers 400 for an employee that does not exist — it is the payload', async () => {
-      employees.exists.mockResolvedValue(false);
+      employees.findStatus.mockResolvedValue(null);
 
       await expect(service.create('prj-1', CREATE_BODY)).rejects.toBeInstanceOf(
         BadRequestException,
@@ -461,11 +464,32 @@ describe('ProjectMemberService', () => {
 
     it('checks the project before the employee, so a bad path wins', async () => {
       projects.exists.mockResolvedValue(false);
-      employees.exists.mockResolvedValue(false);
+      employees.findStatus.mockResolvedValue(null);
 
       await expect(
         service.create('missing', CREATE_BODY),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('refuses to open a membership for a terminated employee', async () => {
+      employees.findStatus.mockResolvedValue(EmployeeStatus.TERMINATED);
+
+      await expect(service.create('prj-1', CREATE_BODY)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(prisma.projectMember.create).not.toHaveBeenCalled();
+    });
+
+    it('still accepts a closed membership for a terminated employee', async () => {
+      employees.findStatus.mockResolvedValue(EmployeeStatus.TERMINATED);
+
+      await expect(
+        service.create('prj-1', {
+          ...CREATE_BODY,
+          joinedAt: '2026-01-12T00:00:00.000Z',
+          leftAt: '2026-06-30T00:00:00.000Z',
+        }),
+      ).resolves.toEqual(ROSTER_ENTRY);
     });
 
     it('rejects a pair that is already a membership with a 409', async () => {
@@ -647,6 +671,43 @@ describe('ProjectMemberService', () => {
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.projectMember.update).not.toHaveBeenCalled();
     });
+
+    it('refuses to reopen the membership of a terminated employee', async () => {
+      prisma.projectMember.findUnique.mockResolvedValue({
+        ...ROSTER_ROW,
+        employee: { ...EMPLOYEE_SUMMARY, status: EmployeeStatus.TERMINATED },
+        leftAt: new Date('2026-09-30T00:00:00.000Z'),
+      });
+
+      await expect(
+        service.update('prj-1', 'emp-1', { leftAt: null }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.projectMember.update).not.toHaveBeenCalled();
+    });
+
+    it('still lets a terminated employee’s membership be corrected', async () => {
+      prisma.projectMember.findUnique.mockResolvedValue({
+        ...ROSTER_ROW,
+        employee: { ...EMPLOYEE_SUMMARY, status: EmployeeStatus.TERMINATED },
+        leftAt: new Date('2026-09-30T00:00:00.000Z'),
+      });
+
+      await service.update('prj-1', 'emp-1', { leftAt: '2026-10-31' });
+
+      expect(prisma.projectMember.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            leftAt: new Date('2026-10-31'),
+          }) as unknown,
+        }),
+      );
+    });
+
+    it('asks the employee status of the row it already read', async () => {
+      await service.update('prj-1', 'emp-1', { isProjectManager: false });
+
+      expect(employees.findStatus).not.toHaveBeenCalled();
+    });
   });
 
   describe('remove', () => {
@@ -664,6 +725,89 @@ describe('ProjectMemberService', () => {
         NotFoundException,
       );
       expect(prisma.projectMember.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('closeOpenMemberships', () => {
+    /** The instant the employee was terminated, as `updatedAt` records it. */
+    const TERMINATED_AT = new Date('2026-08-04T09:15:00.000Z');
+
+    /** Stands in for the transaction client `EmployeeService` passes in. */
+    const tx = () =>
+      prisma as unknown as Parameters<typeof service.closeOpenMemberships>[2];
+
+    beforeEach(() => {
+      prisma.projectMember.findMany.mockResolvedValue([]);
+    });
+
+    it('closes every open membership at the termination date', async () => {
+      await service.closeOpenMemberships('emp-1', TERMINATED_AT, tx());
+
+      expect(prisma.projectMember.updateMany).toHaveBeenCalledWith({
+        where: {
+          employeeId: 'emp-1',
+          leftAt: null,
+          joinedAt: { lte: TERMINATED_AT },
+        },
+        data: { leftAt: TERMINATED_AT },
+      });
+    });
+
+    it('leaves the already closed ones alone, so the history stands', async () => {
+      await service.closeOpenMemberships('emp-1', TERMINATED_AT, tx());
+
+      const [{ where }] = prisma.projectMember.updateMany.mock.calls[0] as [
+        { where: { leftAt: null } },
+      ];
+
+      expect(where.leftAt).toBeNull();
+    });
+
+    it('closes a not-yet-started membership at its own joinedAt', async () => {
+      // An assignment planned for after the person left: closing it at the
+      // termination date would store a period ending before it starts, which
+      // is what the write endpoints refuse from callers.
+      const joinedAt = new Date('2026-09-01T00:00:00.000Z');
+
+      prisma.projectMember.findMany.mockResolvedValue([
+        { projectId: 'prj-2', joinedAt },
+      ]);
+
+      await service.closeOpenMemberships('emp-1', TERMINATED_AT, tx());
+
+      expect(prisma.projectMember.update).toHaveBeenCalledWith({
+        where: {
+          projectId_employeeId: { projectId: 'prj-2', employeeId: 'emp-1' },
+        },
+        data: { leftAt: joinedAt },
+      });
+    });
+
+    it('costs a single statement when nothing starts in the future', async () => {
+      await service.closeOpenMemberships('emp-1', TERMINATED_AT, tx());
+
+      expect(prisma.projectMember.update).not.toHaveBeenCalled();
+    });
+
+    it('writes through the transaction it was given', async () => {
+      const txClient = {
+        projectMember: {
+          updateMany: jest.fn(),
+          findMany: jest.fn().mockResolvedValue([]),
+          update: jest.fn(),
+        },
+      };
+
+      await service.closeOpenMemberships(
+        'emp-1',
+        TERMINATED_AT,
+        txClient as unknown as Parameters<
+          typeof service.closeOpenMemberships
+        >[2],
+      );
+
+      expect(txClient.projectMember.updateMany).toHaveBeenCalled();
+      expect(prisma.projectMember.updateMany).not.toHaveBeenCalled();
     });
   });
 });

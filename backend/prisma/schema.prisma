@@ -61,6 +61,19 @@ enum ProjectPriority {
   HIGH   @map("high")
 }
 
+/// Whether a public holiday falls on the same calendar day every year, or has
+/// to be stated for each year separately.
+///
+/// The values are stored lower-case like every other enum here, and the
+/// distinction is not cosmetic: it decides which columns of `PublicHoliday`
+/// carry meaning. For `FIXED` the year in `startDate` is disregarded and the
+/// month and day are what recur; for `VARIABLE` the full dates are the fact,
+/// and next year's occurrence is a different row.
+enum HolidayType {
+  FIXED    @map("fixed")
+  VARIABLE @map("variable")
+}
+
 /// A day of the week, declared Monday-first because that is the order the
 /// business works in and the order a European calendar renders. The
 /// declaration order is not cosmetic: it is what `WorkSchedule.workingDays` is
@@ -293,6 +306,79 @@ model WorkSchedule {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("work_schedules")
+}
+
+/// A day the company does not work — a legal holiday, or one it grants itself.
+///
+/// Configuration rather than data, like [WorkSchedule]: it describes when the
+/// company is closed, not something that happened. The Timesheets and Vacations
+/// modules will read it; nothing here computes anything, and in particular no
+/// date is derived — Easter is entered, not calculated.
+///
+/// **A holiday is never deleted to switch it off, and never edited in place to
+/// repeal it.** A row is one *version* of a holiday, valid over a range of
+/// years; repealing closes the range and reinstating opens a new row. That is
+/// what lets `/calendar/2026` report 2026 as it actually was — see
+/// `validFromYear`.
+///
+/// There is no unique constraint. `name` cannot be one — "Easter" is a
+/// different row in every year — and the rule that actually applies to `FIXED`
+/// holidays is "one per month and day *among versions whose years overlap*",
+/// which no unique index can state. `PublicHolidayService` enforces both
+/// duplicate rules.
+model PublicHoliday {
+  id String @id @default(cuid())
+
+  name        String
+  description String?
+
+  type HolidayType
+
+  /// A legal holiday the whole country observes (`true`), or one this company
+  /// grants on its own (`false`). Defaulted to `true` because the set this
+  /// table is created to hold is the national calendar; a company day off is
+  /// the deliberate exception.
+  isNational Boolean @default(true) @map("is_national")
+
+  /// The years this version of the holiday applies to, both ends inclusive and
+  /// both open-ended when null: `validFromYear` null means "as far back as this
+  /// system knows", `validToYear` null means "still in force".
+  ///
+  /// They replace the `isActive` boolean this model started with, and the
+  /// reason is the bug that boolean had rather than a preference. A flag
+  /// carries no date, so switching a holiday off in 2029 also removed it from
+  /// the 2026 calendar — a year the office really was closed. A range says
+  /// *when* it stopped, so the past keeps its answer.
+  ///
+  /// Only meaningful for `FIXED` holidays, and rejected on `VARIABLE` ones: a
+  /// variable holiday's row already *is* one year, named by `startDate`, so a
+  /// range on it would be a second, contradictable statement of the same fact.
+  ///
+  /// They say nothing about the year inside `startDate`, which stays
+  /// meaningless for a fixed holiday. A version valid from 2029 may perfectly
+  /// well store `2025-06-01`; only the month and day are read.
+  validFromYear Int? @map("valid_from_year")
+  validToYear   Int? @map("valid_to_year")
+
+  /// The span the holiday covers, both ends inclusive. A one-day holiday stores
+  /// the same date twice rather than leaving `endDate` null: every consumer then
+  /// reads one shape, and "which days are closed" never has a special case.
+  ///
+  /// For a `FIXED` holiday only the month and day are meaningful; the year is
+  /// whatever year it was first entered for, and the recurrence rule ignores it.
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+
+  /// Derived from `type` — `true` for `FIXED`, `false` for `VARIABLE` — and
+  /// stored anyway, so a report or an export can state the fact without also
+  /// having to know the rule. The API keeps the two in step; the `false`
+  /// default is the database's answer for rows written outside it.
+  isRecurring Boolean @default(false) @map("is_recurring")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("public_holidays")
 }
 
 /// An address notified when a timesheet needs approval.

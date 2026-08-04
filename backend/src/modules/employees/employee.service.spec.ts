@@ -14,6 +14,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { DepartmentService } from '../departments/department.service';
 import { PositionService } from '../positions/position.service';
+import { ProjectMemberService } from '../project-members/project-member.service';
 import { UserService } from '../users/user.service';
 import { EmployeeQueryDto } from './dto/employee-query.dto';
 import { EmployeeService } from './employee.service';
@@ -92,6 +93,7 @@ describe('EmployeeService', () => {
   let users: { findEmployeeLink: jest.Mock };
   let departments: { exists: jest.Mock };
   let positions: { exists: jest.Mock };
+  let projectMembers: { closeOpenMemberships: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -104,10 +106,15 @@ describe('EmployeeService', () => {
         update: jest.fn(),
         delete: jest.fn(),
       },
-      // The real client resolves the batch; the mock only has to await the
-      // promises the mocked delegates already returned.
-      $transaction: jest.fn((operations: Promise<unknown>[]) =>
-        Promise.all(operations),
+      // Both forms the service uses. The batch form: the real client resolves
+      // it, so the mock only has to await the promises the mocked delegates
+      // already returned. The callback form, which `update` uses: the client is
+      // handed to the callback, and the mock hands it itself — so a write made
+      // through `tx` lands on the same delegate mocks the assertions read.
+      $transaction: jest.fn((arg: unknown) =>
+        typeof arg === 'function'
+          ? (arg as (tx: unknown) => Promise<unknown>)(prisma)
+          : Promise.all(arg as Promise<unknown>[]),
       ),
     };
 
@@ -118,6 +125,7 @@ describe('EmployeeService', () => {
     };
     departments = { exists: jest.fn().mockResolvedValue(true) };
     positions = { exists: jest.fn().mockResolvedValue(true) };
+    projectMembers = { closeOpenMemberships: jest.fn() };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -126,6 +134,7 @@ describe('EmployeeService', () => {
         { provide: UserService, useValue: users },
         { provide: DepartmentService, useValue: departments },
         { provide: PositionService, useValue: positions },
+        { provide: ProjectMemberService, useValue: projectMembers },
       ],
     }).compile();
 
@@ -395,7 +404,11 @@ describe('EmployeeService', () => {
 
   describe('update', () => {
     beforeEach(() => {
-      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+      // The stored status, which `update` reads before writing: it decides
+      // whether this patch is a termination.
+      prisma.employee.findUnique.mockResolvedValue({
+        status: EmployeeStatus.ACTIVE,
+      });
       prisma.employee.update.mockResolvedValue(EMPLOYEE);
     });
 
@@ -500,6 +513,64 @@ describe('EmployeeService', () => {
         service.update('emp-1', { canReplaceOthers: true }),
       ).resolves.toEqual(EMPLOYEE_ENTITY);
     });
+
+    describe('termination', () => {
+      /** The row the update returns once the employee has been terminated. */
+      const TERMINATED = {
+        ...EMPLOYEE,
+        status: EmployeeStatus.TERMINATED,
+        updatedAt: new Date('2026-08-04T09:15:00.000Z'),
+      };
+
+      beforeEach(() => {
+        prisma.employee.update.mockResolvedValue(TERMINATED);
+      });
+
+      it('closes the open memberships at the moment of the termination', async () => {
+        await service.update('emp-1', { status: EmployeeStatus.TERMINATED });
+
+        expect(projectMembers.closeOpenMemberships).toHaveBeenCalledWith(
+          'emp-1',
+          TERMINATED.updatedAt,
+          prisma,
+        );
+      });
+
+      it('writes both inside one transaction', async () => {
+        await service.update('emp-1', { status: EmployeeStatus.TERMINATED });
+
+        expect(prisma.$transaction).toHaveBeenCalledWith(
+          expect.any(Function) as unknown,
+        );
+        expect(projectMembers.closeOpenMemberships).toHaveBeenCalledTimes(1);
+      });
+
+      it('leaves the memberships alone on any other status', async () => {
+        await service.update('emp-1', { status: EmployeeStatus.ON_LEAVE });
+
+        expect(projectMembers.closeOpenMemberships).not.toHaveBeenCalled();
+      });
+
+      it('does not re-close them when the employee was already terminated', async () => {
+        prisma.employee.findUnique.mockResolvedValue({
+          status: EmployeeStatus.TERMINATED,
+        });
+
+        await service.update('emp-1', { status: EmployeeStatus.TERMINATED });
+
+        expect(projectMembers.closeOpenMemberships).not.toHaveBeenCalled();
+      });
+
+      it('does not reopen anything when a terminated employee returns', async () => {
+        prisma.employee.findUnique.mockResolvedValue({
+          status: EmployeeStatus.TERMINATED,
+        });
+
+        await service.update('emp-1', { status: EmployeeStatus.ACTIVE });
+
+        expect(projectMembers.closeOpenMemberships).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('remove', () => {
@@ -545,6 +616,37 @@ describe('EmployeeService', () => {
       await service.remove('emp-1');
 
       expect(prisma.employee.findUnique).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('findStatus', () => {
+    it('answers with the stored status', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        status: EmployeeStatus.TERMINATED,
+      });
+
+      await expect(service.findStatus('emp-1')).resolves.toBe(
+        EmployeeStatus.TERMINATED,
+      );
+    });
+
+    it('answers null for an unknown id rather than throwing', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+
+      await expect(service.findStatus('missing')).resolves.toBeNull();
+    });
+
+    it('reads one column, not the row', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        status: EmployeeStatus.ACTIVE,
+      });
+
+      await service.findStatus('emp-1');
+
+      expect(prisma.employee.findUnique).toHaveBeenCalledWith({
+        where: { id: 'emp-1' },
+        select: { status: true },
+      });
     });
   });
 });

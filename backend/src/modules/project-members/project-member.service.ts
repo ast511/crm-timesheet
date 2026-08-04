@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +13,7 @@ import {
   toSkipTake,
 } from '../../common/utils/pagination.util';
 import type { Prisma } from '../../generated/prisma/client';
+import { EmployeeStatus } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmployeeService } from '../employees/employee.service';
 import { ProjectService } from '../projects/project.service';
@@ -56,6 +59,13 @@ interface MembershipPeriod {
  *    moves one end has to be judged against the end already stored.
  *    {@link resolveMembershipPeriod} reconstructs both, then
  *    {@link assertOrderedMembershipPeriod} judges them.
+ * 4. **A membership outlives neither side's lifecycle.** Somebody who has left
+ *    the company cannot still be on a project, so *no terminated employee holds
+ *    an open membership* — an invariant, not a one-off cleanup, which is why it
+ *    is enforced at all three points that could break it: the termination
+ *    itself ({@link ProjectMemberService.closeOpenMemberships}), a new
+ *    membership, and a `PATCH` that would reopen one. The last two share
+ *    {@link assertTerminatedMembershipIsClosed}.
  *
  * **Every method here is scoped to one side**, because every endpoint is:
  * Feature 015 removed the unscoped collection, so a payload never repeats the
@@ -72,6 +82,13 @@ export class ProjectMemberService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projects: ProjectService,
+    // `forwardRef` because Feature 020 made the dependency mutual: this module
+    // asks the employees module about a person, and the employees module asks
+    // this one to close their memberships when they are terminated. Nest cannot
+    // instantiate either first without the wrapper, and the alternative —
+    // writing `project_members` from `EmployeeService` — would put a table's
+    // rules in two modules.
+    @Inject(forwardRef(() => EmployeeService))
     private readonly employees: EmployeeService,
   ) {}
 
@@ -198,7 +215,7 @@ export class ProjectMemberService {
 
     assertOrderedMembershipPeriod(period);
     await this.assertProjectExists(projectId);
-    await this.assertEmployeeExists(dto.employeeId);
+    await this.assertEmployeeAccepts(dto.employeeId, period);
     await this.assertNotAlreadyAssigned(projectId, dto.employeeId);
 
     const created = await this.prisma.projectMember.create({
@@ -226,6 +243,9 @@ export class ProjectMemberService {
    *
    * Neither id is touched. They are the primary key and they came from the URL;
    * `UpdateProjectMemberDto` does not accept them.
+   *
+   * The row already carries the employee's status, so refusing to reopen the
+   * membership of somebody who has left the company costs no extra query.
    */
   async update(
     projectId: string,
@@ -236,6 +256,7 @@ export class ProjectMemberService {
     const period = resolveMembershipPeriod(dto, current);
 
     assertOrderedMembershipPeriod(period);
+    assertTerminatedMembershipIsClosed(current.employee.status, period);
 
     const updated = await this.prisma.projectMember.update({
       where: membershipKey(projectId, employeeId),
@@ -273,6 +294,63 @@ export class ProjectMemberService {
     await this.prisma.projectMember.delete({
       where: membershipKey(projectId, employeeId),
     });
+  }
+
+  /**
+   * Ends every membership this employee still holds open, as of `leftAt`.
+   *
+   * Called by `EmployeeService` when a status becomes `TERMINATED`: somebody who
+   * has left the company cannot still be on a project, so the memberships close
+   * with them rather than being left for a human to find later.
+   *
+   * Public and living here rather than in the employees module, because this is
+   * a write to `project_members` and this module owns that table — the same
+   * hand-off every other module makes, in the direction that makes the graph
+   * cyclic (see the constructor).
+   *
+   * **`tx` is required, not optional.** The caller has just updated the employee
+   * and must do both writes or neither; an optional transaction would let a
+   * future caller leave a terminated employee with open memberships if the
+   * second statement failed. Requiring it also means `leftAt` can be the
+   * employee's own `updatedAt`, read back from the same transaction, so the two
+   * timestamps are identical rather than merely close.
+   *
+   * Memberships that are **already closed are not touched**: their `leftAt`
+   * records when that assignment actually ended, and overwriting it with a
+   * later date would rewrite history.
+   *
+   * The write is split in two because of the one case the bulk update cannot
+   * express. A membership whose `joinedAt` is in the future — an assignment
+   * planned before the person left — would otherwise be stored ending before it
+   * starts, which is exactly what {@link assertOrderedMembershipPeriod} refuses
+   * from callers, and the service must not write what its own API rejects. Those
+   * rows are closed at their `joinedAt` instead, becoming a zero-length period:
+   * planned, never worked. They need a value per row, which `updateMany` cannot
+   * do, and they are rare — the common case stays a single statement.
+   */
+  async closeOpenMemberships(
+    employeeId: string,
+    leftAt: Date,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    await tx.projectMember.updateMany({
+      where: { employeeId, leftAt: null, joinedAt: { lte: leftAt } },
+      data: { leftAt },
+    });
+
+    const notYetStarted = await tx.projectMember.findMany({
+      where: { employeeId, leftAt: null, joinedAt: { gt: leftAt } },
+      select: { projectId: true, joinedAt: true },
+    });
+
+    // Sequentially: these run inside an interactive transaction, whose client
+    // is a single connection.
+    for (const membership of notYetStarted) {
+      await tx.projectMember.update({
+        where: membershipKey(membership.projectId, employeeId),
+        data: { leftAt: membership.joinedAt },
+      });
+    }
   }
 
   /** Loads a membership by its pair, or reports it missing. */
@@ -332,21 +410,35 @@ export class ProjectMemberService {
   }
 
   /**
-   * Rejects a body naming an employee who does not exist.
+   * Rejects a body naming an employee who cannot take this membership.
    *
-   * A `400` rather than a `404`: the collection being posted to is fine, it is
-   * the payload that points at somebody who is not there. The message is an
-   * array — the same shape the `ValidationPipe` produces — so a form marks the
-   * offending input with the code it already has for field errors.
+   * Two answers from one question, which is why `findStatus` is asked rather
+   * than `exists`: whether the person is there, and whether they are still with
+   * the company.
    *
-   * The database would refuse this too, but as a foreign-key violation
-   * surfacing as a `500`; asking first is what turns it into a message naming
-   * the field.
+   * A missing employee is a `400` rather than a `404` — the collection being
+   * posted to is fine, it is the payload that points at somebody who is not
+   * there. The database would refuse that one too, but as a foreign-key
+   * violation surfacing as a `500`; asking first is what turns it into a
+   * message naming the field. Both messages are arrays — the same shape the
+   * `ValidationPipe` produces — so a form marks the offending input with the
+   * code it already has for field errors.
+   *
+   * The status check takes the resolved period, not the raw body, so a
+   * historical membership being backfilled with its `leftAt` is judged on the
+   * period it will actually store.
    */
-  private async assertEmployeeExists(employeeId: string): Promise<void> {
-    if (!(await this.employees.exists(employeeId))) {
+  private async assertEmployeeAccepts(
+    employeeId: string,
+    period: MembershipPeriod,
+  ): Promise<void> {
+    const status = await this.employees.findStatus(employeeId);
+
+    if (status === null) {
       throw new BadRequestException([`Employee ${employeeId} does not exist`]);
     }
+
+    assertTerminatedMembershipIsClosed(status, period);
   }
 
   /**
@@ -470,6 +562,37 @@ function assertOrderedMembershipPeriod({
 
   if (leftAt.getTime() < joinedAt.getTime()) {
     throw new BadRequestException(['leftAt must not be before joinedAt']);
+  }
+}
+
+/**
+ * Rejects an open membership for somebody who has left the company.
+ *
+ * The half of the invariant that guards the two write endpoints —
+ * {@link ProjectMemberService.closeOpenMemberships} guards the other half, the
+ * termination itself. Without this, the rule would hold only until the next
+ * `POST`, and an employee terminated in the morning could be back on a project
+ * in the afternoon.
+ *
+ * What is refused is the *open* membership, not the row: a closed one is
+ * accepted, because recording that somebody worked on a project until they left
+ * is exactly what the history is for. That is what keeps a backfilled
+ * membership — an import naming a person who has since been terminated —
+ * possible.
+ *
+ * A `400` rather than a `409`: nothing in the database conflicts with the
+ * request, the submitted membership simply contradicts what is known about the
+ * person. The message is an array, the same shape the `ValidationPipe`
+ * produces, so a form handles it with the code it already has for field errors.
+ */
+function assertTerminatedMembershipIsClosed(
+  status: EmployeeStatus,
+  { leftAt }: MembershipPeriod,
+): void {
+  if (status === EmployeeStatus.TERMINATED && leftAt === null) {
+    throw new BadRequestException([
+      'leftAt is required: a terminated employee cannot hold an open membership',
+    ]);
   }
 }
 

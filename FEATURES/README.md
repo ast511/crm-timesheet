@@ -49,3 +49,7 @@ behaviour, record that in the new document and link back to the old one.
 | 014 | [Project Roster Endpoint](014-project-roster-endpoint.md) |
 | 015 | [Scoped Membership Endpoints](015-scoped-membership-endpoints.md) |
 | 016 | [Work Schedule Configuration](016-work-schedule-configuration.md) |
+| 017 | [Public Holidays Module](017-public-holidays-module.md) |
+| 018 | [Public Holiday Calendar Endpoints](018-public-holiday-calendar-endpoints.md) |
+| 019 | [Public Holiday Validity Years](019-public-holiday-validity-years.md) |
+| 020 | [Termination Closes Project Memberships](020-termination-closes-memberships.md) |

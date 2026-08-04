@@ -10,6 +10,7 @@ import { EmployeeModule } from './modules/employees/employee.module';
 import { PositionModule } from './modules/positions/position.module';
 import { ProjectMemberModule } from './modules/project-members/project-member.module';
 import { ProjectModule } from './modules/projects/project.module';
+import { PublicHolidayModule } from './modules/public-holidays/public-holiday.module';
 import { UserModule } from './modules/users/user.module';
 import { WorkScheduleModule } from './modules/work-schedule/work-schedule.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -39,6 +40,10 @@ import { PrismaModule } from './prisma/prisma.module';
     // Configuration rather than a resource: one row describing how the company
     // works, which the Timesheets module will validate against.
     WorkScheduleModule,
+    // Configuration too, and the other half of the same question: the schedule
+    // says which weekdays are worked, this says which of them the company is
+    // nevertheless closed on.
+    PublicHolidayModule,
   ],
   controllers: [AppController],
   providers: [AppService],
