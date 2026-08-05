@@ -1,5 +1,8 @@
+import { applyDecorators } from '@nestjs/common';
 import { plainToInstance, Type } from 'class-transformer';
 import {
+  IsBoolean,
+  IsEmail,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -9,6 +12,7 @@ import {
   Max,
   Min,
   Validate,
+  ValidateIf,
   ValidationArguments,
   ValidationError,
   ValidatorConstraint,
@@ -16,6 +20,7 @@ import {
   validateSync,
 } from 'class-validator';
 
+import { ToBoolean } from '../common/decorators/to-boolean.decorator';
 import { ANY_ORIGIN, parseOrigins } from './cors.config';
 
 /** Port the backend binds to when `PORT` is not set. */
@@ -29,6 +34,34 @@ const ORIGIN_PATTERN = /^https?:\/\/[^/?#\s:]+(:\d{1,5})?$/;
 
 /** Connection strings PostgreSQL accepts; anything else is a typo. */
 const POSTGRES_URL_PATTERN = /^postgres(ql)?:\/\//;
+
+/**
+ * Floor for any timeout expressed in milliseconds.
+ *
+ * A second is already aggressive for a TCP connect plus a TLS handshake, so a
+ * smaller value is a unit mistake — seconds written where milliseconds were
+ * asked for — rather than a deliberately tight setting.
+ */
+const MIN_TIMEOUT_MS = 1000;
+
+/**
+ * `@IsEmail()`, except that a variable set to nothing is treated as not set.
+ *
+ * `SMTP_FROM_EMAIL=` is how a placeholder is cleared, and the email module
+ * already reads a blank variable as absent — see `loadSmtpConfig`. Without this
+ * the two would disagree: a blank host would leave the application running and
+ * reporting itself unconfigured, while a blank sending address would stop it
+ * from booting at all.
+ */
+function IsEmailOrBlank() {
+  return applyDecorators(
+    ValidateIf(
+      (_object: unknown, value: unknown) =>
+        typeof value === 'string' && value.trim() !== '',
+    ),
+    IsEmail(),
+  );
+}
 
 export enum NodeEnvironment {
   Development = 'development',
@@ -81,6 +114,76 @@ export class EnvironmentVariables {
   @IsOptional()
   @Validate(IsOriginListConstraint)
   readonly CORS_ORIGINS?: string;
+
+  // ---------------------------------------------------------------------------
+  // SMTP — read by the email module (Feature 025) and by nothing else.
+  //
+  // Every one of them is optional *here*, which is the deliberate part: a
+  // deployment with no mail server — a developer machine, a CI run, a demo —
+  // must still start, and the module reports itself as unconfigured through
+  // `GET /api/v1/email/health` rather than taking the whole API down with it.
+  // What this contract adds is that a variable which *is* set has to make
+  // sense: a port that is not a number, or a sending address that is not an
+  // address, is a typo the operator finds at startup instead of at the first
+  // notification nobody receives.
+  //
+  // Which of them are required to actually send is `loadSmtpConfig`'s
+  // statement, not this one's — it is the module's rule, and it belongs where
+  // the module can change it.
+  // ---------------------------------------------------------------------------
+
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  readonly SMTP_ENABLED?: boolean;
+
+  @IsOptional()
+  @IsString()
+  readonly SMTP_HOST?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_PORT)
+  @Max(MAX_PORT)
+  readonly SMTP_PORT?: number;
+
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  readonly SMTP_SECURE?: boolean;
+
+  @IsOptional()
+  @IsString()
+  readonly SMTP_USER?: string;
+
+  @IsOptional()
+  @IsString()
+  readonly SMTP_PASSWORD?: string;
+
+  @IsOptional()
+  @IsString()
+  readonly SMTP_FROM_NAME?: string;
+
+  @IsOptional()
+  @IsEmailOrBlank()
+  readonly SMTP_FROM_EMAIL?: string;
+
+  @IsOptional()
+  @IsEmailOrBlank()
+  readonly SMTP_REPLY_TO?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_TIMEOUT_MS)
+  readonly SMTP_CONNECTION_TIMEOUT?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_TIMEOUT_MS)
+  readonly SMTP_SOCKET_TIMEOUT?: number;
 }
 
 /**

@@ -56,3 +56,5 @@ behaviour, record that in the new document and link back to the old one.
 | 021 | [Leave Configuration](021-leave-configuration.md) |
 | 022 | [Employee Leave Balances](022-employee-leave-balances.md) |
 | 023 | [Leave Requests](023-leave-requests.md) |
+| 024 | [Leave Balance Generation](024-leave-balance-generation.md) |
+| 025 | [Email Infrastructure](025-email-infrastructure.md) |

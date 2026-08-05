@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { validateEnvironment } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { DepartmentModule } from './modules/departments/department.module';
+import { EmailModule } from './modules/email/email.module';
 import { EmployeeLeaveBalancesModule } from './modules/employee-leave-balances/employee-leave-balances.module';
 import { EmployeeModule } from './modules/employees/employee.module';
 import { LeaveConfigurationModule } from './modules/leave-configuration/leave-configuration.module';
@@ -33,6 +34,11 @@ import { PrismaModule } from './prisma/prisma.module';
     // Global, so feature modules inject PrismaService without re-importing it.
     PrismaModule,
     HealthModule,
+    // Infrastructure rather than a resource: the only component that sends
+    // email. It owns no table and depends on no business module, so it sits
+    // with the shared modules above rather than in the list below. The
+    // notification features will import it; nothing here does yet.
+    EmailModule,
     // Business modules. Each one owns a resource under `/api/v1`.
     DepartmentModule,
     PositionModule,

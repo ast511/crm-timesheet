@@ -473,6 +473,62 @@ describe('Application endpoints (e2e)', () => {
     });
   });
 
+  /**
+   * The email block asserts what is specific to Feature 025: the one endpoint
+   * that accepts a body accepts exactly one address, and there is no endpoint at
+   * all for sending a message somebody else wrote. Everything here is rejected
+   * before a handler runs, so no mail server is contacted.
+   *
+   * `GET /email/health` is deliberately not requested. It is the one route in
+   * this suite whose handler would reach outside the process — on a machine
+   * with SMTP configured it opens a real connection — which would make the run
+   * depend on the developer's `.env` and on a network. The three answers it can
+   * give are pinned in `email.service.spec.ts` instead, against a mocked
+   * transport.
+   */
+  describe('email', () => {
+    const EMAIL_PATH = `${API_BASE_PATH}/email`;
+
+    it('rejects a test address that is not an address', () => {
+      return request(app.getHttpServer())
+        .post(`${EMAIL_PATH}/test`)
+        .send({ email: 'not-an-email' })
+        .expect(400);
+    });
+
+    it('rejects a missing address', async () => {
+      const response = await request(app.getHttpServer())
+        .post(`${EMAIL_PATH}/test`)
+        .send({})
+        .expect(400);
+
+      const { message } = response.body as { message: string[] };
+
+      expect(message.join(' ')).toMatch(/email/);
+    });
+
+    /**
+     * The message is fixed precisely so this endpoint cannot become a way to
+     * send arbitrary mail from the company's server while there is still no
+     * authentication in front of it.
+     */
+    it.each([{ subject: 'Anything I like' }, { html: '<p>Click here</p>' }])(
+      'refuses an attempt to steer the message with %p',
+      (extra) => {
+        return request(app.getHttpServer())
+          .post(`${EMAIL_PATH}/test`)
+          .send({ email: 'john@example.com', ...extra })
+          .expect(400);
+      },
+    );
+
+    /** Sending is reached by injecting the service, never over HTTP. */
+    it('exposes no endpoint for sending a caller-supplied message', async () => {
+      await request(app.getHttpServer()).post(EMAIL_PATH).expect(404);
+      await request(app.getHttpServer()).post(`${EMAIL_PATH}/send`).expect(404);
+    });
+  });
+
   it('answers an allowed origin with the CORS headers', () => {
     return request(app.getHttpServer())
       .get(`${API_BASE_PATH}/health`)

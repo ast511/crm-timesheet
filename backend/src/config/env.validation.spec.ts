@@ -77,4 +77,78 @@ describe('validateEnvironment', () => {
       /CORS_ORIGINS/,
     );
   });
+
+  /**
+   * The SMTP block is optional as a whole — an environment with no mail server
+   * must still boot — so what is asserted here is the other half of that rule:
+   * a variable that *is* set has to make sense, and it arrives typed.
+   */
+  describe('SMTP', () => {
+    it('accepts an environment with no mail server at all', () => {
+      const config = validateWith();
+
+      expect(config.SMTP_HOST).toBeUndefined();
+      expect(config.SMTP_PORT).toBeUndefined();
+      expect(config.SMTP_ENABLED).toBeUndefined();
+    });
+
+    it('coerces the port and the two switches out of their string form', () => {
+      const config = validateWith({
+        SMTP_PORT: '587',
+        SMTP_SECURE: 'false',
+        SMTP_ENABLED: 'true',
+        SMTP_CONNECTION_TIMEOUT: '5000',
+      });
+
+      expect(config.SMTP_PORT).toBe(587);
+      expect(config.SMTP_SECURE).toBe(false);
+      expect(config.SMTP_ENABLED).toBe(true);
+      expect(config.SMTP_CONNECTION_TIMEOUT).toBe(5000);
+    });
+
+    it.each(['abc', '0', '70000', '587.5'])(
+      'rejects SMTP_PORT set to %p',
+      (port) => {
+        expect(() => validateWith({ SMTP_PORT: port })).toThrow(/SMTP_PORT/);
+      },
+    );
+
+    /** Only the two exact spellings, so a typo cannot become a silent `false`. */
+    it.each(['yes', '1', 'TRUE'])('rejects SMTP_SECURE set to %p', (secure) => {
+      expect(() => validateWith({ SMTP_SECURE: secure })).toThrow(
+        /SMTP_SECURE/,
+      );
+    });
+
+    it('rejects a sending address that is not an address', () => {
+      expect(() => validateWith({ SMTP_FROM_EMAIL: 'no-reply' })).toThrow(
+        /SMTP_FROM_EMAIL/,
+      );
+    });
+
+    /**
+     * A cleared placeholder must behave the same everywhere: the email module
+     * reads a blank variable as absent, so the contract cannot refuse to boot
+     * over one.
+     */
+    it.each(['', '   '])(
+      'treats a sending address set to %p as not set',
+      (blank) => {
+        expect(() => validateWith({ SMTP_FROM_EMAIL: blank })).not.toThrow();
+      },
+    );
+
+    it('rejects a reply address that is not an address', () => {
+      expect(() => validateWith({ SMTP_REPLY_TO: 'hr@' })).toThrow(
+        /SMTP_REPLY_TO/,
+      );
+    });
+
+    /** Seconds written where milliseconds were asked for. */
+    it('rejects a timeout below the one-second floor', () => {
+      expect(() => validateWith({ SMTP_SOCKET_TIMEOUT: '30' })).toThrow(
+        /SMTP_SOCKET_TIMEOUT/,
+      );
+    });
+  });
 });
