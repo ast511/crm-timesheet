@@ -11,6 +11,7 @@ import { EmployeeLeaveBalancesModule } from './modules/employee-leave-balances/e
 import { EmployeeModule } from './modules/employees/employee.module';
 import { LeaveConfigurationModule } from './modules/leave-configuration/leave-configuration.module';
 import { LeaveRequestsModule } from './modules/leave-requests/leave-requests.module';
+import { NotificationModule } from './modules/notifications/notification.module';
 import { PositionModule } from './modules/positions/position.module';
 import { ProjectMemberModule } from './modules/project-members/project-member.module';
 import { ProjectModule } from './modules/projects/project.module';
@@ -66,6 +67,12 @@ import { PrismaModule } from './prisma/prisma.module';
     // that deducts. Approving a request is the first write in this application
     // that moves another module's data.
     LeaveRequestsModule,
+    // The notification centre: two inboxes — one personal, one administrative —
+    // that are stored, read, filtered and cleared here. It produces nothing on
+    // its own and watches no other module; deciding when a notification is born
+    // and delivering it belongs to the Notification Delivery Engine, which will
+    // import this rather than the reverse.
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

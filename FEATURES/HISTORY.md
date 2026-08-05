@@ -29,3 +29,4 @@ Append new features to the end of this table.
 | 023 | [Leave Requests](023-leave-requests.md) | Completed | 2026-08-04 |
 | 024 | [Leave Balance Generation](024-leave-balance-generation.md) | Completed | 2026-08-05 |
 | 025 | [Email Infrastructure](025-email-infrastructure.md) | Completed | 2026-08-05 |
+| 026 | [Notification Center](026-notification-center.md) | Completed | 2026-08-05 |

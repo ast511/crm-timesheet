@@ -108,6 +108,88 @@ enum Weekday {
   SUNDAY    @map("sunday")
 }
 
+/// Which of the two notification workspaces a message belongs to.
+///
+/// Not a role and not a permission: it is the *inbox* the message is filed in.
+/// `PERSONAL` is what an employee reads about themselves — their leave was
+/// approved, their timesheet is due. `ADMINISTRATIVE` is the back-office inbox
+/// the people who run the company share: a request was submitted, an import
+/// finished, a synchronisation failed.
+///
+/// The distinction is stored rather than derived from [Notification.recipientType]
+/// even though the two are correlated, because they answer different questions
+/// and only one of them is a *scope*: the workspace is what a URL selects and
+/// what a "mark everything read" acts over, while the recipient type says how
+/// one row inside it is addressed. Deriving either from the other would make
+/// every list query reason about the mapping instead of naming the column.
+enum NotificationWorkspace {
+  PERSONAL       @map("personal")
+  ADMINISTRATIVE @map("administrative")
+}
+
+/// How a notification names who it is for.
+///
+/// Four values, and exactly four pairings with [NotificationWorkspace] are
+/// legal — `PERSONAL`+`USER`, `PERSONAL`+`ALL_USERS`,
+/// `ADMINISTRATIVE`+`ROLE`, `ADMINISTRATIVE`+`ADMINISTRATIVE_USERS`. The other
+/// four combinations are refused by `NotificationService`, not by a CHECK
+/// constraint: the rule also governs which of `recipient_user_id` and
+/// `recipient_role` must be set and which must be null, so stating half of it
+/// in the schema would leave the readable half in the application anyway.
+///
+/// `ALL_USERS` and `ADMINISTRATIVE_USERS` are *broadcasts* — one row read by
+/// many people — and both carry a null recipient. See [Notification.isRead] for
+/// what that costs.
+enum NotificationRecipientType {
+  USER                 @map("user")
+  ROLE                 @map("role")
+  ALL_USERS            @map("all_users")
+  ADMINISTRATIVE_USERS @map("administrative_users")
+}
+
+/// What the notification is *about* — the part of the system it came from.
+///
+/// A closed vocabulary rather than free text, because it is what a client
+/// filters and groups by: "show me only leave notifications" has to be a query
+/// parameter, not a substring search over a title somebody phrased.
+///
+/// Deliberately separate from [NotificationType], which says how *urgent* it
+/// looks rather than where it came from. A rejected leave request is
+/// `LEAVE`+`ERROR`; a completed import is `SYSTEM`+`SUCCESS`. Folding the two
+/// into one column would make "every leave notification" unanswerable.
+enum NotificationCategory {
+  GENERAL     @map("general")
+  SYSTEM      @map("system")
+  TIMESHEET   @map("timesheet")
+  LEAVE       @map("leave")
+  REMINDER    @map("reminder")
+  MAINTENANCE @map("maintenance")
+}
+
+/// How the notification is drawn — the severity a client renders it with.
+///
+/// Presentation rather than routing: it decides the colour and the icon, and
+/// nothing in the application branches on it.
+enum NotificationType {
+  INFO    @map("info")
+  SUCCESS @map("success")
+  WARNING @map("warning")
+  ERROR   @map("error")
+}
+
+/// How much the notification wants attention.
+///
+/// Declared low-to-high on purpose, and the order is not cosmetic: PostgreSQL
+/// sorts an enum by its declaration order, so `?sortBy=priority&sortOrder=desc`
+/// puts `HIGH` first because of this list. Spelled the same way and in the same
+/// direction as `ProjectPriority`, so the two vocabularies cannot drift into
+/// sorting opposite ways.
+enum NotificationPriority {
+  LOW    @map("low")
+  MEDIUM @map("medium")
+  HIGH   @map("high")
+}
+
 model User {
   id       String  @id @default(cuid())
   email    String  @unique
@@ -119,6 +201,14 @@ model User {
   isActive Boolean  @default(true) @map("is_active")
 
   employee Employee?
+
+  /// Notifications addressed to this account by name.
+  ///
+  /// Only the `USER` recipient type points here. A broadcast — `ALL_USERS` or
+  /// `ADMINISTRATIVE_USERS` — and a role-addressed notification both leave
+  /// `recipient_user_id` null, so this relation is the *directly addressed*
+  /// subset rather than everything a person can see.
+  notifications Notification[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -832,4 +922,121 @@ model TimesheetApprovalEmail {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("timesheet_approval_emails")
+}
+
+/// One message, in one of the two notification workspaces.
+///
+/// **This table stores and serves notifications. It does not produce them.**
+/// Nothing in this schema writes a row here as a consequence of anything else:
+/// approving leave, submitting a timesheet and finishing an import all leave it
+/// untouched today. Deciding *when* a notification is born, and delivering it by
+/// email or over a socket, is the Notification Delivery Engine — a later feature
+/// — and separating the two is what lets this one be read, filtered and paged
+/// without anything having to be scheduled, queued or sent. See the feature
+/// document for the whole argument.
+///
+/// **Addressing lives in three columns, and only two shapes ever fill them.**
+/// [recipientType] says which: `USER` sets `recipient_user_id` and leaves
+/// `recipient_role` null, `ROLE` does the reverse, and the two broadcasts leave
+/// both null. `NotificationService` enforces that, together with the rule that
+/// only four of the eight workspace/recipient pairings are legal. Neither is a
+/// CHECK constraint — the pairing rule and the null rule are one rule, stated
+/// once in the service, rather than half of it duplicated where nobody reading
+/// the other half would see it.
+///
+/// **`recipient_role` is a [UserRole], not a notification-specific enum**, and
+/// that is deliberate. The three administrative roles already have stored
+/// spellings — `superadmin`, `admin`, `hr` — and a second vocabulary saying
+/// `super_admin` would mean every query joining a notification to the person
+/// reading it had to translate between them, forever. The column's type
+/// therefore also admits `USER`, which is not a legal value here; the service
+/// refuses it, and `ADMINISTRATIVE_ROLES` in
+/// `src/common/constants/role.constants.ts` is the one list of the three that
+/// are legal.
+model Notification {
+  id String @id @default(cuid())
+
+  /// Which inbox this belongs to. Not defaulted: a notification is written for
+  /// one audience or the other, and guessing which would file back-office
+  /// messages in employees' personal lists.
+  workspace NotificationWorkspace
+
+  recipientType NotificationRecipientType @map("recipient_type")
+
+  /// The one account addressed, for `USER` notifications; null for every other
+  /// recipient type.
+  ///
+  /// `Cascade` on delete, and the second cascade in this schema after
+  /// `leave_request_replacements`. The argument is the same: a notification
+  /// addressed to one person says nothing once that person's account is gone —
+  /// nobody can read it and no list will ever return it — so keeping it would
+  /// only make an account undeletable for the sake of messages nobody can see.
+  /// Every reference to a *person* elsewhere is `RESTRICT`, because those record
+  /// something that happened; this records something somebody was told.
+  recipientUserId String? @map("recipient_user_id")
+  recipientUser   User?   @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+
+  /// The one administrative role addressed, for `ROLE` notifications; null for
+  /// every other recipient type. Only `SUPERADMIN`, `ADMIN` and `HR` are legal —
+  /// see the note on this model for why the column's type is wider than the rule.
+  recipientRole UserRole? @map("recipient_role")
+
+  /// The one-line heading. Bounded at 150 characters by the API rather than by
+  /// the column, like every other free text here: 150 is a rule about what fits
+  /// on a screen, not a format the way `VarChar(7)` is for a colour.
+  title String
+
+  /// The body. Plain text, bounded at 5000 by the API. No markup is rendered and
+  /// none is stripped — a client displays this as text, which is what keeps a
+  /// message somebody typed from becoming markup somebody injected.
+  message String
+
+  /// Where the notification came from, what it looks like, and how loudly it
+  /// asks. All three are defaulted, so a caller states only what departs from
+  /// "an ordinary informational notice of normal importance" — the same call
+  /// `Project.projectStatus` and `projectPriority` make, and for the same reason:
+  /// an unstated priority is *normal*, not *unknown*.
+  category NotificationCategory @default(GENERAL)
+  type     NotificationType     @default(INFO)
+  priority NotificationPriority @default(MEDIUM)
+
+  /// Whether it has been read, and when.
+  ///
+  /// **One flag for the whole row, which is exactly right for a notification
+  /// addressed to one person and a known limitation for a broadcast.** An
+  /// `ALL_USERS` announcement is a single row read by everybody, so the first
+  /// person to open it marks it read for all of them — and `DELETE
+  /// /notifications/:id` removes it for all of them too. Correcting that needs a
+  /// per-user `notification_reads` table, which is deferred rather than
+  /// forgotten; the feature document states the trade-off and the migration path.
+  ///
+  /// Two columns rather than one, for the reason `leave_requests` keeps
+  /// `processed_at` beside `status`: `updated_at` moves whenever any column does,
+  /// so it cannot say when the notification was read. `read_at` is set when the
+  /// flag is raised and is null while it is down; the two are written together
+  /// and never independently.
+  isRead Boolean   @default(false) @map("is_read")
+  readAt DateTime? @map("read_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// The two list queries this table exists to serve, plus their ordering.
+  ///
+  /// Unlike the configuration tables of Features 016–021 — tens of rows, left
+  /// unindexed on purpose — this one gains a row for every event the delivery
+  /// engine will ever announce, to every person it announces to, and never
+  /// shrinks. Both lists are `WHERE workspace = … AND (addressed to me OR
+  /// broadcast) ORDER BY created_at DESC`, so each index carries `created_at`
+  /// last: PostgreSQL can then satisfy the filter and the sort from one scan
+  /// instead of sorting the matches afterwards.
+  ///
+  /// `[recipientUserId, createdAt]` is the personal list's directly-addressed
+  /// half, `[recipientRole, createdAt]` the administrative list's, and
+  /// `[workspace, recipientType, createdAt]` covers both broadcasts and the
+  /// workspace scope every query starts from.
+  @@index([recipientUserId, createdAt])
+  @@index([recipientRole, createdAt])
+  @@index([workspace, recipientType, createdAt])
+  @@map("notifications")
 }
