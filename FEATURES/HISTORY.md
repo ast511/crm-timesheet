@@ -27,3 +27,4 @@ Append new features to the end of this table.
 | 021 | [Leave Configuration](021-leave-configuration.md) | Completed | 2026-08-04 |
 | 022 | [Employee Leave Balances](022-employee-leave-balances.md) | Completed | 2026-08-04 |
 | 023 | [Leave Requests](023-leave-requests.md) | Completed | 2026-08-04 |
+| 024 | [Leave Balance Generation](024-leave-balance-generation.md) | Completed | 2026-08-05 |

@@ -67,7 +67,9 @@ export interface EmployeeLeaveBalanceEntity {
   allocatedDays: number;
   carriedOverDays: number;
   usedDays: number;
-  /** Derived, never stored. `allocated + carriedOver - used`. */
+  /** Days written off at a year-end by the leave type's carry-over policy. */
+  expiredDays: number;
+  /** Derived, never stored. `allocated + carriedOver - used - expired`. */
   remainingDays: number;
   notes: string | null;
   createdAt: string;
@@ -93,6 +95,7 @@ export const LEAVE_BALANCE_PUBLIC_SELECT = {
   allocatedDays: true,
   carriedOverDays: true,
   usedDays: true,
+  expiredDays: true,
   notes: true,
   employee: {
     select: {
@@ -124,6 +127,7 @@ export type LeaveBalanceRow = Pick<
   | 'allocatedDays'
   | 'carriedOverDays'
   | 'usedDays'
+  | 'expiredDays'
   | 'notes'
   | 'createdAt'
   | 'updatedAt'
@@ -135,30 +139,44 @@ export type LeaveBalanceRow = Pick<
 /**
  * The whole of the `remainingDays` rule, written once.
  *
- * `allocatedDays + carriedOverDays - usedDays`. Every endpoint that publishes a
- * balance runs it, and nothing else computes it — which is what makes the
- * formula a single decision rather than one repeated in a list handler, a detail
- * handler and two write handlers, where the fourth copy is the one that
- * eventually forgets `carriedOverDays`.
+ * `allocatedDays + carriedOverDays - usedDays - expiredDays`. Every endpoint
+ * that publishes a balance runs it, every availability check goes through it,
+ * and nothing else computes it — which is what makes the formula a single
+ * decision rather than one repeated in a list handler, a detail handler and two
+ * write handlers, where the fourth copy is the one that eventually forgets a
+ * term.
+ *
+ * **`expiredDays` was added by Feature 024, and it is the term that makes a
+ * carry-over cap mean anything.** Balances are consumed oldest year first and
+ * availability reads every year up to the one requested, so a remainder sitting
+ * in a closed year is already spendable in the next — carrying days forward is
+ * what the system does on its own, without limit. Subtracting the expired days
+ * where they sit is how a policy takes back the part that was not allowed to
+ * survive, and it is why the year-end generation never writes
+ * `carriedOverDays`: copying the survivors into the new year would leave the old
+ * row still reporting them, and the employee would hold each day twice.
+ *
+ * The two subtracted terms are kept apart because they are different facts —
+ * days taken and days lost — and summing them into `usedDays` would make a
+ * year-end job look like it had approved absences nobody requested.
  *
  * **It may return a negative number, and that is deliberate.** If HR reduces an
  * allocation after days have already been taken — or opens a balance for
  * somebody who joined mid-year having used more than they were given — the
  * honest answer is that the person is overdrawn. Clamping it at zero would hide
  * exactly the situation somebody needs to see, and refusing to store it would
- * block a correction that is the reason the screen exists. Nothing in this
- * feature acts on the number; the Leave Requests feature will decide what an
- * overdrawn balance means for a new request.
+ * block a correction that is the reason the screen exists.
  */
 export function computeRemainingDays({
   allocatedDays,
   carriedOverDays,
   usedDays,
+  expiredDays,
 }: Pick<
   EmployeeLeaveBalanceModel,
-  'allocatedDays' | 'carriedOverDays' | 'usedDays'
+  'allocatedDays' | 'carriedOverDays' | 'usedDays' | 'expiredDays'
 >): number {
-  return allocatedDays + carriedOverDays - usedDays;
+  return allocatedDays + carriedOverDays - usedDays - expiredDays;
 }
 
 /** Maps a row onto the resource returned by the endpoints. */
@@ -189,6 +207,7 @@ export function toLeaveBalanceEntity(
     allocatedDays: balance.allocatedDays,
     carriedOverDays: balance.carriedOverDays,
     usedDays: balance.usedDays,
+    expiredDays: balance.expiredDays,
     remainingDays: computeRemainingDays(balance),
     notes: balance.notes,
     createdAt: toIsoTimestamp(balance.createdAt),

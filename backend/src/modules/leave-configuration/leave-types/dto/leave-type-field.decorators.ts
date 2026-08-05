@@ -174,3 +174,29 @@ export function IsLeaveTypeAllocatedDays() {
     Max(LEAVE_TYPE_MAX_ALLOCATED_DAYS),
   );
 }
+
+/**
+ * `maxCarryOverDays` — the ceiling on what survives a year-end, in whole days.
+ *
+ * The same bounds as the allocation, and reusing those constants is deliberate
+ * rather than lazy: both are a count of days inside one calendar year, held in
+ * the same `integer` column type, and a cap larger than a year could not bind
+ * anything a year can produce. Two copies of `366` would be two numbers to keep
+ * in step.
+ *
+ * `0` is legal and is not the same as omitting the field: it says days may carry
+ * over but none of them may, which is how a policy is expressed while it is being
+ * phased out. *No cap* is `null`, which the DTO allows and this decorator never
+ * sees.
+ *
+ * Nothing here checks it against `allowsCarryOver`. A cap on a type that carries
+ * nothing over is inert rather than contradictory, and rejecting the pair would
+ * stop HR from setting the ceiling first and turning the policy on afterwards.
+ */
+export function IsLeaveTypeCarryOverDays() {
+  return applyDecorators(
+    IsInt(),
+    Min(LEAVE_TYPE_MIN_ALLOCATED_DAYS),
+    Max(LEAVE_TYPE_MAX_ALLOCATED_DAYS),
+  );
+}

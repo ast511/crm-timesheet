@@ -13,18 +13,29 @@ import {
 } from '../../common/utils/pagination.util';
 import type { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EmployeeService } from '../employees/employee.service';
-import { LeaveTypesService } from '../leave-configuration/leave-types.service';
+import {
+  EmployeeGenerationCandidate,
+  EmployeeService,
+} from '../employees/employee.service';
+import {
+  LeaveTypeGenerationPolicy,
+  LeaveTypesService,
+} from '../leave-configuration/leave-types.service';
 import { CreateEmployeeLeaveBalanceDto } from './dto/create-employee-leave-balance.dto';
 import { EmployeeLeaveBalanceQueryDto } from './dto/employee-leave-balance-query.dto';
+import { GenerateLeaveBalancesDto } from './dto/generate-leave-balances.dto';
 import { UpdateEmployeeLeaveBalanceDto } from './dto/update-employee-leave-balance.dto';
-import { LeaveBalanceSortField } from './employee-leave-balance.constants';
+import {
+  LeaveBalanceSortField,
+  MONTHS_PER_YEAR,
+} from './employee-leave-balance.constants';
 import {
   computeRemainingDays,
   EmployeeLeaveBalanceEntity,
   LEAVE_BALANCE_PUBLIC_SELECT,
   toLeaveBalanceEntity,
 } from './entities/employee-leave-balance.entity';
+import { LeaveBalanceGenerationReport } from './entities/leave-balance-generation-report.entity';
 
 /**
  * Makes PostgreSQL fold the case of both operands, so `pop` finds `Popescu`.
@@ -75,18 +86,21 @@ export interface BalanceConsumptionScope {
  * Three of them are what make this more than another CRUD shape:
  *
  * 1. **`remainingDays` is never stored.** It is
- *    `allocatedDays + carriedOverDays - usedDays`, computed by
- *    `computeRemainingDays` on the way out of every endpoint. The three columns
- *    are the single source of truth; nothing in this service writes a fourth
+ *    `allocatedDays + carriedOverDays - usedDays - expiredDays`, computed by
+ *    `computeRemainingDays` on the way out of every endpoint. The four columns
+ *    are the single source of truth; nothing in this service writes a fifth
  *    number, and no DTO accepts one.
  * 2. **A balance is identified by a triple**, not by a set of editable fields:
  *    one employee, one leave type, one year. That is a unique constraint in the
  *    schema and a `409` here, and it is why `PATCH` cannot move a balance
  *    between employees, types or years — see `UpdateEmployeeLeaveBalanceDto`.
- * 3. **Nothing is granted automatically.** There is no code path that creates a
- *    balance except `POST`, and creating an employee does not reach this module
- *    at all. Leave is negotiated, and a number the system invented would be
- *    indistinguishable from one somebody agreed to.
+ * 3. **No number here was invented by the application.** Feature 022 stated this
+ *    as "nothing is granted automatically", when `POST` was the only way a
+ *    balance could come into being. Feature 024's {@link generate} creates them
+ *    in bulk and does not weaken the rule: every figure it writes is the leave
+ *    type's `defaultAllocatedDays`, which HR configured, and a type that states
+ *    no default produces no balance and a warning saying so. What the rule
+ *    forbids is a number nobody decided, and there is still no path to one.
  *
  * The two referenced tables are read through the services that own them —
  * `EmployeeService` and `LeaveTypesService` — which is the hand-off every module
@@ -168,6 +182,7 @@ export class EmployeeLeaveBalancesService {
         allocatedDays: dto.allocatedDays,
         carriedOverDays: dto.carriedOverDays,
         usedDays: dto.usedDays,
+        expiredDays: dto.expiredDays,
         notes: dto.notes,
       },
       select: LEAVE_BALANCE_PUBLIC_SELECT,
@@ -202,6 +217,7 @@ export class EmployeeLeaveBalancesService {
         allocatedDays: dto.allocatedDays,
         carriedOverDays: dto.carriedOverDays,
         usedDays: dto.usedDays,
+        expiredDays: dto.expiredDays,
         notes: dto.notes,
       },
       select: LEAVE_BALANCE_PUBLIC_SELECT,
@@ -227,6 +243,176 @@ export class EmployeeLeaveBalancesService {
     await this.assertExists(id);
 
     await this.prisma.employeeLeaveBalance.delete({ where: { id } });
+  }
+
+  /**
+   * Opens a year: creates the balances that are missing, and closes the year
+   * before it against each leave type's carry-over policy.
+   *
+   * The answer to the two questions HR asks that `POST` alone could not — "we
+   * hired somebody, give them their balances" and "it is January, open the new
+   * year" — which turn out to be one operation with different scopes. A new hire
+   * has no previous year, so nothing is closed; everybody else does, so it is.
+   *
+   * **This does not contradict "nothing is granted automatically".** Every
+   * number it writes was stated by a person: `defaultAllocatedDays` on the leave
+   * type is the entitlement HR configured, and a type that states nothing
+   * produces no row and a warning saying so. What the rule forbids is the
+   * application inventing a figure, and there is no path here that does.
+   *
+   * Four decisions shape the rest:
+   *
+   * 1. **Existing balances are never touched.** A row already filed for `year`
+   *    is counted as `skipped` and left exactly as it is, because it may hold a
+   *    figure somebody negotiated. That is what makes the endpoint re-runnable —
+   *    run it in December, run it again in January when three more people have
+   *    joined — and re-running is how it is meant to be used.
+   * 2. **Closing the old year expires days rather than moving them.** Balances
+   *    are drawn oldest year first and availability reads every year up to the
+   *    one requested, so last year's remainder is *already* spendable; what a
+   *    carry-over cap needs is to take back the part above it. Copying survivors
+   *    into `carriedOverDays` would leave the old row still reporting them and
+   *    hand the employee each day twice. See {@link computeRemainingDays}.
+   * 3. **A problem warns, it does not fail.** One leave type without a default
+   *    must not cost the other three their run, and one stale id in a list of
+   *    two hundred must not cost the rest. Everything possible is done and the
+   *    remainder is reported in words. The exceptions are the two things that
+   *    make the request itself unanswerable, which are a `400`: a year outside
+   *    the bounds, caught by the DTO, and nothing at all in scope.
+   * 4. **The whole run is one transaction.** A partially opened year — some
+   *    people holding 2027 balances, others not, some 2026 rows capped and
+   *    others not — is the state nobody could reason about afterwards, and the
+   *    one a retry could not fix.
+   */
+  async generate(
+    dto: GenerateLeaveBalancesDto,
+  ): Promise<LeaveBalanceGenerationReport> {
+    const warnings: string[] = [];
+
+    const [employees, policies] = await Promise.all([
+      this.employees.findGenerationCandidates(dto.employeeIds),
+      this.leaveTypes.findGenerationPolicies(dto.leaveTypeIds),
+    ]);
+
+    warnings.push(...missingIdWarnings(dto, employees, policies));
+
+    const eligible = employees.filter(
+      (employee) => employee.hireDate.getUTCFullYear() <= dto.year,
+    );
+
+    warnings.push(
+      ...unhiredWarning(employees.length - eligible.length, dto.year),
+    );
+
+    // Resolved after the employees are narrowed, because the warning about a
+    // type with no default states how many people it cost — a number that is
+    // only correct once the unhired have been dropped.
+    const allocatable = resolveAllocatableTypes(
+      { leaveTypeIds: dto.leaveTypeIds, employeeCount: eligible.length },
+      policies,
+      warnings,
+    );
+
+    if (eligible.length === 0 || allocatable.length === 0) {
+      return emptyReport(dto, warnings);
+    }
+
+    return this.runGeneration(dto, eligible, allocatable, warnings);
+  }
+
+  /**
+   * The half of {@link generate} that touches the database, once the scope is
+   * settled.
+   *
+   * Split out so the rules above read as rules rather than as preamble to a
+   * transaction, and so the two reads that plan the run are visibly outside it:
+   * both years are loaded in one query, the whole plan is computed in memory,
+   * and only then is anything written.
+   *
+   * `createMany` runs with `skipDuplicates`, which is not a substitute for the
+   * `skipped` count but a guard beneath it. The count comes from the rows read a
+   * moment ago; `skipDuplicates` is what makes a `POST` landing in between a
+   * no-op instead of a unique-violation that would roll back an entire January.
+   */
+  private async runGeneration(
+    dto: GenerateLeaveBalancesDto,
+    employees: readonly EmployeeGenerationCandidate[],
+    types: readonly AllocatableLeaveType[],
+    warnings: string[],
+  ): Promise<LeaveBalanceGenerationReport> {
+    const previousYear = dto.year - 1;
+
+    const existing = await this.prisma.employeeLeaveBalance.findMany({
+      where: {
+        year: { in: [previousYear, dto.year] },
+        employeeId: { in: employees.map(({ id }) => id) },
+        leaveTypeId: { in: types.map(({ id }) => id) },
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        leaveTypeId: true,
+        year: true,
+        allocatedDays: true,
+        carriedOverDays: true,
+        usedDays: true,
+        expiredDays: true,
+      },
+    });
+
+    const alreadyOpen = new Set(
+      existing
+        .filter((balance) => balance.year === dto.year)
+        .map((balance) => pairKey(balance.employeeId, balance.leaveTypeId)),
+    );
+
+    const creations = planCreations(dto.year, employees, types, alreadyOpen);
+    const expiries = planExpiries(
+      existing.filter((balance) => balance.year === previousYear),
+      types,
+    );
+
+    const report: LeaveBalanceGenerationReport = {
+      year: dto.year,
+      created: creations.length,
+      skipped: employees.length * types.length - creations.length,
+      expiredFromPreviousYear: expiries.reduce(
+        (total, { days }) => total + days,
+        0,
+      ),
+      expiredBalances: expiries.length,
+      dryRun: dto.dryRun === true,
+      warnings,
+    };
+
+    if (report.dryRun) {
+      return report;
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.employeeLeaveBalance.createMany({
+        data: creations,
+        skipDuplicates: true,
+      });
+
+      // Sequential rather than concurrent: `Promise.all` over these would
+      // interleave writes inside one transaction for no gain, and the count is
+      // bounded by how many people held a balance last year.
+      for (const { id, days } of expiries) {
+        await tx.employeeLeaveBalance.update({
+          where: { id },
+          data: { expiredDays: { increment: days } },
+        });
+      }
+
+      return count;
+    });
+
+    return {
+      ...report,
+      created,
+      skipped: report.skipped + creations.length - created,
+    };
   }
 
   /**
@@ -274,6 +460,7 @@ export class EmployeeLeaveBalancesService {
         allocatedDays: true,
         carriedOverDays: true,
         usedDays: true,
+        expiredDays: true,
       },
     });
 
@@ -474,6 +661,300 @@ export function insufficientLeaveMessage(
   requested: number,
 ): string {
   return `Insufficient leave: ${String(requested)} working day(s) requested, ${String(available)} day(s) available`;
+}
+
+/**
+ * A leave type that can actually seed a balance: active, and with a default to
+ * seed it from.
+ *
+ * The `null` is gone from `defaultAllocatedDays`, which is the whole reason this
+ * type exists rather than reusing {@link LeaveTypeGenerationPolicy}. Narrowing
+ * once, where the warning is produced, means nothing downstream has to re-check
+ * it or decide what a missing default means — the planner takes a number because
+ * by then there is one.
+ */
+interface AllocatableLeaveType {
+  readonly id: string;
+  readonly code: string;
+  readonly defaultAllocatedDays: number;
+  readonly allowsCarryOver: boolean;
+  readonly maxCarryOverDays: number | null;
+}
+
+/** One year-end write-off: which balance, and how many days it loses. */
+interface PlannedExpiry {
+  readonly id: string;
+  readonly days: number;
+}
+
+/** Identifies an (employee, leave type) pair within one year's plan. */
+function pairKey(employeeId: string, leaveTypeId: string): string {
+  return `${employeeId}:${leaveTypeId}`;
+}
+
+/**
+ * Narrows the policies to the types a run can allocate from, warning about each
+ * one it drops.
+ *
+ * Two reasons to drop a type, and they are reported differently on purpose:
+ *
+ * - **Retired.** Warned about only when the caller named it explicitly. An id in
+ *   the body is something a person typed and is owed an answer about; a retired
+ *   type swept up by the default set is skipped in silence, because nobody asked
+ *   and a warning per retired type would be noise on every January run.
+ * - **No `defaultAllocatedDays`.** Always warned about, whether named or not,
+ *   and this is the warning the whole report exists for. A type in this state
+ *   silently produces no balances, and the first anybody hears of it is an
+ *   employee being told they have `0` days available — which is exactly the
+ *   failure this feature was written to stop. It names the code, because HR
+ *   picked "SICK_LEAVE" from a list, and says how many people it affected.
+ */
+function resolveAllocatableTypes(
+  {
+    leaveTypeIds,
+    employeeCount,
+  }: { leaveTypeIds?: string[]; employeeCount: number },
+  policies: readonly LeaveTypeGenerationPolicy[],
+  warnings: string[],
+): AllocatableLeaveType[] {
+  const named = leaveTypeIds !== undefined;
+  const allocatable: AllocatableLeaveType[] = [];
+
+  for (const policy of policies) {
+    if (!policy.isActive) {
+      if (named) {
+        warnings.push(
+          `Leave type ${policy.code} has been retired and was skipped`,
+        );
+      }
+
+      continue;
+    }
+
+    if (policy.defaultAllocatedDays === null) {
+      warnings.push(
+        `Leave type ${policy.code} has no defaultAllocatedDays; ${String(employeeCount)} employee(s) were not given a balance for it`,
+      );
+
+      continue;
+    }
+
+    allocatable.push({
+      id: policy.id,
+      code: policy.code,
+      defaultAllocatedDays: policy.defaultAllocatedDays,
+      allowsCarryOver: policy.allowsCarryOver,
+      maxCarryOverDays: policy.maxCarryOverDays,
+    });
+  }
+
+  return allocatable;
+}
+
+/**
+ * Reports each requested id that came back with nothing.
+ *
+ * Named per id rather than as a count, because an id is what the caller has to
+ * go and fix. An employee and a leave type fail differently and say so: a type
+ * either exists or does not, while an employee id may also have been dropped for
+ * being `TERMINATED`, and claiming they do not exist would send somebody looking
+ * for a record that is right there.
+ */
+function missingIdWarnings(
+  { employeeIds, leaveTypeIds }: GenerateLeaveBalancesDto,
+  employees: readonly EmployeeGenerationCandidate[],
+  policies: readonly LeaveTypeGenerationPolicy[],
+): string[] {
+  const foundEmployees = new Set(employees.map(({ id }) => id));
+  const foundTypes = new Set(policies.map(({ id }) => id));
+
+  return [
+    ...(employeeIds ?? [])
+      .filter((id) => !foundEmployees.has(id))
+      .map(
+        (id) =>
+          `Employee ${id} does not exist or has been terminated, and was skipped`,
+      ),
+    ...(leaveTypeIds ?? [])
+      .filter((id) => !foundTypes.has(id))
+      .map((id) => `Leave type ${id} does not exist, and was skipped`),
+  ];
+}
+
+/**
+ * Reports the people who were dropped for not having been hired yet.
+ *
+ * Aggregated into one line rather than one per person, because unlike a bad id
+ * there is nothing to fix: generating 2026 for somebody who starts in 2027 is a
+ * question with no sensible answer, and the count is there so a run that
+ * produced fewer balances than expected explains itself.
+ */
+function unhiredWarning(count: number, year: number): string[] {
+  if (count === 0) {
+    return [];
+  }
+
+  return [
+    `${String(count)} employee(s) are hired after ${String(year)} and were skipped`,
+  ];
+}
+
+/** The report for a run with nothing in scope; the warnings say why. */
+function emptyReport(
+  dto: GenerateLeaveBalancesDto,
+  warnings: string[],
+): LeaveBalanceGenerationReport {
+  return {
+    year: dto.year,
+    created: 0,
+    skipped: 0,
+    expiredFromPreviousYear: 0,
+    expiredBalances: 0,
+    dryRun: dto.dryRun === true,
+    warnings,
+  };
+}
+
+/**
+ * The rows to insert: every (employee, type) pair that has no balance for the
+ * year yet.
+ *
+ * `usedDays`, `carriedOverDays` and `expiredDays` are left to the schema's `0`
+ * rather than stated. `carriedOverDays` in particular is deliberate and is the
+ * decision most likely to be mistaken for an oversight: the days that survive a
+ * year-end stay in the year they belong to, and writing them here as well would
+ * count each of them twice.
+ */
+function planCreations(
+  year: number,
+  employees: readonly EmployeeGenerationCandidate[],
+  types: readonly AllocatableLeaveType[],
+  alreadyOpen: ReadonlySet<string>,
+): Prisma.EmployeeLeaveBalanceCreateManyInput[] {
+  const creations: Prisma.EmployeeLeaveBalanceCreateManyInput[] = [];
+
+  for (const employee of employees) {
+    for (const type of types) {
+      if (alreadyOpen.has(pairKey(employee.id, type.id))) {
+        continue;
+      }
+
+      creations.push({
+        employeeId: employee.id,
+        leaveTypeId: type.id,
+        year,
+        allocatedDays: proRatedAllocation(
+          type.defaultAllocatedDays,
+          employee,
+          year,
+        ),
+      });
+    }
+  }
+
+  return creations;
+}
+
+/**
+ * The allocation for one person's first year, reduced to the part of it they
+ * will work.
+ *
+ * `round(defaultAllocatedDays × monthsRemaining ÷ 12)`, counting the month of
+ * hire as worked — somebody who starts on 15 July gets July. Applied only in the
+ * year the person was hired; every year after that is the full entitlement.
+ *
+ * Rounded rather than floored, because the arithmetic is an estimate of a
+ * contractual figure and rounding the estimate down would systematically
+ * under-grant. HR corrects the exceptions with a `PATCH`, which is where a
+ * figure that came from a contract rather than from a formula belongs.
+ */
+function proRatedAllocation(
+  defaultAllocatedDays: number,
+  { hireDate }: EmployeeGenerationCandidate,
+  year: number,
+): number {
+  if (hireDate.getUTCFullYear() !== year) {
+    return defaultAllocatedDays;
+  }
+
+  // `getUTCMonth()` is zero-based, so a July hire leaves 12 - 6 = 6 months:
+  // July through December, inclusive of the month they started.
+  const monthsRemaining = MONTHS_PER_YEAR - hireDate.getUTCMonth();
+
+  return Math.round((defaultAllocatedDays * monthsRemaining) / MONTHS_PER_YEAR);
+}
+
+/**
+ * What each of the previous year's balances loses to its type's carry-over
+ * policy.
+ *
+ * `expire = remaining - min(remaining, cap)`, with the cap being `0` for a type
+ * that carries nothing over and `remaining` itself for one with no ceiling. Two
+ * properties of that formula are worth stating, because both are relied on
+ * elsewhere:
+ *
+ * - **It is idempotent.** Expiring down to a cap leaves nothing above the cap,
+ *   so a second run finds `remaining` already at or below it and takes nothing
+ *   more. That is what lets the endpoint be re-run without a guard against
+ *   having been run before.
+ * - **It never runs on an overdrawn balance.** A negative remainder is skipped
+ *   outright, because `remaining - keep` would otherwise be a *negative* expiry
+ *   that handed days back to somebody who had already taken too many.
+ *
+ * A balance whose type is not in scope is skipped: this run was not asked about
+ * that type, and closing a year nobody mentioned would be a write the caller did
+ * not request.
+ */
+function planExpiries(
+  previousYear: readonly {
+    id: string;
+    leaveTypeId: string;
+    allocatedDays: number;
+    carriedOverDays: number;
+    usedDays: number;
+    expiredDays: number;
+  }[],
+  types: readonly AllocatableLeaveType[],
+): PlannedExpiry[] {
+  const policies = new Map(types.map((type) => [type.id, type]));
+  const expiries: PlannedExpiry[] = [];
+
+  for (const balance of previousYear) {
+    const policy = policies.get(balance.leaveTypeId);
+
+    if (policy === undefined) {
+      continue;
+    }
+
+    const remaining = computeRemainingDays(balance);
+
+    if (remaining <= 0) {
+      continue;
+    }
+
+    const keep = carryOverAllowance(policy, remaining);
+    const days = remaining - keep;
+
+    if (days > 0) {
+      expiries.push({ id: balance.id, days });
+    }
+  }
+
+  return expiries;
+}
+
+/** How much of a remainder one leave type's policy lets through a year-end. */
+function carryOverAllowance(
+  { allowsCarryOver, maxCarryOverDays }: AllocatableLeaveType,
+  remaining: number,
+): number {
+  if (!allowsCarryOver) {
+    return 0;
+  }
+
+  return maxCarryOverDays === null
+    ? remaining
+    : Math.min(remaining, maxCarryOverDays);
 }
 
 /**

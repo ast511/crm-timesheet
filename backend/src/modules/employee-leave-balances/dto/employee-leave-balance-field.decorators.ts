@@ -42,10 +42,10 @@ export function IsLeaveBalanceYear() {
 }
 
 /**
- * `allocatedDays`, `carriedOverDays`, `usedDays` — a whole number of days,
- * never negative, never more than a year holds.
+ * `allocatedDays`, `carriedOverDays`, `usedDays`, `expiredDays` — a whole number
+ * of days, never negative, never more than a year holds.
  *
- * One decorator for all three, because the rule is genuinely the same for each;
+ * One decorator for all four, because the rule is genuinely the same for each;
  * what differs between them is only whether the field is required, which stays
  * on the DTO. Half days are rejected: leave here is counted in whole days, and
  * `10.5` would be silently truncated by the `integer` column.

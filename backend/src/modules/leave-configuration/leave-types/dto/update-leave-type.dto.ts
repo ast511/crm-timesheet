@@ -3,6 +3,7 @@ import { IsBoolean, IsOptional } from 'class-validator';
 import { ValidateIfPresent } from '../../../../common/decorators/validate-if-present.decorator';
 import {
   IsLeaveTypeAllocatedDays,
+  IsLeaveTypeCarryOverDays,
   IsLeaveTypeCode,
   IsLeaveTypeColor,
   IsLeaveTypeDescription,
@@ -62,6 +63,24 @@ export class UpdateLeaveTypeDto {
   @IsOptional()
   @IsLeaveTypeAllocatedDays()
   readonly defaultAllocatedDays?: number | null;
+
+  /**
+   * Turning this on does not retroactively rescue days an earlier year-end
+   * already expired, and turning it off does not reclaim days that survived one.
+   * Both are true for the same reason: the policy is read once, when a year is
+   * generated, and what it decided is recorded in that year's `expiredDays`.
+   */
+  @ValidateIfPresent()
+  @IsBoolean()
+  readonly allowsCarryOver?: boolean;
+
+  /**
+   * Nullable: `null` removes the ceiling entirely, which is a different request
+   * from `0` — "carry over, but no days" — and both are accepted.
+   */
+  @IsOptional()
+  @IsLeaveTypeCarryOverDays()
+  readonly maxCarryOverDays?: number | null;
 
   @ValidateIfPresent()
   @IsBoolean()

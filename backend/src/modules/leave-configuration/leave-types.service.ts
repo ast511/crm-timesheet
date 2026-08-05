@@ -35,6 +35,29 @@ const CASE_INSENSITIVE = { mode: 'insensitive' } as const;
 type UniqueLeaveTypeFields = Pick<UpdateLeaveTypeDto, 'code' | 'label'>;
 
 /**
+ * What generating a year's balances needs to know about one kind of leave.
+ *
+ * Five facts, and each drives a different decision in the caller:
+ * `defaultAllocatedDays` seeds the new row (and `null` means no row can be
+ * seeded at all), `allowsCarryOver` and `maxCarryOverDays` decide how much of
+ * last year's remainder survives, `isActive` decides whether the type takes part,
+ * and `code` is what a warning names — an HR user picked "Annual Leave" from a
+ * list, not a cuid.
+ *
+ * Published as its own type rather than as the row: it is the contract between
+ * two modules, and spelling it out is what stops the caller from quietly
+ * depending on a column that happens to be selected.
+ */
+export interface LeaveTypeGenerationPolicy {
+  readonly id: string;
+  readonly code: string;
+  readonly defaultAllocatedDays: number | null;
+  readonly allowsCarryOver: boolean;
+  readonly maxCarryOverDays: number | null;
+  readonly isActive: boolean;
+}
+
+/**
  * Every rule about leave types lives here; the controller only routes.
  *
  * Two of them are worth naming, because they are what makes this module
@@ -248,6 +271,42 @@ export class LeaveTypesService {
     return this.prisma.leaveType.findUnique({
       where: { id },
       select: { requiresApproval: true, isActive: true },
+    });
+  }
+
+  /**
+   * Every leave type a year's balances could be generated from, or only the ones
+   * named.
+   *
+   * Feature 024 asks this once per run and then works from the answer, rather
+   * than looking a type up per employee: the types are a vocabulary of tens of
+   * rows while the employees are hundreds, and a query inside that loop would be
+   * one round trip per pair.
+   *
+   * **Inactive types are returned rather than filtered out**, and that is the
+   * decision worth naming. The caller has to tell two situations apart — "you
+   * asked for a retired type by id" deserves a warning naming it, while "the
+   * default set skips retired types" is silent housekeeping — and a query that
+   * dropped them here could only produce the second. Filtering is the caller's,
+   * because only the caller knows whether the id was typed or inferred.
+   *
+   * `ids` is matched as given: an id that names nothing simply does not come
+   * back, which is how the caller detects it.
+   */
+  async findGenerationPolicies(
+    ids?: readonly string[],
+  ): Promise<LeaveTypeGenerationPolicy[]> {
+    return this.prisma.leaveType.findMany({
+      where: ids === undefined ? undefined : { id: { in: [...ids] } },
+      orderBy: { code: SortOrder.ASC },
+      select: {
+        id: true,
+        code: true,
+        defaultAllocatedDays: true,
+        allowsCarryOver: true,
+        maxCarryOverDays: true,
+        isActive: true,
+      },
     });
   }
 

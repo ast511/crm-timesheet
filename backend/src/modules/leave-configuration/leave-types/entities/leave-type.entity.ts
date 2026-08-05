@@ -28,6 +28,10 @@ export interface LeaveTypeEntity {
   color: string | null;
   description: string | null;
   defaultAllocatedDays: number | null;
+  /** Whether a year's remainder may still be taken in the next year. */
+  allowsCarryOver: boolean;
+  /** The ceiling on that remainder; `null` means no ceiling. */
+  maxCarryOverDays: number | null;
   requiresApproval: boolean;
   isPaid: boolean;
   isActive: boolean;
@@ -57,6 +61,8 @@ export const LEAVE_TYPE_PUBLIC_SELECT = {
   color: true,
   description: true,
   defaultAllocatedDays: true,
+  allowsCarryOver: true,
+  maxCarryOverDays: true,
   requiresApproval: true,
   isPaid: true,
   isActive: true,
@@ -86,6 +92,8 @@ export function toLeaveTypeEntity(leaveType: LeaveTypeRow): LeaveTypeEntity {
     color: leaveType.color,
     description: leaveType.description,
     defaultAllocatedDays: leaveType.defaultAllocatedDays,
+    allowsCarryOver: leaveType.allowsCarryOver,
+    maxCarryOverDays: leaveType.maxCarryOverDays,
     requiresApproval: leaveType.requiresApproval,
     isPaid: leaveType.isPaid,
     isActive: leaveType.isActive,

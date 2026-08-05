@@ -46,6 +46,23 @@ interface EmployeeRelationIds {
 }
 
 /**
+ * One person, as a leave-balance generation run sees them.
+ *
+ * `hireDate` is the field that earns this its own type rather than a reuse of
+ * `EmployeeEntity`: the caller pro-rates a first-year allocation from it, and it
+ * is not in the public entity's shape as a `Date`. The three identifying fields
+ * are there so a warning can name somebody the way the person reading it knows
+ * them — `EMP-0007 (Popescu Ion)` rather than a cuid.
+ */
+export interface EmployeeGenerationCandidate {
+  readonly id: string;
+  readonly employeeCode: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly hireDate: Date;
+}
+
+/**
  * Every rule about employees lives here; the controller only routes.
  *
  * What makes this module more than a fourth copy of the same CRUD shape is that
@@ -322,6 +339,49 @@ export class EmployeeService {
     });
 
     return employee?.status ?? null;
+  }
+
+  /**
+   * The people a year's leave balances should be generated for, or only the ones
+   * named.
+   *
+   * **`TERMINATED` is the one status excluded, and it is the only one that
+   * should be.** Somebody `ON_LEAVE` on 1 January needs next year's balances as
+   * much as anybody — more, since they are already away — and `SUSPENDED` and
+   * `INACTIVE` describe people the company still employs. Restricting this to
+   * `ACTIVE` would leave exactly those people without balances and reproduce, in
+   * a new place, the "0 days available" that Feature 024 exists to prevent.
+   *
+   * A leaver is different in kind: they will file no request for a year they
+   * will not work, so a row for them would be a grant nobody can use. Note that
+   * this is not the same as refusing to *allocate* to a leaver, which
+   * `EmployeeLeaveBalancesService` still permits by hand — a person who left in
+   * July had days in that year, and recording them has to stay possible.
+   *
+   * `hireDate` comes back because the caller pro-rates the first year's
+   * allocation from it; `employeeCode` and the name because a warning about a
+   * person has to name them the way the person reading it chose them.
+   *
+   * `ids` is matched as given: an id that names nobody simply does not come
+   * back, which is how the caller detects it.
+   */
+  async findGenerationCandidates(
+    ids?: readonly string[],
+  ): Promise<EmployeeGenerationCandidate[]> {
+    return this.prisma.employee.findMany({
+      where: {
+        status: { not: EmployeeStatus.TERMINATED },
+        ...(ids === undefined ? {} : { id: { in: [...ids] } }),
+      },
+      orderBy: [{ lastName: SortOrder.ASC }, { firstName: SortOrder.ASC }],
+      select: {
+        id: true,
+        employeeCode: true,
+        firstName: true,
+        lastName: true,
+        hireDate: true,
+      },
+    });
   }
 
   /**

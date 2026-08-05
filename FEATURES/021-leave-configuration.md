@@ -696,6 +696,17 @@ so what is asserted is the object the controller receives — transforms include
   the Leave Balances feature's own table, at the per-employee, per-year grain
   that makes them answerable. Explicitly *not* as a company-wide singleton; that
   is the shape this feature tried and removed.
+
+  > **Delivered by [Feature 024](024-leave-balance-generation.md), in a different
+  > shape than anticipated here.** The *policy* — `allowsCarryOver` and
+  > `maxCarryOverDays` — went onto `LeaveType` rather than onto the balance,
+  > because whether annual leave carries over and medical leave does not is true
+  > of every employee at once; stating it per employee per year would be the same
+  > answer copied a thousand times. What did land at the per-employee, per-year
+  > grain is the *record of what happened*: `EmployeeLeaveBalance.expiredDays`,
+  > which says how many days that person lost in that year. This is still not the
+  > company-wide singleton this feature removed — the rule is per leave type, and
+  > the outcome is per person.
 - A `citext` column or a functional unique index on `leave_types.label`, if the
   case-variant race the duplicate check cannot close ever becomes real rather
   than theoretical.

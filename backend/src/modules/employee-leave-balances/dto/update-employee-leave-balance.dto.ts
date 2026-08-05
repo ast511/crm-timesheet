@@ -51,6 +51,20 @@ export class UpdateEmployeeLeaveBalanceDto {
   @IsLeaveBalanceDays()
   readonly usedDays?: number;
 
+  /**
+   * Days written off by a year-end. Editable so a run that expired too much — a
+   * carry-over cap corrected after the fact — can be put right without deleting
+   * the balance and losing the year with it.
+   *
+   * Re-running the generation will not undo an over-expiry for you. It is safe
+   * to run twice — expiring down to a cap leaves nothing above that cap, so the
+   * second run finds nothing to take — but that is idempotence, not a
+   * correction: it can only ever expire more, never give days back.
+   */
+  @ValidateIfPresent()
+  @IsLeaveBalanceDays()
+  readonly expiredDays?: number;
+
   /** Nullable: `null` (or `""`) clears the note. */
   @IsOptional()
   @IsLeaveBalanceNotes()

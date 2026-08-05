@@ -21,6 +21,7 @@ const BALANCE: LeaveBalanceRow = {
   allocatedDays: 21,
   carriedOverDays: 3,
   usedDays: 5,
+  expiredDays: 0,
   notes: 'Carried three days from 2025.',
   employee: {
     id: 'emp-1',
@@ -61,6 +62,7 @@ const BALANCE_ENTITY = {
   allocatedDays: 21,
   carriedOverDays: 3,
   usedDays: 5,
+  expiredDays: 0,
   remainingDays: 19,
   notes: 'Carried three days from 2025.',
   createdAt: '2026-08-04T10:00:00.000Z',
@@ -563,6 +565,7 @@ describe('EmployeeLeaveBalancesService', () => {
         allocatedDays: 21,
         carriedOverDays: 0,
         usedDays: 19,
+        expiredDays: 0,
       },
       {
         id: 'elb-2026',
@@ -570,6 +573,7 @@ describe('EmployeeLeaveBalancesService', () => {
         allocatedDays: 21,
         carriedOverDays: 0,
         usedDays: 0,
+        expiredDays: 0,
       },
     ];
 

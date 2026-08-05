@@ -49,6 +49,32 @@ export const LEAVE_BALANCE_NOTES_MAX_LENGTH = 500;
 export const LEAVE_BALANCE_SEARCH_MAX_LENGTH = 100;
 
 /**
+ * The most ids `POST /employee-leave-balances/generate` accepts in one list,
+ * for `employeeIds` and `leaveTypeIds` alike.
+ *
+ * It bounds the `IN (...)` each list becomes, and it is not a limit on how many
+ * balances a run may write: omitting a list means "all of them", which is the
+ * ordinary January call and is deliberately unbounded. The list exists to
+ * *narrow* a run — one new hire, one leave type somebody forgot — and a
+ * narrowing longer than this is the caller reaching for the unbounded form
+ * without saying so.
+ *
+ * Generous rather than tight, because "every employee in one department" is a
+ * legitimate way to use it and departments can be large.
+ */
+export const LEAVE_BALANCE_GENERATION_MAX_IDS = 500;
+
+/**
+ * The months in a year, named because the pro-rata arithmetic divides by it.
+ *
+ * A first-year allocation is `defaultAllocatedDays × monthsRemaining / 12`, and
+ * `12` written inline in that expression is exactly the magic number the coding
+ * rules ask to be given a name — it is the length of the entitlement period, not
+ * an arbitrary divisor.
+ */
+export const MONTHS_PER_YEAR = 12;
+
+/**
  * Columns `?sortBy=` accepts.
  *
  * A closed list rather than a free string: the value reaches Prisma's `orderBy`

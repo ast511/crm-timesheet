@@ -57,6 +57,19 @@ export class CreateEmployeeLeaveBalanceDto {
   @IsLeaveBalanceDays()
   readonly usedDays?: number;
 
+  /**
+   * Omitted, the schema's `0` applies — which is what a balance being opened
+   * should almost always say.
+   *
+   * Accepted here only for the same reason `usedDays` is: a balance migrated
+   * from whatever HR used before may arrive with days already written off, and
+   * refusing the field would make that year unrecordable. Ordinary year-end
+   * expiry is written by the generation endpoint, not typed.
+   */
+  @IsOptional()
+  @IsLeaveBalanceDays()
+  readonly expiredDays?: number;
+
   /** Nullable: `null` (or `""`) means "no note". */
   @IsOptional()
   @IsLeaveBalanceNotes()

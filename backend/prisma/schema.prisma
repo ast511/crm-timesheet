@@ -464,8 +464,9 @@ model LeaveType {
   /// The number of days HR is *suggested* when it creates an employee's annual
   /// balance for this leave type.
   ///
-  /// **Nothing is allocated by this column.** It is a default a future feature
-  /// will pre-fill a form with, not an entitlement: entitlement is per employee
+  /// **Nothing is allocated by this column on its own.** It is a default, not an
+  /// entitlement — Feature 024's generation seeds new balances from it, and HR
+  /// may edit any of them afterwards: entitlement is per employee
   /// and per year — it depends on seniority, on the contract, on days carried
   /// over — and none of those facts live here. A balance table owned by that
   /// feature will hold the numbers that were actually granted, so changing this
@@ -475,6 +476,29 @@ model LeaveType {
   /// granted against a certificate rather than out of a pot, and `0` would claim
   /// an allocation of zero days instead.
   defaultAllocatedDays Int? @map("default_allocated_days")
+
+  /// Whether days left over at the end of a year may still be taken in the next
+  /// one.
+  ///
+  /// Defaulted to `false`, which is the conservative half of the pair: after the
+  /// migration that adds this column, no type carries anything over until
+  /// somebody says it does. Annual leave is the type this exists for; medical
+  /// leave is granted against a certificate rather than out of a pot, so there is
+  /// nothing to carry.
+  ///
+  /// **This column does not move days.** Balances are consumed oldest year
+  /// first, so last year's remainder is already spendable — what Feature 024's
+  /// generation writes off is the part that is *not* allowed to survive. See
+  /// [EmployeeLeaveBalance.expiredDays].
+  allowsCarryOver Boolean @default(false) @map("allows_carry_over")
+
+  /// The most days that may survive one year-end, or `null` for no cap.
+  ///
+  /// Read only when [allowsCarryOver] is `true`; on a type that carries nothing
+  /// over it would describe a limit on something that never happens. Kept
+  /// nullable rather than defaulted to a number because "carries over, without a
+  /// ceiling" is a real policy, and `0` would mean the opposite of it.
+  maxCarryOverDays Int? @map("max_carry_over_days")
 
   /// Whether a request of this type has to be approved before it counts.
   /// Defaulted to `true` because approval is the norm — annual leave is agreed
@@ -677,11 +701,13 @@ model LeaveRequestReplacement {
 /// contradicts its own parts. The three stored numbers are the single source of
 /// truth; the fourth is a view of them.
 ///
-/// The three are separate columns rather than one running total because they
+/// The four are separate columns rather than one running total because they
 /// answer different questions and are written by different hands: HR sets
-/// `allocatedDays`, a year-end job will set `carriedOverDays`, and the Leave
-/// Requests feature will move `usedDays`. A single total would lose which of
-/// the three changed, and with it any way to audit a balance that looks wrong.
+/// `allocatedDays` and `carriedOverDays`, the Leave Requests feature moves
+/// `usedDays`, and Feature 024's year-end generation writes `expiredDays`. A
+/// single total would lose which of the four changed, and with it any way to
+/// audit a balance that looks wrong — or to tell days somebody took from days
+/// somebody forfeited.
 model EmployeeLeaveBalance {
   id String @id @default(cuid())
 
@@ -718,6 +744,27 @@ model EmployeeLeaveBalance {
   /// requests do not exist yet, and a balance opened with days already taken —
   /// an employee joining mid-year from another system — has to be expressible.
   usedDays Int @default(0) @map("used_days")
+
+  /// Days written off at a year-end because the leave type's carry-over policy
+  /// did not let them survive. Defaulted to `0`.
+  ///
+  /// **This column is what makes a carry-over cap mean anything.** Balances are
+  /// consumed oldest year first and `findAvailable` reads every year up to the
+  /// one being requested, so a remainder left in a closed year is *already*
+  /// spendable in the next — carrying nothing forward is the system's natural
+  /// behaviour, and it has no ceiling. Expiring the surplus in place is
+  /// therefore the operation, and copying the survivors into the new year's
+  /// [carriedOverDays] would count the same days twice.
+  ///
+  /// Kept apart from `usedDays` because the two are different facts: `usedDays`
+  /// is leave somebody took, and this is leave somebody lost. Folded together,
+  /// no report could tell an employee who used their allowance from one who
+  /// forfeited it, and the year-end job would look like it had approved
+  /// absences nobody requested.
+  ///
+  /// Written by Feature 024's generation and by `PATCH` for corrections; never
+  /// by an approval.
+  expiredDays Int @default(0) @map("expired_days")
 
   /// Free-text HR note: why the allocation is what it is. Optional, and read by
   /// nothing — it is for the person who opens this screen next year and wonders.

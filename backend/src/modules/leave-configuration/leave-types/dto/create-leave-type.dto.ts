@@ -2,6 +2,7 @@ import { IsBoolean, IsOptional } from 'class-validator';
 
 import {
   IsLeaveTypeAllocatedDays,
+  IsLeaveTypeCarryOverDays,
   IsLeaveTypeCode,
   IsLeaveTypeColor,
   IsLeaveTypeDescription,
@@ -54,6 +55,29 @@ export class CreateLeaveTypeDto {
   @IsOptional()
   @IsLeaveTypeAllocatedDays()
   readonly defaultAllocatedDays?: number | null;
+
+  /**
+   * Whether days left at the end of a year may still be taken in the next one.
+   *
+   * Left to the schema's `false` default rather than repeated here, which is the
+   * conservative direction: a type carries nothing over until somebody says it
+   * does. Annual leave is what this is for; medical leave is granted against a
+   * certificate, so there is nothing to carry.
+   */
+  @IsOptional()
+  @IsBoolean()
+  readonly allowsCarryOver?: boolean;
+
+  /**
+   * The ceiling on what survives one year-end. Omitting it — or sending `null` —
+   * means no ceiling, which is a different policy from a ceiling of `0`.
+   *
+   * Read only when `allowsCarryOver` is `true`; on a type that carries nothing
+   * over it bounds something that never happens.
+   */
+  @IsOptional()
+  @IsLeaveTypeCarryOverDays()
+  readonly maxCarryOverDays?: number | null;
 
   @IsOptional()
   @IsBoolean()

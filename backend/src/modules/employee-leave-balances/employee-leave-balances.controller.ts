@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -12,9 +14,11 @@ import {
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
 import { CreateEmployeeLeaveBalanceDto } from './dto/create-employee-leave-balance.dto';
 import { EmployeeLeaveBalanceQueryDto } from './dto/employee-leave-balance-query.dto';
+import { GenerateLeaveBalancesDto } from './dto/generate-leave-balances.dto';
 import { UpdateEmployeeLeaveBalanceDto } from './dto/update-employee-leave-balance.dto';
 import { EmployeeLeaveBalancesService } from './employee-leave-balances.service';
 import { EmployeeLeaveBalanceEntity } from './entities/employee-leave-balance.entity';
+import { LeaveBalanceGenerationReport } from './entities/leave-balance-generation-report.entity';
 
 /**
  * `/api/v1/employee-leave-balances` — how much leave each person has, of each
@@ -69,6 +73,28 @@ export class EmployeeLeaveBalancesController {
     @Body() dto: CreateEmployeeLeaveBalanceDto,
   ): Promise<EmployeeLeaveBalanceEntity> {
     return this.employeeLeaveBalancesService.create(dto);
+  }
+
+  /**
+   * Opens a year for everybody in scope, and closes the one before it.
+   *
+   * A `POST` to a named sub-path rather than a resource, because what it creates
+   * is not one balance — it is however many the scope works out to, and the
+   * response is a report on the run rather than a record a client could then
+   * `GET`. The rows themselves stay addressable where they always were:
+   * `GET /employee-leave-balances?year=2027`.
+   *
+   * Answers `200` rather than `201`, and the override is the honest code. A
+   * `Location` header would have nothing to point at, a re-run that creates
+   * nothing is a complete success, and `dryRun` writes nothing at all — none of
+   * which `201 Created` describes.
+   */
+  @Post('generate')
+  @HttpCode(HttpStatus.OK)
+  generate(
+    @Body() dto: GenerateLeaveBalancesDto,
+  ): Promise<LeaveBalanceGenerationReport> {
+    return this.employeeLeaveBalancesService.generate(dto);
   }
 
   @Patch(':id')

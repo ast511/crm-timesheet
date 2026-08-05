@@ -705,6 +705,25 @@ out-of-range one.
 - A year-end carry-over routine, once somebody specifies the cap and the expiry —
   the rules [Feature 021](021-leave-configuration.md) removed a global flag for
   rather than guess at. It belongs beside the balances, at the per-employee grain.
+
+  > **Delivered by [Feature 024](024-leave-balance-generation.md), and it turned
+  > the routine inside out.** Carrying days *forward* needed no routine at all:
+  > `findAvailable` reads `year <= upToYear` and `consume` takes the oldest year
+  > first, so last year's remainder was already spendable — uncapped, and
+  > forever. Writing the survivors into the next year's `carriedOverDays` would
+  > have counted every one of them twice. What the routine actually does is
+  > **expire** the part the policy does not let survive, recorded in place as
+  > `expiredDays`, which is why `remainingDays` gained a fourth term.
+
 - A bulk allocation endpoint — "give every active employee 21 days of annual
   leave for 2027" — which is the request that will otherwise be sent a hundred
   times each January.
+
+  > **Delivered by [Feature 024](024-leave-balance-generation.md)** as
+  > `POST /employee-leave-balances/generate`, which also serves the new-hire case
+  > by naming a single employee. Two departures from the wording above: the
+  > allocation is not stated in the request but read from each leave type's
+  > `defaultAllocatedDays`, so the endpoint cannot invent an entitlement; and the
+  > scope is every employee who is not `TERMINATED` rather than only the active
+  > ones, because somebody on long-term leave on 1 January needs next year's
+  > balances more than anybody.
