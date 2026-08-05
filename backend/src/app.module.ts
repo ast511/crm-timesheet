@@ -11,6 +11,7 @@ import { EmployeeLeaveBalancesModule } from './modules/employee-leave-balances/e
 import { EmployeeModule } from './modules/employees/employee.module';
 import { LeaveConfigurationModule } from './modules/leave-configuration/leave-configuration.module';
 import { LeaveRequestsModule } from './modules/leave-requests/leave-requests.module';
+import { NotificationManagementModule } from './modules/notification-management/notification-management.module';
 import { NotificationModule } from './modules/notifications/notification.module';
 import { PositionModule } from './modules/positions/position.module';
 import { ProjectMemberModule } from './modules/project-members/project-member.module';
@@ -73,6 +74,11 @@ import { PrismaModule } from './prisma/prisma.module';
     // and delivering it belongs to the Notification Delivery Engine, which will
     // import this rather than the reverse.
     NotificationModule,
+    // Configuration for the notifications above: the reminder rules the company
+    // wants and the announcements it has composed. It stores both and sends
+    // neither — the Notification Delivery Engine reads these tables and is the
+    // only thing that turns an intention into a notification.
+    NotificationManagementModule,
   ],
   controllers: [AppController],
   providers: [AppService],

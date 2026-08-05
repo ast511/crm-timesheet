@@ -190,6 +190,45 @@ enum NotificationPriority {
   HIGH   @map("high")
 }
 
+/// Where a manual notification campaign is in its lifecycle.
+///
+/// Four states, and only three of them are reachable through this API.
+/// `DRAFT` and `SCHEDULED` are *derived* from whether the campaign carries a
+/// `scheduled_at` — one fact, stated in one column, so the two can never
+/// contradict each other — and `CANCELLED` is the one value a client may write
+/// directly. `SENT` is written by the Notification Delivery Engine and by
+/// nothing else: it is the record that the engine ran, and a client that could
+/// set it would be claiming an announcement had gone out when nothing had.
+///
+/// `SENT` and `CANCELLED` are terminal. A `SENT` campaign can be neither edited
+/// nor deleted — its notifications are already in people's inboxes, so editing
+/// it would leave the stored announcement disagreeing with what was actually
+/// delivered — and a `CANCELLED` one can no longer be edited, though it may
+/// still be deleted.
+enum NotificationCampaignStatus {
+  DRAFT     @map("draft")
+  SCHEDULED @map("scheduled")
+  SENT      @map("sent")
+  CANCELLED @map("cancelled")
+}
+
+/// How a campaign names who it is for.
+///
+/// Deliberately **not** [NotificationRecipientType], although the two look
+/// alike. That enum addresses a `users` account or a `UserRole`; this one
+/// addresses an `employees` row, which is a different table and a different
+/// question — a campaign is announced to the people who work here, and the
+/// screen that composes one picks names from the employee directory. Sharing an
+/// enum between the two would mean `USER` sometimes meant an account and
+/// sometimes a person.
+///
+/// `ALL_EMPLOYEES` stores **one** row with a null `employee_id`, never one row
+/// per employee. See [NotificationRecipient].
+enum CampaignRecipientType {
+  EMPLOYEE      @map("employee")
+  ALL_EMPLOYEES @map("all_employees")
+}
+
 model User {
   id       String  @id @default(cuid())
   email    String  @unique
@@ -271,6 +310,20 @@ model Employee {
 
   /// Requests naming this person as the one covering the work.
   leaveRequestReplacements LeaveRequestReplacement[]
+
+  /// Manual notification campaigns this person composed.
+  ///
+  /// The author rather than an audience: a campaign records who wrote it, which
+  /// is why the foreign key is `RESTRICT` like every other reference to a person
+  /// that records something somebody *did*.
+  notificationCampaigns NotificationCampaign[]
+  /// Campaigns addressed to this person by name.
+  ///
+  /// Only the `EMPLOYEE` recipient type points here. An `ALL_EMPLOYEES` campaign
+  /// stores one row with a null `employee_id`, so this relation is the
+  /// *individually addressed* subset rather than every campaign a person will
+  /// receive — the same distinction `User.notifications` draws.
+  campaignRecipients NotificationRecipient[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1039,4 +1092,281 @@ model Notification {
   @@index([recipientRole, createdAt])
   @@index([workspace, recipientType, createdAt])
   @@map("notifications")
+}
+
+/// A rule saying that a reminder should go out a given number of days before a
+/// deadline.
+///
+/// Configuration rather than data, like [WorkSchedule], [PublicHoliday] and
+/// [LeaveType]: it describes *when the company wants to be reminded*, not that
+/// anybody was reminded. **Nothing in this feature fires one.** No job runs, no
+/// email is sent and no [Notification] is written; the Notification Delivery
+/// Engine reads these rows, works out which deadlines are that many days away
+/// and produces the messages. Keeping the rule and its execution apart is what
+/// lets an administrator change "7 days" to "5 days" without a scheduler being
+/// involved in the write.
+///
+/// **`daysBeforeDeadline` is an offset, not a date.** `0` is the deadline
+/// itself and is a legal, deliberate value — "your timesheet is due today" is
+/// the reminder people actually act on. The column therefore has no default: a
+/// reminder exists because somebody chose an offset, and guessing one would
+/// invent a rule nobody asked for.
+///
+/// **Which deadline is not named here**, and that is deliberate rather than an
+/// omission. The only deadline this application has is the timesheet's, and the
+/// Timesheets module does not exist yet; a `deadlineType` column would be a
+/// vocabulary of one value, invented before the thing it describes. The engine
+/// applies these rules to the timesheet deadline, and the day a second kind of
+/// deadline exists this table gains a column rather than a meaning.
+model Reminder {
+  id String @id @default(cuid())
+
+  /// What the rule is called, on the screen that lists them. Unique, so two
+  /// administrators cannot end up maintaining two rules nobody can tell apart.
+  ///
+  /// The uniqueness is enforced twice, for two different failures:
+  /// `ReminderService` folds case first — `Timesheet due` and `timesheet due`
+  /// are the same rule to a person, while PostgreSQL's index sees two rows — and
+  /// this index closes the exact-case race between that check and the insert.
+  name String @unique
+
+  description String?
+
+  /// Whether the engine should act on this rule. Defaulted to `true`, because a
+  /// reminder somebody just configured is one they want; switching it off is the
+  /// deliberate act.
+  ///
+  /// A flag rather than a delete, for the reason [LeaveType.isActive] is one: a
+  /// rule paused for a quarter keeps its wording, its offset and its name
+  /// instead of having to be retyped.
+  enabled Boolean @default(true)
+
+  /// How many days before the deadline the reminder goes out. `0` is the
+  /// deadline itself; negatives are refused by the API.
+  daysBeforeDeadline Int @map("days_before_deadline")
+
+  /// The heading and the body the engine will copy into whatever it produces.
+  ///
+  /// Stored as the message rather than as a template with placeholders, which is
+  /// the call this feature makes deliberately: a placeholder vocabulary
+  /// (`{{employee}}`, `{{deadline}}`) is a small language, and inventing one
+  /// before a single reminder has been sent would fix its syntax before anything
+  /// could show which substitutions are actually wanted. Templating belongs with
+  /// the engine that renders it.
+  subject String
+  message String
+
+  /// How the reminder is drawn and how loudly it asks.
+  ///
+  /// `severity` is a [NotificationType] — the enum the notification centre
+  /// already stores in `notifications.type` — rather than a second enum of the
+  /// same four values. That is the call [Notification.recipientRole] makes with
+  /// `UserRole`, and for the same reason: the delivery engine copies this value
+  /// straight into the notification it creates, and two vocabularies spelling
+  /// `INFO` differently would mean translating between them at every hand-off,
+  /// forever. The field is named for what it *is* to a reminder; the type is
+  /// named for where it ends up.
+  ///
+  /// Both are defaulted, so a caller states only what departs from "an ordinary
+  /// informational notice of normal importance".
+  severity NotificationType     @default(INFO)
+  priority NotificationPriority @default(MEDIUM)
+
+  /// How the reminder reaches people. **At least one must be true**, which the
+  /// API enforces and a column cannot: a rule that sends nothing by any channel
+  /// is a rule that cannot fire, and storing it would put a reminder on the
+  /// screen that silently never happens.
+  ///
+  /// The defaults are the pair the feature specifies and they are not
+  /// symmetrical on purpose: an in-app notification is cheap and expected, while
+  /// email leaves the system and lands in an inbox somebody has to clear, so it
+  /// is the one that has to be asked for.
+  sendEmail        Boolean @default(false) @map("send_email")
+  sendNotification Boolean @default(true) @map("send_notification")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// No index beyond the unique one on `name`.
+  ///
+  /// The same call Features 016–021 make for their configuration tables: this
+  /// holds a handful of rows — a company configures four or five reminders, not
+  /// four thousand — and PostgreSQL scans that faster than it would descend an
+  /// index. `notifications` is indexed because it grows without bound; this does
+  /// not.
+  @@map("reminders")
+}
+
+/// One announcement somebody composed by hand, to be delivered later.
+///
+/// The manual counterpart of [Reminder]: a reminder is a standing rule, this is
+/// a single message about a single occasion — planned maintenance, a company
+/// meeting, an office closure, an emergency notice.
+///
+/// **This table stores campaigns. It does not send them.** Creating one writes
+/// no [Notification], sends no email, opens no socket and schedules no job;
+/// `status` stays `DRAFT` or `SCHEDULED` and `sent_at` stays null until the
+/// Notification Delivery Engine acts. That is the same separation the
+/// notification centre keeps, one step earlier in the chain: the centre stores
+/// what people were told, this stores what somebody intends to tell them, and
+/// the engine is the only thing that turns the second into the first.
+///
+/// **`status` is derived from `scheduled_at` rather than chosen alongside it.**
+/// A campaign carrying a schedule is `SCHEDULED`; one without is a `DRAFT`.
+/// Accepting both as independent fields would let a row claim to be `SCHEDULED`
+/// with no time to fire at — two fields stating one fact, and the engine would
+/// have to decide which of them it believed. The two values a client *can* write
+/// are the schedule and `CANCELLED`.
+model NotificationCampaign {
+  id String @id @default(cuid())
+
+  /// The heading and the body, exactly as [Reminder] stores them and bounded by
+  /// the API at the same 200 and 5000 characters. The two resources are worded
+  /// by the same people on the same kind of screen; letting the bounds differ
+  /// would mean an announcement that fits a reminder is refused as a campaign.
+  subject String
+  message String
+
+  severity NotificationType     @default(INFO)
+  priority NotificationPriority @default(MEDIUM)
+
+  /// How the campaign reaches people. At least one must be true — see
+  /// [Reminder.sendEmail].
+  sendEmail        Boolean @default(false) @map("send_email")
+  sendNotification Boolean @default(true) @map("send_notification")
+
+  /// Where the campaign is in its lifecycle. Defaulted to `DRAFT`, which is what
+  /// a campaign is the instant it is composed without a schedule.
+  status NotificationCampaignStatus @default(DRAFT)
+
+  /// When the engine should send it, or null for a draft nobody has scheduled.
+  ///
+  /// Required by the API to be in the future *when it is written*, and never
+  /// re-judged afterwards: a campaign scheduled for last Tuesday that the engine
+  /// has not yet reached is late, not invalid, and refusing to edit its wording
+  /// for that reason would punish the caller for time passing.
+  scheduledAt DateTime? @map("scheduled_at")
+
+  /// When the announcement stops being worth showing, or null for one that never
+  /// goes stale.
+  ///
+  /// Later than `scheduled_at` whenever both are set, which the API enforces:
+  /// an expiry at or before the send is a campaign that is over before it
+  /// begins. Nothing here acts on it — the engine decides what an expired
+  /// campaign means for a notification already delivered.
+  expiresAt DateTime? @map("expires_at")
+
+  /// When the engine actually sent it. **Null throughout this feature**, and the
+  /// column exists anyway so the engine has somewhere to record the fact without
+  /// a migration.
+  ///
+  /// Kept apart from `scheduled_at` because the two are different facts — when
+  /// it was meant to go, and when it went — and from `updated_at`, which moves
+  /// whenever any column does and so cannot say when a campaign was sent. The
+  /// same argument `leave_requests` makes for `processed_at`.
+  sentAt DateTime? @map("sent_at")
+
+  /// Who composed it.
+  ///
+  /// An employee rather than a user, so the author can be rendered as a name
+  /// beside the campaign without a second join through `users` — the call
+  /// `leave_requests.processed_by_id` already makes. Required: a campaign is
+  /// something a person wrote, and a null author would be a message the company
+  /// sent with nobody accountable for its wording.
+  ///
+  /// `RESTRICT`, like every other reference to a person that records something
+  /// somebody did. `notifications.recipient_user_id` cascades because it records
+  /// something somebody was *told*, which says nothing once they are gone; this
+  /// records an act, and the act outlives the actor's employment record.
+  createdByEmployeeId String   @map("created_by_employee_id")
+  createdBy           Employee @relation(fields: [createdByEmployeeId], references: [id])
+
+  /// Who it is for. At least one, enforced by the API rather than by the schema
+  /// — a column cannot require a row in another table to exist.
+  recipients NotificationRecipient[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// The query the delivery engine will run on every tick: *which campaigns are
+  /// scheduled, and due?*
+  ///
+  /// `WHERE status = 'scheduled' AND scheduled_at <= now()`, which is exactly
+  /// this index — the selective equality first, the range second. Unlike
+  /// [Reminder] this table does grow: a campaign per announcement, kept as a
+  /// record after it is sent.
+  @@index([status, scheduledAt])
+  /// PostgreSQL does not index a foreign key on its own, and this one is read
+  /// backwards: deleting an employee has to find the campaigns they wrote before
+  /// `RESTRICT` can refuse.
+  @@index([createdByEmployeeId])
+  @@map("notification_campaigns")
+}
+
+/// One audience entry on one campaign.
+///
+/// **`ALL_EMPLOYEES` stores exactly one row, with a null `employee_id`** — never
+/// one row per employee. That is the feature's central storage decision and it
+/// is worth stating on the table itself:
+///
+///  - a company-wide announcement writes 1 row instead of N, and a company of a
+///    thousand people would otherwise pay a thousand inserts to say one thing;
+///  - the audience is resolved *when the campaign is sent*, so somebody hired
+///    between composing and sending is included, and somebody who left is not.
+///    Expanded at composition time the list would freeze the directory as it was
+///    on the day somebody typed the message;
+///  - the stored rows say what the author *meant* — "everybody" — rather than
+///    the accident of who happened to be employed that afternoon, which is what
+///    makes the campaign screen able to show "All employees" instead of a list
+///    of names nobody chose.
+///
+/// The two shapes are exclusive: a campaign holds either one `ALL_EMPLOYEES` row
+/// or N `EMPLOYEE` rows, and `NotificationCampaignService` enforces that.
+/// Mixing them would be a campaign addressed to everybody *and* to three people
+/// in particular, which is the first list twice.
+///
+/// It has a surrogate `id`, unlike [LeaveRequestReplacement] whose identity is
+/// its pair of foreign keys. It has to: `employee_id` is nullable here, so the
+/// pair cannot be a primary key, and the `ALL_EMPLOYEES` row would have no
+/// identity at all.
+model NotificationRecipient {
+  id String @id @default(cuid())
+
+  /// `Cascade`, and the third in this schema. A recipient is part of a campaign
+  /// rather than a fact of its own — it says nothing once the campaign it
+  /// belongs to is gone — so deleting a campaign takes its audience with it, the
+  /// same argument `leave_request_replacements` makes.
+  campaignId String               @map("campaign_id")
+  campaign   NotificationCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  recipientType CampaignRecipientType @map("recipient_type")
+
+  /// The one person addressed, for `EMPLOYEE` rows; null for the `ALL_EMPLOYEES`
+  /// row.
+  ///
+  /// `RESTRICT`, like every other reference to a person: somebody named in an
+  /// announcement cannot be deleted out from under it.
+  employeeId String?   @map("employee_id")
+  employee   Employee? @relation(fields: [employeeId], references: [id])
+
+  /// No `updatedAt`. Nothing about an audience entry is editable — changing who
+  /// a campaign is for means replacing the set, which is what `PATCH` does — so
+  /// a modification timestamp would only ever repeat `created_at`.
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// One entry per person per campaign. Listing somebody twice is not a stronger
+  /// nomination, and without the constraint it would double every count taken
+  /// over this table — the same rule `leave_request_replacements` states through
+  /// its primary key.
+  ///
+  /// It does **not** constrain the `ALL_EMPLOYEES` row: PostgreSQL treats nulls
+  /// as distinct in a unique index, so two such rows would satisfy it. That rule
+  /// is the service's, and it has to be — "one `ALL_EMPLOYEES` row, and no
+  /// `EMPLOYEE` rows beside it" is a statement about the whole set rather than
+  /// about a pair of columns.
+  @@unique([campaignId, employeeId])
+  /// The unique index leads with `campaign_id`, so "which campaigns name this
+  /// person" — the question a `RESTRICT`ed employee delete asks — cannot use it.
+  @@index([employeeId])
+  @@map("notification_recipients")
 }

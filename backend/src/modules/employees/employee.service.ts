@@ -342,6 +342,37 @@ export class EmployeeService {
   }
 
   /**
+   * Which of these employees exist, as a list of the ids that were found.
+   *
+   * Public for the reason {@link findStatus} is — this module owns the
+   * `employees` table, so another module confirms a person through it rather
+   * than by querying the table — and separate from it because the question is
+   * genuinely different: `findStatus` asks about one person and answers with a
+   * fact about them, while this asks about a *set* and answers which of it is
+   * real. Feature 027's campaign recipients are the first caller: a campaign can
+   * name up to two hundred people, and one `findStatus` per name would be two
+   * hundred round trips to answer one question.
+   *
+   * It returns the ids that were found rather than the ones that were not,
+   * because only the caller knows what a missing person means in its own request
+   * — a `400` naming body fields, for a campaign — and what to say about it.
+   * `id` alone is selected: the caller needs the answer, not the rows.
+   *
+   * Status is deliberately not filtered on. "Does this person exist" and "are
+   * they still with the company" are different questions, and folding the second
+   * in here would make a caller that only asked the first silently treat a
+   * suspended employee as a typo.
+   */
+  async findExistingIds(ids: readonly string[]): Promise<string[]> {
+    const employees = await this.prisma.employee.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true },
+    });
+
+    return employees.map(({ id }) => id);
+  }
+
+  /**
    * The people a year's leave balances should be generated for, or only the ones
    * named.
    *
