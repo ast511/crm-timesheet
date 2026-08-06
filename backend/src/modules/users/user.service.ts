@@ -208,6 +208,36 @@ export class UserService {
   }
 
   /**
+   * Which of these accounts exist, as a list of the ids that were found.
+   *
+   * Public for the reason {@link findEmployeeLink} is — this module owns the
+   * `users` table, so another module confirms an account through it rather than
+   * by querying the table — and separate from it because the question is
+   * different: that one asks about one account and answers with a fact about it,
+   * this asks about a *set* and answers which of it is real. The Notification
+   * Delivery Engine is the first caller: a company-wide campaign addresses a
+   * notification to every employee's account, and one lookup per name would be a
+   * round trip per person to answer one question.
+   *
+   * It returns the ids that were **found** rather than the ones that were not,
+   * because only the caller knows what a missing account means in its own request.
+   * `id` alone is selected, so nothing sensitive is read — the same guarantee
+   * every query in this class keeps.
+   *
+   * The spelling deliberately matches `EmployeeService.findExistingIds`: the two
+   * answer the same question about different tables, and a second name for it
+   * would make a reader wonder which one they were looking at.
+   */
+  async findExistingIds(ids: readonly string[]): Promise<string[]> {
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true },
+    });
+
+    return users.map(({ id }) => id);
+  }
+
+  /**
    * Reports a missing account.
    *
    * Selects `id` alone: the caller only needs to know the row is there, and

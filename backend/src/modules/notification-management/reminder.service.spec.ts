@@ -404,4 +404,41 @@ describe('ReminderService', () => {
       expect(prisma.reminder.delete).not.toHaveBeenCalled();
     });
   });
+
+  // The Notification Delivery Engine's read, added by the caller that needed it.
+  describe('findEnabled', () => {
+    it('filters in the query rather than leaving it to the caller', async () => {
+      await expect(service.findEnabled()).resolves.toEqual([REMINDER]);
+
+      expect(prisma.reminder.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { enabled: true } }),
+      );
+    });
+
+    // A week out, then three days out, then the day itself: a log of a run reads
+    // as the escalation it is.
+    it('orders the rules the way they fire', async () => {
+      await service.findEnabled();
+
+      expect(
+        (
+          prisma.reminder.findMany.mock.calls[0][0] as {
+            orderBy: Record<string, string>[];
+          }
+        ).orderBy[0],
+      ).toEqual({ daysBeforeDeadline: 'desc' });
+    });
+
+    it('is not paginated — the engine wants every live rule', async () => {
+      await service.findEnabled();
+
+      const call = prisma.reminder.findMany.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
+
+      expect(call).not.toHaveProperty('take');
+      expect(call).not.toHaveProperty('skip');
+    });
+  });
 });

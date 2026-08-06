@@ -3,7 +3,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { SortOrder } from '../../common/enums/sort-order.enum';
 import {
   NotificationCategory,
+  NotificationPriority,
   NotificationRecipientType,
+  NotificationType,
   NotificationWorkspace,
   UserRole,
 } from '../../generated/prisma/enums';
@@ -51,6 +53,19 @@ const ADMINISTRATIVE_FILTER = {
   ],
 };
 
+/** One row's worth of columns, as the service hands them over. */
+const CREATE_DATA = {
+  workspace: NotificationWorkspace.PERSONAL,
+  recipientType: NotificationRecipientType.USER,
+  recipientUserId: 'usr-1',
+  recipientRole: null,
+  title: 'Planned maintenance',
+  message: 'The system will be unavailable on Saturday morning.',
+  category: NotificationCategory.GENERAL,
+  type: NotificationType.INFO,
+  priority: NotificationPriority.MEDIUM,
+};
+
 /**
  * The visibility predicate is the one thing in this module whose every clause is
  * a way to read somebody else's mail, so it is asserted against the `where`
@@ -63,6 +78,7 @@ describe('NotificationRepository', () => {
     findFirst: jest.Mock;
     count: jest.Mock;
     create: jest.Mock;
+    createManyAndReturn: jest.Mock;
     update: jest.Mock;
     updateMany: jest.Mock;
     delete: jest.Mock;
@@ -84,6 +100,7 @@ describe('NotificationRepository', () => {
       findFirst: jest.fn().mockResolvedValue(null),
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockResolvedValue({}),
+      createManyAndReturn: jest.fn().mockResolvedValue([]),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 3 }),
       delete: jest.fn().mockResolvedValue({}),
@@ -293,6 +310,71 @@ describe('NotificationRepository', () => {
       expect(notification.deleteMany).toHaveBeenCalledWith({
         where: ADMINISTRATIVE_FILTER,
       });
+    });
+
+    // The delivery engine fans one announcement out to a row per employee: a
+    // thousand `create` calls would be a thousand round trips to say one thing.
+    it('writes a batch in one statement, and reads the rows back', async () => {
+      const rows = [
+        { ...CREATE_DATA, recipientUserId: 'usr-1' },
+        { ...CREATE_DATA, recipientUserId: 'usr-2' },
+      ];
+
+      await repository.createMany(rows);
+
+      expect(notification.createManyAndReturn).toHaveBeenCalledWith(
+        expect.objectContaining({ data: rows }),
+      );
+      expect(notification.create).not.toHaveBeenCalled();
+    });
+
+    it('selects the public columns on the way back, like every other read', async () => {
+      await repository.createMany([CREATE_DATA]);
+
+      expect(
+        notification.createManyAndReturn.mock.calls[0][0] as {
+          select: Record<string, boolean>;
+        },
+      ).toHaveProperty('select.title', true);
+    });
+
+    // A campaign whose audience resolved to nobody is a normal state, not a
+    // question to ask the database.
+    it('asks nothing of the database for an empty batch', async () => {
+      await expect(repository.createMany([])).resolves.toEqual([]);
+
+      expect(notification.createManyAndReturn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('counting what is unread', () => {
+    // The badge query, built from the same visibility predicate as everything
+    // else: a count written elsewhere would be the copy that forgot the
+    // `workspace` term and reported the back-office backlog to every employee.
+    it('counts a personal audience with the unread term', async () => {
+      notification.count.mockResolvedValue(4);
+
+      await expect(repository.countUnread(personal)).resolves.toBe(4);
+
+      expect(notification.count).toHaveBeenCalledWith({
+        where: { ...PERSONAL_FILTER, isRead: false },
+      });
+    });
+
+    it('counts an administrative audience the same way', async () => {
+      await repository.countUnread(administrative);
+
+      expect(notification.count).toHaveBeenCalledWith({
+        where: { ...ADMINISTRATIVE_FILTER, isRead: false },
+      });
+    });
+
+    // It fetches no row, which matters because this runs on every create, every
+    // read and every delete.
+    it('fetches no rows', async () => {
+      await repository.countUnread(personal);
+
+      expect(notification.findMany).not.toHaveBeenCalled();
     });
   });
 });

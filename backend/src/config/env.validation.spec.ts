@@ -151,4 +151,31 @@ describe('validateEnvironment', () => {
       );
     });
   });
+
+  describe('the notification delivery scheduler', () => {
+    /**
+     * Unset and `true` have to be the same thing at every call site, so only an
+     * explicit `false` stops the engine's two scheduled jobs.
+     */
+    it('leaves the switch unset when the environment says nothing', () => {
+      expect(validateWith().NOTIFICATION_SCHEDULER_ENABLED).toBeUndefined();
+    });
+
+    it('coerces the switch out of its string form', () => {
+      expect(
+        validateWith({ NOTIFICATION_SCHEDULER_ENABLED: 'false' })
+          .NOTIFICATION_SCHEDULER_ENABLED,
+      ).toBe(false);
+      expect(
+        validateWith({ NOTIFICATION_SCHEDULER_ENABLED: 'true' })
+          .NOTIFICATION_SCHEDULER_ENABLED,
+      ).toBe(true);
+    });
+
+    it('rejects a value that is not a boolean', () => {
+      expect(() =>
+        validateWith({ NOTIFICATION_SCHEDULER_ENABLED: 'sometimes' }),
+      ).toThrow(/NOTIFICATION_SCHEDULER_ENABLED/);
+    });
+  });
 });

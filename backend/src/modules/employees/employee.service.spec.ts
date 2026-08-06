@@ -663,4 +663,76 @@ describe('EmployeeService', () => {
       });
     });
   });
+
+  // The Notification Delivery Engine's read: who a campaign resolves to, and
+  // how each of them is reached.
+  describe('findDeliveryTargets', () => {
+    const row = (suffix: string) => ({
+      id: `emp-${suffix}`,
+      user: { id: `usr-${suffix}`, email: `person${suffix}@example.com` },
+    });
+
+    beforeEach(() => {
+      prisma.employee.findMany.mockResolvedValue([row('1'), row('2')]);
+    });
+
+    it('flattens each person into an employee, an account and an address', async () => {
+      await expect(service.findDeliveryTargets()).resolves.toEqual([
+        { employeeId: 'emp-1', userId: 'usr-1', email: 'person1@example.com' },
+        { employeeId: 'emp-2', userId: 'usr-2', email: 'person2@example.com' },
+      ]);
+    });
+
+    // A company announcement is for the people who work here; somebody who left
+    // in July should not receive Monday's maintenance notice.
+    it('excludes only terminated employees from "everybody"', async () => {
+      await service.findDeliveryTargets();
+
+      expect(prisma.employee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { status: { not: EmployeeStatus.TERMINATED } },
+        }),
+      );
+    });
+
+    // Somebody chose them by name; silently dropping one would leave the author
+    // believing an announcement reached somebody it did not.
+    it('resolves named recipients whatever their status', async () => {
+      await service.findDeliveryTargets(['emp-1', 'emp-2']);
+
+      expect(prisma.employee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: ['emp-1', 'emp-2'] } } }),
+      );
+    });
+
+    it('reads the address through the user relation rather than the users table', async () => {
+      await service.findDeliveryTargets();
+
+      expect(prisma.employee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: { id: true, user: { select: { id: true, email: true } } },
+        }),
+      );
+    });
+
+    it('answers in a stable order, so a partial batch is describable', async () => {
+      await service.findDeliveryTargets();
+
+      expect(
+        (
+          prisma.employee.findMany.mock.calls[0][0] as {
+            orderBy: Record<string, string>[];
+          }
+        ).orderBy,
+      ).toEqual([{ lastName: 'asc' }, { firstName: 'asc' }]);
+    });
+
+    it('answers with nothing when nobody matches', async () => {
+      prisma.employee.findMany.mockResolvedValue([]);
+
+      await expect(service.findDeliveryTargets(['emp-gone'])).resolves.toEqual(
+        [],
+      );
+    });
+  });
 });

@@ -17,6 +17,8 @@ import type { Prisma } from '../../generated/prisma/client';
 import {
   CampaignRecipientType,
   NotificationCampaignStatus,
+  NotificationPriority,
+  NotificationType,
 } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmployeeService } from '../employees/employee.service';
@@ -34,6 +36,7 @@ import {
 import {
   CampaignSortField,
   EDITABLE_CAMPAIGN_STATUSES,
+  SENDABLE_CAMPAIGN_STATUSES,
   UNDELETABLE_CAMPAIGN_STATUS,
 } from './notification-management.constants';
 import { assertDeliveryMethodChosen } from './notification-management.rules';
@@ -65,6 +68,50 @@ interface CampaignSchedule {
   readonly scheduledAt: Date | null;
   readonly expiresAt: Date | null;
 }
+
+/**
+ * A campaign as the delivery engine needs it: what to say, how to say it, who to
+ * say it to, and whether it may still be said.
+ *
+ * Deliberately not `NotificationCampaignEntity`. That resource is shaped for a
+ * screen — ISO strings, an author resolved to a name, every recipient resolved to
+ * a person — and the engine needs none of it: it needs the two dates as `Date`s
+ * to compare against a clock, and the audience as ids to resolve into accounts
+ * and addresses. Reusing the API entity would mean the engine parsing back the
+ * strings this module had just formatted, and joining `employees` twice.
+ *
+ * `employeeIds` is empty for an `ALL_EMPLOYEES` campaign, which is the whole
+ * point of Feature 027's single stored row: the audience is *resolved when the
+ * campaign is sent*, so who "everybody" means is a question for the engine's
+ * moment, not for the afternoon somebody typed the message.
+ */
+export interface CampaignDelivery {
+  readonly id: string;
+  readonly subject: string;
+  readonly message: string;
+  readonly severity: NotificationType;
+  readonly priority: NotificationPriority;
+  readonly sendEmail: boolean;
+  readonly sendNotification: boolean;
+  readonly status: NotificationCampaignStatus;
+  readonly expiresAt: Date | null;
+  readonly recipientType: CampaignRecipientType;
+  readonly employeeIds: string[];
+}
+
+/** What the engine reads to execute a campaign. */
+const CAMPAIGN_DELIVERY_SELECT = {
+  id: true,
+  subject: true,
+  message: true,
+  severity: true,
+  priority: true,
+  sendEmail: true,
+  sendNotification: true,
+  status: true,
+  expiresAt: true,
+  recipients: { select: { recipientType: true, employeeId: true } },
+} as const satisfies Prisma.NotificationCampaignSelect;
 
 /**
  * Every rule about notification campaigns lives here; the controller only
@@ -310,6 +357,120 @@ export class NotificationCampaignService {
     }
 
     await this.prisma.notificationCampaign.delete({ where: { id } });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Read and written by the Notification Delivery Engine, and by nothing else.
+  //
+  // Feature 027 stated that the engine would reach these tables through this
+  // service rather than by querying them, and wrote no method for it in advance.
+  // These three are that method set, added by the caller that needed them.
+  //
+  // They are here rather than in the engine for the rule this project keeps
+  // everywhere: the module that owns a table is the only one that touches it. It
+  // is also what keeps the campaign lifecycle in one place — `markSent` is the
+  // fourth gate beside `assertEditable` and `UNDELETABLE_CAMPAIGN_STATUS`, and a
+  // status transition written outside the module that models the status would be
+  // the one that eventually contradicted the other three.
+  //
+  // What is still *not* here: composing a message, resolving an audience,
+  // sending, or deciding that it is time. Those are the engine's, and nothing in
+  // this file has learned how to do them.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * One campaign, as the engine needs it, or `null` when there is no such
+   * campaign.
+   *
+   * `null` rather than a `404`, unlike {@link findOne}: the engine calls this
+   * both for a campaign somebody named in a URL — where absence is a `404` it
+   * raises itself — and for one its own tick found a moment ago, where absence
+   * means it was deleted in between and the tick should move on rather than fail.
+   * Only the caller can tell those apart.
+   */
+  async findForDelivery(id: string): Promise<CampaignDelivery | null> {
+    const campaign = await this.prisma.notificationCampaign.findUnique({
+      where: { id },
+      select: CAMPAIGN_DELIVERY_SELECT,
+    });
+
+    if (campaign === null) {
+      return null;
+    }
+
+    const { recipients, ...rest } = campaign;
+
+    return {
+      ...rest,
+      recipientType:
+        recipients[0]?.recipientType ?? CampaignRecipientType.EMPLOYEE,
+      employeeIds: recipients
+        .map(({ employeeId }) => employeeId)
+        .filter((employeeId): employeeId is string => employeeId !== null),
+    };
+  }
+
+  /**
+   * The campaigns whose moment has come: scheduled, and due.
+   *
+   * `WHERE status = 'scheduled' AND scheduled_at <= now()`, which is exactly the
+   * `(status, scheduled_at)` index Feature 027 created for it — the selective
+   * equality first, the range second.
+   *
+   * Ids rather than rows, because the engine claims each campaign before reading
+   * it: a row read here and executed a second later could have been cancelled in
+   * between, and acting on the copy would send an announcement somebody called
+   * off. The claim in {@link markSent} is what settles that, and it needs only an
+   * id.
+   *
+   * Oldest schedule first, so a backlog is worked through in the order it was
+   * meant to go out. `limit` bounds one tick's work: a scheduler that woke to a
+   * thousand overdue campaigns should send some of them now rather than hold one
+   * transaction open until it has sent them all.
+   */
+  async findDue(now: Date, limit: number): Promise<string[]> {
+    const campaigns = await this.prisma.notificationCampaign.findMany({
+      where: {
+        status: NotificationCampaignStatus.SCHEDULED,
+        scheduledAt: { lte: now },
+      },
+      orderBy: [{ scheduledAt: SortOrder.ASC }, { id: SortOrder.ASC }],
+      select: { id: true },
+      take: limit,
+    });
+
+    return campaigns.map(({ id }) => id);
+  }
+
+  /**
+   * Claims a campaign for delivery: `SENT`, with the moment it went.
+   *
+   * **The one write in this project that produces `SENT`**, and the answer to
+   * "never send duplicate notifications". It is a conditional update — `SENT`
+   * only *from* `DRAFT` or `SCHEDULED` — so the check and the write are one
+   * statement and one row lock. Two overlapping scheduler ticks, a retried
+   * request and a second application instance all resolve the same way: the first
+   * updates one row and delivers, every other updates none and is told so.
+   *
+   * Reading the status and then writing it would leave exactly the window this
+   * closes, and it is not a theoretical one — the manual endpoint and the
+   * scheduler can address the same campaign at the same moment by design.
+   *
+   * `true` when this caller claimed it, `false` when somebody else already had
+   * or the campaign is cancelled or gone. It does not say which, because the
+   * caller has already read the campaign and can say something more useful than
+   * this method could.
+   */
+  async markSent(id: string, sentAt: Date): Promise<boolean> {
+    const sendable: readonly NotificationCampaignStatus[] =
+      SENDABLE_CAMPAIGN_STATUSES;
+
+    const { count } = await this.prisma.notificationCampaign.updateMany({
+      where: { id, status: { in: [...sendable] } },
+      data: { status: NotificationCampaignStatus.SENT, sentAt },
+    });
+
+    return count === 1;
   }
 
   /** Loads what a patch or a delete has to know, or reports the campaign missing. */

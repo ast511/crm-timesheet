@@ -124,6 +124,7 @@ describe('NotificationCampaignService', () => {
       count: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
+      updateMany: jest.Mock;
       delete: jest.Mock;
     };
     notificationRecipient: { deleteMany: jest.Mock; createMany: jest.Mock };
@@ -147,6 +148,7 @@ describe('NotificationCampaignService', () => {
         count: jest.fn().mockResolvedValue(1),
         create: jest.fn().mockResolvedValue(DETAIL_ROW),
         update: jest.fn().mockResolvedValue(DETAIL_ROW),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         delete: jest.fn().mockResolvedValue(DETAIL_ROW),
       },
       notificationRecipient: {
@@ -797,6 +799,178 @@ describe('NotificationCampaignService', () => {
       await expect(service.remove('cmp-404')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+  });
+
+  // Read and written by the Notification Delivery Engine. Feature 027 said the
+  // engine would reach these tables through this service and wrote no method for
+  // it in advance; these three are that method set.
+  describe('what the delivery engine reads and writes', () => {
+    describe('findForDelivery', () => {
+      const DELIVERY_ROW = {
+        id: 'cmp-1',
+        subject: 'Planned maintenance',
+        message: 'The system will be unavailable.',
+        severity: NotificationType.WARNING,
+        priority: NotificationPriority.HIGH,
+        sendEmail: true,
+        sendNotification: true,
+        status: NotificationCampaignStatus.SCHEDULED,
+        expiresAt: null,
+        recipients: [
+          {
+            recipientType: CampaignRecipientType.EMPLOYEE,
+            employeeId: 'emp-1',
+          },
+          {
+            recipientType: CampaignRecipientType.EMPLOYEE,
+            employeeId: 'emp-2',
+          },
+        ],
+      };
+
+      it('flattens the audience into the ids the engine resolves', async () => {
+        prisma.notificationCampaign.findUnique.mockResolvedValue(DELIVERY_ROW);
+
+        await expect(service.findForDelivery('cmp-1')).resolves.toEqual({
+          id: 'cmp-1',
+          subject: 'Planned maintenance',
+          message: 'The system will be unavailable.',
+          severity: NotificationType.WARNING,
+          priority: NotificationPriority.HIGH,
+          sendEmail: true,
+          sendNotification: true,
+          status: NotificationCampaignStatus.SCHEDULED,
+          expiresAt: null,
+          recipientType: CampaignRecipientType.EMPLOYEE,
+          employeeIds: ['emp-1', 'emp-2'],
+        });
+      });
+
+      // The whole point of the single stored row: who "everybody" means is a
+      // question for the engine's moment.
+      it('reports ALL_EMPLOYEES with no ids to resolve', async () => {
+        prisma.notificationCampaign.findUnique.mockResolvedValue({
+          ...DELIVERY_ROW,
+          recipients: [
+            {
+              recipientType: CampaignRecipientType.ALL_EMPLOYEES,
+              employeeId: null,
+            },
+          ],
+        });
+
+        await expect(service.findForDelivery('cmp-1')).resolves.toEqual(
+          expect.objectContaining({
+            recipientType: CampaignRecipientType.ALL_EMPLOYEES,
+            employeeIds: [],
+          }),
+        );
+      });
+
+      // `null` rather than a 404: the engine calls this both for a campaign
+      // somebody named in a URL and for one its own tick found a moment ago.
+      it('answers null for a campaign that is gone', async () => {
+        prisma.notificationCampaign.findUnique.mockResolvedValue(null);
+
+        await expect(service.findForDelivery('cmp-x')).resolves.toBeNull();
+      });
+
+      it('reads the dates as Dates rather than as the API strings', async () => {
+        const expiresAt = new Date('2026-08-06T00:00:00.000Z');
+
+        prisma.notificationCampaign.findUnique.mockResolvedValue({
+          ...DELIVERY_ROW,
+          expiresAt,
+        });
+
+        await expect(service.findForDelivery('cmp-1')).resolves.toEqual(
+          expect.objectContaining({ expiresAt }),
+        );
+      });
+    });
+
+    describe('findDue', () => {
+      it('asks for scheduled campaigns whose moment has passed', async () => {
+        const now = new Date('2026-08-05T09:00:00.000Z');
+
+        prisma.notificationCampaign.findMany.mockResolvedValue([
+          { id: 'cmp-1' },
+          { id: 'cmp-2' },
+        ]);
+
+        await expect(service.findDue(now, 25)).resolves.toEqual([
+          'cmp-1',
+          'cmp-2',
+        ]);
+        expect(prisma.notificationCampaign.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              status: NotificationCampaignStatus.SCHEDULED,
+              scheduledAt: { lte: now },
+            },
+            take: 25,
+          }),
+        );
+      });
+
+      it('reads only the ids, because the engine claims before it reads', async () => {
+        await service.findDue(new Date(), 10);
+
+        expect(prisma.notificationCampaign.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ select: { id: true } }),
+        );
+      });
+
+      it('works through a backlog oldest schedule first', async () => {
+        await service.findDue(new Date(), 10);
+
+        expect(
+          (
+            prisma.notificationCampaign.findMany.mock.calls[0][0] as {
+              orderBy: Record<string, string>[];
+            }
+          ).orderBy[0],
+        ).toEqual({ scheduledAt: 'asc' });
+      });
+    });
+
+    describe('markSent', () => {
+      // The check and the write are one statement and one row lock: two
+      // overlapping runs cannot both deliver.
+      it('claims the campaign in a single conditional update', async () => {
+        const sentAt = new Date('2026-08-05T09:00:00.000Z');
+
+        await expect(service.markSent('cmp-1', sentAt)).resolves.toBe(true);
+
+        expect(prisma.notificationCampaign.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'cmp-1',
+            status: {
+              in: [
+                NotificationCampaignStatus.DRAFT,
+                NotificationCampaignStatus.SCHEDULED,
+              ],
+            },
+          },
+          data: { status: NotificationCampaignStatus.SENT, sentAt },
+        });
+        expect(prisma.notificationCampaign.update).not.toHaveBeenCalled();
+      });
+
+      it('reports the claim lost when no row moved', async () => {
+        prisma.notificationCampaign.updateMany.mockResolvedValue({ count: 0 });
+
+        await expect(service.markSent('cmp-1', new Date())).resolves.toBe(
+          false,
+        );
+      });
+
+      it('never reads the campaign first, which is what closes the race', async () => {
+        await service.markSent('cmp-1', new Date());
+
+        expect(prisma.notificationCampaign.findUnique).not.toHaveBeenCalled();
+      });
     });
   });
 });

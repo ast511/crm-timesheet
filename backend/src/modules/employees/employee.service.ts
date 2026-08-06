@@ -63,6 +63,26 @@ export interface EmployeeGenerationCandidate {
 }
 
 /**
+ * One person, as the Notification Delivery Engine has to reach them.
+ *
+ * Three fields, and each is here because a delivery channel needs it: the
+ * employee id is what a campaign's audience names, the user id is what a
+ * notification is addressed to, and the address is where an email goes. Nothing
+ * else is read — a name would only be a second thing to keep in step with the
+ * message the engine has already composed.
+ *
+ * It earns its own type rather than reusing `EmployeeEntity` for the reason
+ * {@link EmployeeGenerationCandidate} does: that resource is shaped for a screen
+ * and carries three joined objects, and a company-wide campaign would resolve a
+ * department and a position per person to send them an email.
+ */
+export interface EmployeeDeliveryTarget {
+  readonly employeeId: string;
+  readonly userId: string;
+  readonly email: string;
+}
+
+/**
  * Every rule about employees lives here; the controller only routes.
  *
  * What makes this module more than a fourth copy of the same CRUD shape is that
@@ -370,6 +390,57 @@ export class EmployeeService {
     });
 
     return employees.map(({ id }) => id);
+  }
+
+  /**
+   * The people a notification can actually be delivered to — either the ones
+   * named, or the whole company.
+   *
+   * Public for the reason {@link findExistingIds} is: this module owns the
+   * `employees` table, and the account and address behind each person are reached
+   * through the `user` relation this service already selects rather than by the
+   * engine querying two tables of its own. One query answers a whole audience.
+   *
+   * **The two cases resolve different sets on purpose**, and the asymmetry is the
+   * decision worth recording:
+   *
+   * - **No ids — "everybody"** — excludes `TERMINATED` employees and nobody else.
+   *   A company announcement is for the people who work here; somebody who left
+   *   in July should not receive Monday's maintenance notice. Everyone else is
+   *   included: an employee `ON_LEAVE` is exactly the person a "your timesheet is
+   *   due" reminder is for, and `SUSPENDED` and `INACTIVE` describe people the
+   *   company still employs. It is the same line {@link findGenerationCandidates}
+   *   draws, for the same reason.
+   * - **Ids given — "these people"** — resolves them whatever their status,
+   *   because somebody chose them by name. Silently dropping a named recipient
+   *   would leave the author believing an announcement reached somebody it did
+   *   not; the campaign screen is where a leaver should not have been picked.
+   *
+   * The audience is resolved **when the campaign is sent**, which is what makes
+   * Feature 027's single `ALL_EMPLOYEES` row correct: somebody hired between
+   * composing and sending is included here, and somebody who left is not.
+   *
+   * Ordered by surname then given name, so a delivery run processes people in a
+   * stable order — which is what makes a partially completed batch of emails
+   * describable rather than arbitrary.
+   */
+  async findDeliveryTargets(
+    ids?: readonly string[],
+  ): Promise<EmployeeDeliveryTarget[]> {
+    const employees = await this.prisma.employee.findMany({
+      where:
+        ids === undefined
+          ? { status: { not: EmployeeStatus.TERMINATED } }
+          : { id: { in: [...ids] } },
+      orderBy: [{ lastName: SortOrder.ASC }, { firstName: SortOrder.ASC }],
+      select: { id: true, user: { select: { id: true, email: true } } },
+    });
+
+    return employees.map((employee) => ({
+      employeeId: employee.id,
+      userId: employee.user.id,
+      email: employee.user.email,
+    }));
   }
 
   /**

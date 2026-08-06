@@ -89,12 +89,20 @@ describe('NotificationService', () => {
     findPage: jest.Mock;
     findVisible: jest.Mock;
     create: jest.Mock;
+    createMany: jest.Mock;
+    countUnread: jest.Mock;
     markRead: jest.Mock;
     markAllRead: jest.Mock;
     deleteById: jest.Mock;
     deleteAll: jest.Mock;
   };
-  let users: { findEmployeeLink: jest.Mock };
+  let users: { findEmployeeLink: jest.Mock; findExistingIds: jest.Mock };
+  let events: {
+    created: jest.Mock;
+    read: jest.Mock;
+    deleted: jest.Mock;
+    bulkChanged: jest.Mock;
+  };
 
   const query = (): NotificationQueryDto =>
     ({ page: 1, limit: 20 }) as NotificationQueryDto;
@@ -104,6 +112,8 @@ describe('NotificationService', () => {
       findPage: jest.fn().mockResolvedValue([[ROW], 1]),
       findVisible: jest.fn().mockResolvedValue(ROW),
       create: jest.fn().mockResolvedValue(ROW),
+      createMany: jest.fn().mockResolvedValue([ROW]),
+      countUnread: jest.fn().mockResolvedValue(5),
       markRead: jest.fn().mockResolvedValue({
         ...ROW,
         isRead: true,
@@ -115,6 +125,15 @@ describe('NotificationService', () => {
     };
     users = {
       findEmployeeLink: jest.fn().mockResolvedValue({ employeeId: null }),
+      findExistingIds: jest
+        .fn()
+        .mockImplementation((ids: string[]) => Promise.resolve(ids)),
+    };
+    events = {
+      created: jest.fn(),
+      read: jest.fn(),
+      deleted: jest.fn(),
+      bulkChanged: jest.fn(),
     };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -461,6 +480,253 @@ describe('NotificationService', () => {
       });
 
       expect(users.findEmployeeLink).not.toHaveBeenCalled();
+    });
+  });
+
+  // The Notification Delivery Engine's entry point into this table. It exists so
+  // the four-combination addressing rule is enforced by this module however a
+  // notification comes to exist — a campaign addressed to a thousand employees
+  // included.
+  describe('creating in bulk', () => {
+    const bulk = (recipientUserIds: string[]) =>
+      recipientUserIds.map((recipientUserId) => ({
+        ...CREATE_BODY,
+        recipientUserId,
+      }));
+
+    it('writes the whole batch in one statement', async () => {
+      repository.createMany.mockResolvedValue([ROW, ROW]);
+
+      const created = await service.createMany(bulk(['usr-1', 'usr-2']));
+
+      expect(repository.createMany).toHaveBeenCalledTimes(1);
+      expect(repository.create).not.toHaveBeenCalled();
+      expect(created).toHaveLength(2);
+    });
+
+    it('applies the addressing rule to every entry', async () => {
+      const problems = await messagesFrom(
+        service.createMany([
+          CREATE_BODY,
+          {
+            ...CREATE_BODY,
+            workspace: NotificationWorkspace.ADMINISTRATIVE,
+          },
+        ]),
+      );
+
+      expect(problems[0]).toContain('is not valid in the ADMINISTRATIVE');
+    });
+
+    // A campaign cannot half-deliver because its four hundredth recipient was
+    // malformed.
+    it('writes nothing when any entry is malformed', async () => {
+      await expect(
+        service.createMany([
+          CREATE_BODY,
+          { ...CREATE_BODY, recipientUserId: undefined },
+        ]),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repository.createMany).not.toHaveBeenCalled();
+    });
+
+    it('confirms every recipient in one query rather than one per row', async () => {
+      await service.createMany(bulk(['usr-1', 'usr-2', 'usr-3']));
+
+      expect(users.findExistingIds).toHaveBeenCalledTimes(1);
+      expect(users.findExistingIds).toHaveBeenCalledWith([
+        'usr-1',
+        'usr-2',
+        'usr-3',
+      ]);
+      expect(users.findEmployeeLink).not.toHaveBeenCalled();
+    });
+
+    it('asks about each account once however many notifications address it', async () => {
+      await service.createMany(bulk(['usr-1', 'usr-1', 'usr-2']));
+
+      expect(users.findExistingIds).toHaveBeenCalledWith(['usr-1', 'usr-2']);
+    });
+
+    it('names every missing account at once, and writes nothing', async () => {
+      users.findExistingIds.mockResolvedValue(['usr-1']);
+
+      await expect(
+        messagesFrom(service.createMany(bulk(['usr-1', 'usr-2', 'usr-3']))),
+      ).resolves.toEqual([
+        'recipientUserId names user usr-2, who does not exist',
+        'recipientUserId names user usr-3, who does not exist',
+      ]);
+      expect(repository.createMany).not.toHaveBeenCalled();
+    });
+
+    it('costs no query when nothing is addressed to an account', async () => {
+      await service.createMany([
+        {
+          ...CREATE_BODY,
+          recipientType: NotificationRecipientType.ALL_USERS,
+          recipientUserId: undefined,
+        },
+      ]);
+
+      expect(users.findExistingIds).not.toHaveBeenCalled();
+    });
+
+    // A campaign whose audience resolved to nobody is a normal state.
+    it('is a no-op on an empty batch', async () => {
+      await expect(service.createMany([])).resolves.toEqual([]);
+      expect(repository.createMany).not.toHaveBeenCalled();
+      expect(users.findExistingIds).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('counting what is unread', () => {
+    it('counts the caller’s personal audience', async () => {
+      await expect(
+        service.countUnread(employee, NotificationWorkspace.PERSONAL),
+      ).resolves.toBe(5);
+      expect(repository.countUnread).toHaveBeenCalledWith({
+        workspace: NotificationWorkspace.PERSONAL,
+        userId: 'usr-1',
+      });
+    });
+
+    it('counts an administrator’s back-office audience', async () => {
+      await service.countUnread(hr, NotificationWorkspace.ADMINISTRATIVE);
+
+      expect(repository.countUnread).toHaveBeenCalledWith({
+        workspace: NotificationWorkspace.ADMINISTRATIVE,
+        role: UserRole.HR,
+      });
+    });
+
+    // The audience is built by the same method the list uses, so "which
+    // workspaces may this person count" cannot drift from "which may they read".
+    it('refuses the administrative count to an ordinary employee', async () => {
+      await expect(
+        service.countUnread(employee, NotificationWorkspace.ADMINISTRATIVE),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repository.countUnread).not.toHaveBeenCalled();
+    });
+  });
+
+  // The outbound port the delivery engine plugs into. Nothing here knows what a
+  // socket is; a registered publisher is told what changed.
+  describe('announcing changes', () => {
+    beforeEach(() => {
+      service.registerEventPublisher(events);
+    });
+
+    it('announces a created notification', async () => {
+      const created = await service.create(CREATE_BODY);
+
+      expect(events.created).toHaveBeenCalledWith([created]);
+    });
+
+    it('announces a whole batch in one call', async () => {
+      repository.createMany.mockResolvedValue([ROW, ROW]);
+
+      await service.createMany([CREATE_BODY, CREATE_BODY]);
+
+      expect(events.created).toHaveBeenCalledTimes(1);
+      expect(events.created.mock.calls[0][0]).toHaveLength(2);
+    });
+
+    it('announces a notification being read', async () => {
+      await service.markRead(employee, 'ntf-1');
+
+      expect(events.read).toHaveBeenCalledTimes(1);
+    });
+
+    // Emitting on the idempotent path would tell a client its badge changed when
+    // it did not.
+    it('says nothing when an already-read notification is read again', async () => {
+      repository.findVisible.mockResolvedValue({ ...ROW, isRead: true });
+
+      await service.markRead(employee, 'ntf-1');
+
+      expect(events.read).not.toHaveBeenCalled();
+    });
+
+    it('announces a deletion with the row as it was', async () => {
+      await service.remove(employee, 'ntf-1');
+
+      expect(events.deleted).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'ntf-1' }),
+      );
+    });
+
+    it('announces a bulk read, with the workspace and the count', async () => {
+      await service.markAllPersonalRead(employee);
+
+      expect(events.bulkChanged).toHaveBeenCalledWith(
+        employee,
+        NotificationWorkspace.PERSONAL,
+        3,
+      );
+    });
+
+    it('announces a bulk delete', async () => {
+      await service.removeAllPersonal(employee);
+
+      expect(events.bulkChanged).toHaveBeenCalledWith(
+        employee,
+        NotificationWorkspace.PERSONAL,
+        7,
+      );
+    });
+
+    it('announces an administrative bulk change against that workspace', async () => {
+      await service.markAllAdministrativeRead(hr);
+
+      expect(events.bulkChanged).toHaveBeenCalledWith(
+        hr,
+        NotificationWorkspace.ADMINISTRATIVE,
+        3,
+      );
+    });
+
+    // "Mark all read" on an inbox with nothing unread is a legitimate request
+    // that changes nothing, and an event for it would be noise.
+    it('says nothing when a bulk operation moved no rows', async () => {
+      repository.markAllRead.mockResolvedValue(0);
+
+      await service.markAllPersonalRead(employee);
+
+      expect(events.bulkChanged).not.toHaveBeenCalled();
+    });
+
+    // A socket that has gone away must not turn a stored notification into a 500.
+    it('does not let a publisher failure break the write', async () => {
+      events.created.mockImplementation(() => {
+        throw new Error('socket closed');
+      });
+
+      await expect(service.create(CREATE_BODY)).resolves.toBeDefined();
+      expect(repository.create).toHaveBeenCalled();
+    });
+
+    it('replaces a previously registered publisher', async () => {
+      const second = { ...events, created: jest.fn() };
+
+      service.registerEventPublisher(second);
+      await service.create(CREATE_BODY);
+
+      expect(second.created).toHaveBeenCalled();
+      expect(events.created).not.toHaveBeenCalled();
+    });
+  });
+
+  // The centre stores, reads and clears notifications the same way whether or
+  // not anything is listening — which is what keeps it standalone.
+  describe('with nothing listening', () => {
+    it('creates, reads and deletes without a publisher', async () => {
+      await expect(service.create(CREATE_BODY)).resolves.toBeDefined();
+      await expect(service.markRead(employee, 'ntf-1')).resolves.toBeDefined();
+      await expect(service.remove(employee, 'ntf-1')).resolves.toBeUndefined();
+      await expect(service.markAllPersonalRead(employee)).resolves.toEqual({
+        affected: 3,
+      });
     });
   });
 });

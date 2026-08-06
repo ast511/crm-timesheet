@@ -4,6 +4,7 @@ import {
   ExecutionContext,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { IncomingHttpHeaders } from 'http';
 
 import { UserRole } from '../../generated/prisma/enums';
 import { RELATION_ID_MAX_LENGTH } from '../constants/relation.constants';
@@ -87,6 +88,20 @@ export const CurrentUser = createParamDecorator(
 );
 
 /**
+ * Anything that carries request headers.
+ *
+ * Widened from `express.Request` in Feature 028, because a WebSocket handshake
+ * is not an Express request and yet identifies its caller with exactly the same
+ * three headers. Stating the *only* property this function reads is what lets
+ * the notification gateway reuse the rules below instead of writing a second,
+ * drifting copy of them — and an `express.Request` still satisfies it
+ * structurally, so no existing caller changed.
+ */
+export interface HeaderBearingRequest {
+  readonly headers: IncomingHttpHeaders;
+}
+
+/**
  * The decorator's body, as a plain function.
  *
  * Separated so it can be unit-tested directly: a param decorator runs inside
@@ -94,7 +109,7 @@ export const CurrentUser = createParamDecorator(
  * still drives it through a real request; this is what lets the header rules
  * themselves be checked without booting an application.
  */
-export function resolveCurrentUser(request: Request): CurrentUser {
+export function resolveCurrentUser(request: HeaderBearingRequest): CurrentUser {
   const role = readRole(request);
 
   return {
@@ -115,7 +130,7 @@ export function resolveCurrentUser(request: Request): CurrentUser {
  * every request to produce a nicer error would be a round trip bought for a
  * placeholder.
  */
-function readRequiredId(request: Request, header: string): string {
+function readRequiredId(request: HeaderBearingRequest, header: string): string {
   const value = request.headers[header];
 
   // Express repeats a header sent twice as an array. One identity was asked
@@ -138,7 +153,10 @@ function readRequiredId(request: Request, header: string): string {
  * same treatment, because a blank or oversized value is a mistake worth naming
  * whether or not the field was compulsory.
  */
-function readOptionalId(request: Request, header: string): string | null {
+function readOptionalId(
+  request: HeaderBearingRequest,
+  header: string,
+): string | null {
   const value = request.headers[header];
 
   if (value === undefined) {
@@ -175,7 +193,7 @@ function assertIdShape(id: string, header: string): string {
  * otherwise reach the repository and quietly match the broadcasts of a workspace
  * nobody meant to open.
  */
-function readRole(request: Request): UserRole {
+function readRole(request: HeaderBearingRequest): UserRole {
   const value = request.headers[CURRENT_USER_ROLE_HEADER];
 
   if (typeof value !== 'string') {

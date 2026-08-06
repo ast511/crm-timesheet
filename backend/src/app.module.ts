@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -11,6 +12,7 @@ import { EmployeeLeaveBalancesModule } from './modules/employee-leave-balances/e
 import { EmployeeModule } from './modules/employees/employee.module';
 import { LeaveConfigurationModule } from './modules/leave-configuration/leave-configuration.module';
 import { LeaveRequestsModule } from './modules/leave-requests/leave-requests.module';
+import { NotificationDeliveryModule } from './modules/notification-delivery/notification-delivery.module';
 import { NotificationManagementModule } from './modules/notification-management/notification-management.module';
 import { NotificationModule } from './modules/notifications/notification.module';
 import { PositionModule } from './modules/positions/position.module';
@@ -35,6 +37,13 @@ import { PrismaModule } from './prisma/prisma.module';
     }),
     // Global, so feature modules inject PrismaService without re-importing it.
     PrismaModule,
+    // Installs the scheduler registry the `@Cron` jobs in the notification
+    // delivery engine attach to. Registered here rather than in that module
+    // because it is an application-wide facility — the same call `ConfigModule`
+    // and `PrismaModule` get — and because a second `forRoot()` elsewhere would
+    // be a second registry. Whether the jobs actually do anything is
+    // `NOTIFICATION_SCHEDULER_ENABLED`, checked inside each of them.
+    ScheduleModule.forRoot(),
     HealthModule,
     // Infrastructure rather than a resource: the only component that sends
     // email. It owns no table and depends on no business module, so it sits
@@ -79,6 +88,12 @@ import { PrismaModule } from './prisma/prisma.module';
     // neither — the Notification Delivery Engine reads these tables and is the
     // only thing that turns an intention into a notification.
     NotificationManagementModule,
+    // The Notification Delivery Engine: the last link in the chain and the only
+    // one that reaches the outside world. It reads the two modules above and
+    // sends what they describe — as an in-app notification, as an email, and as
+    // a WebSocket event — on a schedule of its own. It imports them; neither
+    // imports it, which is what keeps the graph acyclic.
+    NotificationDeliveryModule,
   ],
   controllers: [AppController],
   providers: [AppService],

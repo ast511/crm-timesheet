@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { AllExceptionsFilter } from '../common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from '../common/interceptors/response.interceptor';
+import { NotificationSocketIoAdapter } from '../modules/notification-delivery/websocket/notification-socket-io.adapter';
 import {
   API_DEFAULT_VERSION,
   API_PREFIX,
@@ -54,6 +55,14 @@ export function configureApp(app: INestApplication): void {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   app.enableCors(buildCorsOptions(app.get(ConfigService)));
+
+  // The same allowlist for the real-time side. Nest already uses `IoAdapter`;
+  // this subclass exists only because a `@WebSocketGateway({ cors })` option is
+  // evaluated when the class is decorated — before `.env` has been read — so the
+  // environment can only be applied here. Registered inside `configureApp` so
+  // the socket layer is configured by the one function that configures
+  // everything else, and so a test booting through it gets the same server.
+  app.useWebSocketAdapter(new NotificationSocketIoAdapter(app));
 
   // Makes Nest listen for termination signals and run `onModuleDestroy` on
   // every provider. Without it, PrismaService never closes its connection pool

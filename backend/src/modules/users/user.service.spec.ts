@@ -523,4 +523,42 @@ describe('UserService', () => {
       });
     });
   });
+
+  // The bulk counterpart, added for the Notification Delivery Engine: a
+  // company-wide campaign addresses a notification to every employee's account,
+  // and one lookup per name would be a round trip per person.
+  describe('findExistingIds', () => {
+    it('answers with the ids that were found', async () => {
+      prisma.user.findMany.mockResolvedValue([
+        { id: 'usr-1' },
+        { id: 'usr-3' },
+      ]);
+
+      await expect(
+        service.findExistingIds(['usr-1', 'usr-2', 'usr-3']),
+      ).resolves.toEqual(['usr-1', 'usr-3']);
+    });
+
+    it('asks about the whole set in one query', async () => {
+      prisma.user.findMany.mockResolvedValue([]);
+
+      await service.findExistingIds(['usr-1', 'usr-2']);
+
+      expect(prisma.user.findMany).toHaveBeenCalledTimes(1);
+      expect(prisma.user.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['usr-1', 'usr-2'] } },
+        select: { id: true },
+      });
+    });
+
+    it('reads nothing but ids', async () => {
+      prisma.user.findMany.mockResolvedValue([]);
+
+      await service.findExistingIds(['usr-1']);
+
+      expect(
+        (prisma.user.findMany.mock.calls[0][0] as { select: unknown }).select,
+      ).toEqual({ id: true });
+    });
+  });
 });

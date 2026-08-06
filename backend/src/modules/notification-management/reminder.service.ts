@@ -187,6 +187,31 @@ export class ReminderService {
     await this.prisma.reminder.delete({ where: { id } });
   }
 
+  /**
+   * Every rule that is switched on, in the order they fire.
+   *
+   * The Notification Delivery Engine's read, and the method Feature 027 said
+   * would be written by the caller that needed it rather than in advance. It
+   * belongs here rather than in the engine because this module owns `reminders`:
+   * the engine asks "which rules are live", not "what does this table look like".
+   *
+   * `enabled: false` is filtered in the query rather than by the caller, because
+   * a paused rule is not a rule the engine should reason about at all — a filter
+   * applied later is the one that eventually gets forgotten and fires a reminder
+   * somebody switched off last quarter.
+   *
+   * Ordered by `daysBeforeDeadline` descending, which is the order the rules
+   * actually fire in — a week out before three days out before the day itself —
+   * so a log of a run reads as the escalation it is.
+   */
+  async findEnabled(): Promise<ReminderRow[]> {
+    return this.prisma.reminder.findMany({
+      where: { enabled: true },
+      orderBy: [{ daysBeforeDeadline: SortOrder.DESC }, { id: SortOrder.ASC }],
+      select: REMINDER_PUBLIC_SELECT,
+    });
+  }
+
   /** Loads a reminder by id or reports it missing. */
   private async findOrThrow(id: string): Promise<ReminderRow> {
     const reminder = await this.prisma.reminder.findUnique({

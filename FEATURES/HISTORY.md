@@ -31,3 +31,4 @@ Append new features to the end of this table.
 | 025 | [Email Infrastructure](025-email-infrastructure.md) | Completed | 2026-08-05 |
 | 026 | [Notification Center](026-notification-center.md) | Completed | 2026-08-05 |
 | 027 | [Notification Management](027-notification-management.md) | Completed | 2026-08-05 |
+| 028 | [Notification Delivery Engine](028-notification-delivery-engine.md) | Completed | 2026-08-05 |

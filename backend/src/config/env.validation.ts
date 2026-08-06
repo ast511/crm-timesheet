@@ -184,6 +184,31 @@ export class EnvironmentVariables {
   @IsInt()
   @Min(MIN_TIMEOUT_MS)
   readonly SMTP_SOCKET_TIMEOUT?: number;
+
+  // ---------------------------------------------------------------------------
+  // The Notification Delivery Engine (Feature 028).
+  //
+  // One variable, and it is a switch rather than a setting: whether this
+  // deployment runs the engine's two scheduled jobs. It does *not* disable the
+  // engine — `POST /notification-delivery/execute/:campaignId` still sends,
+  // because that is somebody deliberately asking — it stops the clock.
+  //
+  // The case it exists for is the one `SMTP_ENABLED` exists for: a staging
+  // deployment restored from a production dump holds real employees, real
+  // addresses and real scheduled campaigns, and it must be able to run the API
+  // without a cron announcing a maintenance window to the whole company at
+  // 09:00. Turning email off is not enough on its own, because an in-app
+  // notification is delivered whether or not mail is configured.
+  //
+  // Optional and defaulted *in the reading code* rather than here, so that
+  // "unset" and "true" are the same thing at every call site: only an explicit
+  // `false` stops the jobs.
+  // ---------------------------------------------------------------------------
+
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  readonly NOTIFICATION_SCHEDULER_ENABLED?: boolean;
 }
 
 /**

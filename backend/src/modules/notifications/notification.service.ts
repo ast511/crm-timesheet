@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -23,12 +24,14 @@ import {
   NotificationEntity,
   toNotificationEntity,
 } from './entities/notification.entity';
+import { NotificationEventPublisher } from './notification-events';
 import {
   ROLE_ADDRESSED_RECIPIENT_TYPE,
   USER_ADDRESSED_RECIPIENT_TYPE,
   WORKSPACE_RECIPIENT_TYPES,
 } from './notification.constants';
 import {
+  CreateNotificationData,
   NotificationAudience,
   NotificationRepository,
 } from './notification.repository';
@@ -90,10 +93,40 @@ export interface NotificationBulkResult {
  */
 @Injectable()
 export class NotificationService {
+  private readonly logger = new Logger(NotificationService.name);
+
+  /**
+   * Where changes to this table are announced, once something is listening.
+   *
+   * `null` until the Notification Delivery Engine registers itself — see
+   * {@link registerEventPublisher} — and `null` forever in a deployment or a test
+   * that boots the centre without the engine. That is the property that keeps
+   * this module standalone: notifications are stored, read and cleared exactly
+   * the same way whether or not anybody is watching.
+   */
+  private publisher: NotificationEventPublisher | null = null;
+
   constructor(
     private readonly notifications: NotificationRepository,
     private readonly users: UserService,
   ) {}
+
+  /**
+   * Registers the one component that announces changes to this table.
+   *
+   * Called once, by the delivery engine's module, on startup. A method rather
+   * than an injected provider because injection would have required one of the
+   * two modules to import the other, and the direction Features 026 and 027 both
+   * committed to is that **the engine imports the centre and never the reverse** —
+   * see {@link NotificationEventPublisher} for the whole argument.
+   *
+   * Last registration wins. There is exactly one caller, and a rule that silently
+   * kept the first would make a hot-reloaded engine stop emitting with nothing to
+   * explain it.
+   */
+  registerEventPublisher(publisher: NotificationEventPublisher): void {
+    this.publisher = publisher;
+  }
 
   // ---------------------------------------------------------------------------
   // Personal workspace — `/api/v1/notifications`
@@ -118,7 +151,7 @@ export class NotificationService {
   async markAllPersonalRead(
     user: CurrentUser,
   ): Promise<NotificationBulkResult> {
-    return this.markAllRead(personalAudience(user));
+    return this.markAllRead(user, personalAudience(user));
   }
 
   /**
@@ -129,7 +162,7 @@ export class NotificationService {
    * had emptied.
    */
   async removeAllPersonal(user: CurrentUser): Promise<NotificationBulkResult> {
-    return this.removeAll(personalAudience(user));
+    return this.removeAll(user, personalAudience(user));
   }
 
   // ---------------------------------------------------------------------------
@@ -155,14 +188,39 @@ export class NotificationService {
   async markAllAdministrativeRead(
     user: CurrentUser,
   ): Promise<NotificationBulkResult> {
-    return this.markAllRead(this.administrativeAudience(user));
+    return this.markAllRead(user, this.administrativeAudience(user));
   }
 
   /** Deletes every administrative notification the caller can see. */
   async removeAllAdministrative(
     user: CurrentUser,
   ): Promise<NotificationBulkResult> {
-    return this.removeAll(this.administrativeAudience(user));
+    return this.removeAll(user, this.administrativeAudience(user));
+  }
+
+  /**
+   * How many notifications in one workspace the caller has not read.
+   *
+   * The number behind an unread badge, and the reason it is a method here rather
+   * than a page request with `?limit=1&isRead=false`: the delivery engine
+   * recalculates it after every create, read and delete, and fetching a row
+   * nobody displays would be the most frequent query in the application.
+   *
+   * The administrative workspace answers a `403` for a caller whose role has no
+   * access, exactly as the list does — the audience is built by the same method,
+   * so "which workspaces may this person count" cannot drift from "which
+   * workspaces may this person read".
+   */
+  async countUnread(
+    user: CurrentUser,
+    workspace: NotificationWorkspace,
+  ): Promise<number> {
+    const audience =
+      workspace === NotificationWorkspace.PERSONAL
+        ? personalAudience(user)
+        : this.administrativeAudience(user);
+
+    return this.notifications.countUnread(audience);
   }
 
   // ---------------------------------------------------------------------------
@@ -203,9 +261,18 @@ export class NotificationService {
       return toNotificationEntity(notification);
     }
 
-    return toNotificationEntity(
+    const read = toNotificationEntity(
       await this.notifications.markRead(id, new Date()),
     );
+
+    // Announced only when something actually moved. Emitting on the idempotent
+    // path would tell a client its badge changed when it did not, and two tabs
+    // opening one message would produce two events for one change.
+    this.publish((events) => {
+      events.read(read);
+    });
+
+    return read;
   }
 
   /**
@@ -219,6 +286,13 @@ export class NotificationService {
     const notification = await this.findVisibleOrThrow(user, id);
 
     await this.notifications.deleteById(notification.id);
+
+    // Announced from the row read before the delete, because there is nothing
+    // left to read afterwards and a client needs to know *which* notification to
+    // drop from a list it is already displaying.
+    this.publish((events) => {
+      events.deleted(toNotificationEntity(notification));
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -251,19 +325,88 @@ export class NotificationService {
       await this.assertRecipientExists(recipient.recipientUserId);
     }
 
-    const created = await this.notifications.create({
-      workspace: dto.workspace,
-      recipientType: dto.recipientType,
-      recipientUserId: recipient.recipientUserId,
-      recipientRole: recipient.recipientRole,
-      title: dto.title,
-      message: dto.message,
-      category: dto.category,
-      type: dto.type,
-      priority: dto.priority,
+    const created = toNotificationEntity(
+      await this.notifications.create({
+        workspace: dto.workspace,
+        recipientType: dto.recipientType,
+        recipientUserId: recipient.recipientUserId,
+        recipientRole: recipient.recipientRole,
+        title: dto.title,
+        message: dto.message,
+        category: dto.category,
+        type: dto.type,
+        priority: dto.priority,
+      }),
+    );
+
+    this.publish((events) => {
+      events.created([created]);
     });
 
-    return toNotificationEntity(created);
+    return created;
+  }
+
+  /**
+   * Creates several notifications at once, applying the same addressing rules to
+   * every one of them.
+   *
+   * **The Notification Delivery Engine's entry point into this table**, and the
+   * reason it exists rather than the engine writing rows itself: a campaign
+   * addressed to a thousand employees is a thousand notifications, and the
+   * four-combination addressing rule has to hold for each. Written in the engine,
+   * that rule would have a second enforcement point and one of the two would
+   * eventually be the lenient one.
+   *
+   * Three properties are what make it more than a loop over {@link create}:
+   *
+   * 1. **Every entry is validated before any is written.** A batch is all or
+   *    nothing, so a campaign cannot half-deliver because its four hundredth
+   *    recipient was malformed.
+   * 2. **The recipients are confirmed in one query**, not one per row. A thousand
+   *    `findEmployeeLink` calls to answer "do these accounts exist" is a thousand
+   *    round trips; the distinct ids go to `UserService.findExistingIds` once.
+   * 3. **One insert, and one announcement.** The rows are written by a single
+   *    statement and handed to the publisher as a list, so each recipient's
+   *    unread count is recalculated once however many notifications they received.
+   *
+   * An empty list is a no-op that returns an empty list. A campaign whose audience
+   * resolved to nobody is a normal state — everybody named has left the company —
+   * rather than an error, and it is the same call `EmailService.sendMany` makes.
+   */
+  async createMany(
+    dtos: readonly CreateNotificationDto[],
+  ): Promise<NotificationEntity[]> {
+    if (dtos.length === 0) {
+      return [];
+    }
+
+    const rows: CreateNotificationData[] = dtos.map((dto) => {
+      const recipient = assertAddressingIsValid(dto);
+
+      return {
+        workspace: dto.workspace,
+        recipientType: dto.recipientType,
+        recipientUserId: recipient.recipientUserId,
+        recipientRole: recipient.recipientRole,
+        title: dto.title,
+        message: dto.message,
+        category: dto.category,
+        type: dto.type,
+        priority: dto.priority,
+      };
+    });
+
+    await this.assertRecipientsExist(rows);
+
+    const created = (await this.notifications.createMany(rows)).map(
+      toNotificationEntity,
+    );
+
+    this.publish((events) => {
+      events.created(created);
+    });
+
+    return created;
   }
 
   // ---------------------------------------------------------------------------
@@ -288,17 +431,78 @@ export class NotificationService {
   }
 
   private async markAllRead(
+    user: CurrentUser,
     audience: NotificationAudience,
   ): Promise<NotificationBulkResult> {
-    return {
-      affected: await this.notifications.markAllRead(audience, new Date()),
-    };
+    const affected = await this.notifications.markAllRead(audience, new Date());
+
+    this.announceBulkChange(user, audience, affected);
+
+    return { affected };
   }
 
   private async removeAll(
+    user: CurrentUser,
     audience: NotificationAudience,
   ): Promise<NotificationBulkResult> {
-    return { affected: await this.notifications.deleteAll(audience) };
+    const affected = await this.notifications.deleteAll(audience);
+
+    this.announceBulkChange(user, audience, affected);
+
+    return { affected };
+  }
+
+  /**
+   * Announces a bulk change, unless nothing moved.
+   *
+   * The `affected === 0` guard is what keeps a client from refetching a list
+   * that is identical to the one it is showing: "mark all read" on an inbox with
+   * nothing unread is a legitimate request that changes nothing, and an event for
+   * it would be noise every open tab has to process.
+   */
+  private announceBulkChange(
+    user: CurrentUser,
+    audience: NotificationAudience,
+    affected: number,
+  ): void {
+    if (affected === 0) {
+      return;
+    }
+
+    this.publish((events) => {
+      events.bulkChanged(user, audience.workspace, affected);
+    });
+  }
+
+  /**
+   * Hands a change to whatever is listening, and never lets it break the write
+   * that caused it.
+   *
+   * Every announcement in this class goes through here, so the guarantee is
+   * stated once: a socket that has gone away, a publisher that throws, a
+   * serialisation that fails — none of them may turn a stored notification into a
+   * `500`. It is the rule Feature 025 asks every email caller to apply, applied
+   * here on the callers' behalf because there is exactly one place to apply it.
+   *
+   * The publisher is also expected to be defensive itself; this is the belt to
+   * its braces, and it is what lets `registerEventPublisher` accept an
+   * implementation this module cannot see.
+   */
+  private publish(
+    announce: (events: NotificationEventPublisher) => void,
+  ): void {
+    if (this.publisher === null) {
+      return;
+    }
+
+    try {
+      announce(this.publisher);
+    } catch (error) {
+      this.logger.error(
+        'Announcing a notification change failed',
+        error instanceof Error ? (error.stack ?? error.message) : String(error),
+      );
+    }
   }
 
   /**
@@ -381,6 +585,48 @@ export class NotificationService {
       throw new BadRequestException([
         `recipientUserId names user ${recipientUserId}, who does not exist`,
       ]);
+    }
+  }
+
+  /**
+   * Rejects a batch naming an account that is not there, in one query.
+   *
+   * The bulk counterpart of {@link assertRecipientExists}, and separate from it
+   * for the reason `EmployeeService.findExistingIds` is separate from
+   * `findStatus`: one asks about a person, the other asks about a set. A thousand
+   * single lookups would be a thousand round trips to answer one question.
+   *
+   * Every missing account is reported at once, as an array, and each id is named
+   * once however many notifications addressed it — a campaign that reached a
+   * deleted account should say so once rather than four hundred times.
+   *
+   * Rows addressing nobody in particular — the two broadcasts and the
+   * role-addressed notifications — contribute no ids and cost no query.
+   */
+  private async assertRecipientsExist(
+    rows: readonly CreateNotificationData[],
+  ): Promise<void> {
+    const recipientUserIds = [
+      ...new Set(
+        rows
+          .map(({ recipientUserId }) => recipientUserId)
+          .filter((userId): userId is string => userId !== null),
+      ),
+    ];
+
+    if (recipientUserIds.length === 0) {
+      return;
+    }
+
+    const known = new Set(await this.users.findExistingIds(recipientUserIds));
+    const problems = recipientUserIds
+      .filter((userId) => !known.has(userId))
+      .map(
+        (userId) => `recipientUserId names user ${userId}, who does not exist`,
+      );
+
+    if (problems.length > 0) {
+      throw new BadRequestException(problems);
     }
   }
 }

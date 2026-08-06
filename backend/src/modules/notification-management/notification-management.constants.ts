@@ -183,6 +183,27 @@ export const CLIENT_WRITABLE_CAMPAIGN_STATUSES = [
 ] as const;
 
 /**
+ * The statuses the delivery engine may send a campaign from.
+ *
+ * The same two values as {@link EDITABLE_CAMPAIGN_STATUSES} and deliberately a
+ * separate list, because they state different rules that happen to coincide
+ * today: one says which campaigns an administrator may still change, the other
+ * which the engine may still deliver. A future `PAUSED` status would belong to
+ * the first and not the second, and a single shared constant would make that a
+ * silent change to both.
+ *
+ * It is what makes "never send duplicate notifications" enforceable rather than
+ * hoped for: {@link NotificationCampaignService.markSent} moves a campaign to
+ * `SENT` only *from* one of these, in one conditional statement, so a second
+ * delivery attempt — a retried request, an overlapping scheduler tick, a second
+ * instance — updates no row and is refused.
+ */
+export const SENDABLE_CAMPAIGN_STATUSES = [
+  NotificationCampaignStatus.DRAFT,
+  NotificationCampaignStatus.SCHEDULED,
+] as const;
+
+/**
  * The one status a campaign cannot be deleted in.
  *
  * A `SENT` campaign is the record of an announcement people have already

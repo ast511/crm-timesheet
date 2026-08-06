@@ -1,0 +1,68 @@
+import { Controller, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+
+import { DeliveryResultEntity } from './entities/delivery-result.entity';
+import { NotificationDispatcher } from './notification-dispatcher.service';
+
+/**
+ * `/api/v1/notification-delivery` — one route, and it exists so the engine can
+ * be exercised without a frontend and without waiting for a schedule.
+ *
+ * **This endpoint is for development and Postman testing**, exactly as the
+ * feature specifies, and it is documented as such in three places — here, on the
+ * method, and in the feature document — so it cannot quietly become permanent.
+ * It is the same seam the notification centre's temporary `POST /notifications`
+ * is: a way to trigger, by hand, something that will otherwise only ever happen
+ * on a schedule.
+ *
+ * It is deliberately **not** `POST /notification-campaigns/:id/send`. Feature 027
+ * asserts in its routing spec that no such route exists, because nothing in that
+ * module sends anything; putting the trigger under this feature's own prefix
+ * keeps that true and puts the URL where the behaviour lives.
+ *
+ * There is no `POST .../execute` for reminders. A reminder has no id a person
+ * would want to fire by hand in isolation — it is a standing rule whose whole
+ * point is the schedule — and a route that fired one would be a way to send the
+ * entire company a timesheet warning on a Tuesday afternoon by mistake. The
+ * reminder path is exercised by the scheduler's own unit tests, which call the
+ * same dispatcher.
+ *
+ * The controller is thin to the point of being one delegation, like every other
+ * in this project: every rule, every refusal and every side effect is the
+ * dispatcher's.
+ */
+@Controller('notification-delivery')
+export class NotificationDeliveryController {
+  constructor(private readonly dispatcher: NotificationDispatcher) {}
+
+  /**
+   * Sends a stored campaign immediately, whatever its schedule says.
+   *
+   * A `DRAFT` campaign is sent as readily as a `SCHEDULED` one: this is somebody
+   * deliberately saying "send it now", and refusing a draft would mean an
+   * administrator had to schedule an announcement for two minutes' time in order
+   * to test it.
+   *
+   * | Situation | Answer |
+   * | --- | --- |
+   * | sent | `200` with the delivery report |
+   * | no such campaign | `404` |
+   * | already `SENT`, `CANCELLED`, or expired | `409` naming the reason |
+   *
+   * `200` rather than the `201` Nest gives a `@Post`, because nothing was
+   * created: there is no resource to point at and no `Location` to return. What
+   * the caller gets back is a report of what happened — how many notifications
+   * were written, how many emails went out, and whether the mail server accepted
+   * them.
+   *
+   * `campaignId` is taken as a plain string: ids are cuids, so `ParseUUIDPipe`
+   * would reject valid ones, and an id that matches nothing produces the same
+   * `404` as one that never existed.
+   */
+  @Post('execute/:campaignId')
+  @HttpCode(HttpStatus.OK)
+  execute(
+    @Param('campaignId') campaignId: string,
+  ): Promise<DeliveryResultEntity> {
+    return this.dispatcher.executeCampaign(campaignId);
+  }
+}

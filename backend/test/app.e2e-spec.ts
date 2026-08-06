@@ -529,6 +529,61 @@ describe('Application endpoints (e2e)', () => {
     });
   });
 
+  describe('notification delivery', () => {
+    const DELIVERY_PATH = `${API_BASE_PATH}/notification-delivery`;
+
+    /**
+     * The engine's whole HTTP surface is one route, and it is documented as
+     * existing for development and Postman testing. What can be asserted without
+     * a database is which URLs the application answers on — and the shape of the
+     * `POST` the delivery flow is triggered through.
+     */
+    it('registers the manual execution route', async () => {
+      const response = await request(app.getHttpServer()).post(
+        `${DELIVERY_PATH}/execute/cmp-does-not-exist`,
+      );
+      const { message } = response.body as { message: string | string[] };
+
+      // A campaign that does not exist is a `404` of its own, which is why the
+      // status alone cannot tell "no such route" from "no such campaign". The
+      // message can: an unmatched route renders `Cannot POST …`.
+      expect(String(message)).not.toMatch(/Cannot POST/);
+    });
+
+    /**
+     * A reminder is a standing rule whose whole point is the schedule. A route
+     * that fired one by hand would be a way to warn the entire company on a
+     * Tuesday afternoon by mistake, so the reminder path is reachable only
+     * through the scheduler.
+     */
+    it('offers no way to fire a reminder over HTTP', async () => {
+      await request(app.getHttpServer())
+        .post(`${DELIVERY_PATH}/execute-reminder/rmd-1`)
+        .expect(404);
+    });
+
+    it('exposes no collection and no read routes of its own', async () => {
+      await request(app.getHttpServer()).get(DELIVERY_PATH).expect(404);
+      await request(app.getHttpServer())
+        .get(`${DELIVERY_PATH}/execute/cmp-1`)
+        .expect(404);
+    });
+
+    /**
+     * Feature 027 asserts the same two absences from its own side. Sending stays
+     * under this feature's prefix, so a module that stores intentions keeps
+     * having no route that acts on them.
+     */
+    it('leaves the campaign and reminder resources without a send route', async () => {
+      await request(app.getHttpServer())
+        .post(`${API_BASE_PATH}/notification-campaigns/cmp-1/send`)
+        .expect(404);
+      await request(app.getHttpServer())
+        .post(`${API_BASE_PATH}/reminders/rmd-1/execute`)
+        .expect(404);
+    });
+  });
+
   it('answers an allowed origin with the CORS headers', () => {
     return request(app.getHttpServer())
       .get(`${API_BASE_PATH}/health`)
