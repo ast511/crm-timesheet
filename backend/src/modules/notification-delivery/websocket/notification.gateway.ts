@@ -131,11 +131,12 @@ export class NotificationGateway
    * a window in which one account is in its own room twice.
    */
   handleConnection(client: Socket): void {
-    console.log('HEADERS');
-    console.dir(client.handshake.headers, { depth: null });
+    // TESTING purpose only for postman
+    // console.log('HEADERS');
+    // console.dir(client.handshake.headers, { depth: null });
 
-    console.log('AUTH');
-    console.dir(client.handshake.auth, { depth: null });
+    // console.log('AUTH');
+    // console.dir(client.handshake.auth, { depth: null });
 
     const user = this.resolveClient(client);
 

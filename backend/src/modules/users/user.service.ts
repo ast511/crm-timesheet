@@ -12,6 +12,7 @@ import {
   toSkipTake,
 } from '../../common/utils/pagination.util';
 import type { Prisma } from '../../generated/prisma/client';
+import type { UserRole } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -235,6 +236,38 @@ export class UserService {
     });
 
     return users.map(({ id }) => id);
+  }
+
+  /**
+   * The role an account holds, or `null` when there is no such account.
+   *
+   * Public for the reason {@link findEmployeeLink} and {@link findExistingIds}
+   * are — this module owns the `users` table, so another module asks it rather
+   * than querying the table — and added by the caller that needed it, which is
+   * the pattern Feature 028 followed when the delivery engine needed three
+   * methods on `NotificationCampaignService`.
+   *
+   * That caller is Feature 029's permission management, and the role is the one
+   * fact it cannot do without: a user's effective permissions are their role's
+   * baseline plus their own exceptions, so resolving anybody's permissions
+   * begins by asking which role they hold. It also decides whether the account
+   * may be written to at all — a super-admin's permissions are neither stored
+   * nor editable.
+   *
+   * The role is returned rather than thrown over, because a missing account is a
+   * `404` when the permission matrix is read and a `400` naming a header when the
+   * *caller* turns out not to exist; only the caller can tell which.
+   *
+   * `role` alone is selected, so nothing sensitive is read — the same guarantee
+   * every query in this class keeps.
+   */
+  async findRole(id: string): Promise<UserRole | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { role: true },
+    });
+
+    return user?.role ?? null;
   }
 
   /**

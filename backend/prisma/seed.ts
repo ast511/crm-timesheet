@@ -4,9 +4,12 @@ import { config as loadEnv } from 'dotenv';
 import { PrismaClient } from '../src/generated/prisma/client';
 
 import { seedDepartments } from './seeds/departments.seed';
+import { seedPermissionPresets } from './seeds/permission-presets.seed';
+import { seedPermissions } from './seeds/permissions.seed';
 import { seedPositions } from './seeds/positions.seed';
 import { seedProjectMembers } from './seeds/project-members.seed';
 import { seedProjects } from './seeds/projects.seed';
+import { seedRolePermissions } from './seeds/role-permissions.seed';
 import {
   resolveSeedPassword,
   seededEmailsByRole,
@@ -28,9 +31,20 @@ import { seedWorkSchedule } from './seeds/work-schedule.seed';
  *   positions  ──┴─> users + employees ─┐
  *   projects ──────────────────────────┴─> project members
  *   work schedule ─> timesheet approval emails
+ *   permissions ─┬─> role permissions
+ *                └─> permission presets + preset items
  *
  * The schedule is independent of everything above it, so its position in the
- * order is arbitrary; it runs last because it is the newest.
+ * order is arbitrary; it runs where it does because it was the newest at the
+ * time.
+ *
+ * The permission catalog is independent of everything else — no permission
+ * points at a user, a department or a project — but its own two children are
+ * not: both resolve permission ids by key from what `seedPermissions` returns,
+ * so it has to run before either. Nothing seeds a `UserPermissionOverride` or a
+ * `PermissionAuditLog`: those are runtime data, written when somebody actually
+ * departs from their role, and inventing one here would put an exception on a
+ * development account that nobody made.
  *
  * Run it with `npm run prisma:seed` (or `npx prisma db seed`). It is
  * idempotent: every entity is upserted on a unique natural key, so running it
@@ -77,6 +91,16 @@ async function main(): Promise<void> {
     );
 
     report('timesheet approval emails', await seedWorkSchedule(prisma));
+
+    const permissions = await seedPermissions(prisma);
+    report('permissions', permissions.size);
+
+    report('role permissions', await seedRolePermissions(prisma, permissions));
+
+    report(
+      'permission preset items',
+      await seedPermissionPresets(prisma, permissions),
+    );
 
     printSignInSummary();
   } finally {

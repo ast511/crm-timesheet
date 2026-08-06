@@ -15,6 +15,7 @@ import { LeaveRequestsModule } from './modules/leave-requests/leave-requests.mod
 import { NotificationDeliveryModule } from './modules/notification-delivery/notification-delivery.module';
 import { NotificationManagementModule } from './modules/notification-management/notification-management.module';
 import { NotificationModule } from './modules/notifications/notification.module';
+import { PermissionManagementModule } from './modules/permission-management/permission-management.module';
 import { PositionModule } from './modules/positions/position.module';
 import { ProjectMemberModule } from './modules/project-members/project-member.module';
 import { ProjectModule } from './modules/projects/project.module';
@@ -94,6 +95,14 @@ import { PrismaModule } from './prisma/prisma.module';
     // a WebSocket event — on a schedule of its own. It imports them; neither
     // imports it, which is what keeps the graph acyclic.
     NotificationDeliveryModule,
+    // Who may do what: the permission catalog, what each role grants by default,
+    // the presets an administrator applies in one click, and where an individual
+    // departs from their role. It stores that configuration and resolves it into
+    // an effective set; it enforces none of it, and adds no access check to any
+    // module above. Enforcement needs authentication first — every caller here
+    // is still whoever they claim to be — so it is a later feature that will
+    // import this one and call its resolution method.
+    PermissionManagementModule,
   ],
   controllers: [AppController],
   providers: [AppService],

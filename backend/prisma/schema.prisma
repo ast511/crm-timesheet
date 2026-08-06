@@ -229,6 +229,106 @@ enum CampaignRecipientType {
   ALL_EMPLOYEES @map("all_employees")
 }
 
+/// The part of the application a permission is about — the *rows* of the
+/// permission matrix.
+///
+/// A closed vocabulary rather than free text, because it is half of a
+/// permission's identity: `Permission.key` is `RESOURCE.ACTION`, and a resource
+/// somebody typed would produce a key nothing could resolve. It is also what the
+/// catalog is filtered and grouped by, which a string column could not guarantee.
+///
+/// Twelve values, and they name *screens* rather than tables. `LEAVES` and
+/// `LEAVE_REQUESTS` are two of them although both are leave: one is the
+/// configuration HR maintains — the kinds of leave, the allocations — and the
+/// other is the requests employees file against it, and no useful permission set
+/// grants both together. `NOTIFICATION_CONFIG` is the reminder rules and the
+/// campaigns of Feature 027, not the notification centre of Feature 026: reading
+/// your own inbox is not a permission anybody is denied.
+///
+/// `DEPARTMENTS` is the organisational units of Feature 007 — the departments
+/// employees belong to — and is deliberately not called `TEAMS`: there is no
+/// team in this system, and naming a permission after a screen that does not
+/// exist would leave an administrator granting something they could not find.
+/// Project *rosters* are not a resource of their own either; a membership is
+/// part of the project it is on, so it lives under `PROJECTS`.
+///
+/// Two values name screens this backend has not built yet — `TIMESHEET` and
+/// `REPORTS`. They are in the catalog anyway, because a permission matrix is the
+/// vocabulary an administrator configures *before* the feature ships, and adding
+/// the value later would mean every already-configured user silently lacking it.
+enum PermissionResource {
+  DASHBOARD           @map("dashboard")
+  TIMESHEET           @map("timesheet")
+  EMPLOYEES           @map("employees")
+  LEAVE_REQUESTS      @map("leave_requests")
+  REPORTS             @map("reports")
+  PROJECTS            @map("projects")
+  LEAVES              @map("leaves")
+  WORK_SCHEDULE       @map("work_schedule")
+  PUBLIC_HOLIDAYS     @map("public_holidays")
+  DEPARTMENTS         @map("departments")
+  NOTIFICATION_CONFIG @map("notification_config")
+  PERMISSIONS         @map("permissions")
+}
+
+/// What may be done to a resource — the *columns* of the permission matrix.
+///
+/// `PAGE_ACCESS` and `VIEW` are deliberately two values rather than one. Reaching
+/// a screen and reading the records on it are different grants: a team lead may
+/// open the employees page to find a colleague's extension without being allowed
+/// to read the directory, and an integration may read records with no screen at
+/// all. Folding them together would make the narrower of the two unstatable.
+///
+/// `CONFIGURE` is likewise not `EDIT`. Editing changes a record; configuring
+/// changes the *rules* records are judged by — the carry-over policy of a leave
+/// type, the company's working hours, which preset a user is put on. The people
+/// trusted with the first are routinely not trusted with the second.
+///
+/// **Not every action applies to every resource**, and the catalog holds only the
+/// pairs that mean something: `DASHBOARD` has nothing to create, `WORK_SCHEDULE`
+/// is a single row with nothing to delete. See [Permission].
+enum PermissionAction {
+  PAGE_ACCESS @map("page_access")
+  VIEW        @map("view")
+  CREATE      @map("create")
+  EDIT        @map("edit")
+  DELETE      @map("delete")
+  APPROVE     @map("approve")
+  CONFIGURE   @map("configure")
+}
+
+/// Which way a per-user override departs from the role baseline.
+///
+/// Two values and no third, because an override that *agrees* with the baseline
+/// is not a third kind of override — it is the absence of one. See
+/// [UserPermissionOverride] for why storing it would be storing a fact the
+/// baseline already states.
+enum PermissionEffect {
+  GRANT  @map("grant")
+  REVOKE @map("revoke")
+}
+
+/// What happened to somebody's permissions — the vocabulary of the history tab.
+///
+/// The first three describe one permission each and are written by the diff:
+/// an override appeared as a grant, appeared as a revocation, or was removed so
+/// the role baseline applies again. The last two describe a *whole* operation and
+/// are written once beside the per-permission rows, which is why they are the
+/// only two that can carry a null `permission_id`.
+///
+/// `PRESET_APPLIED` and `RESET_TO_ROLE` are kept as separate values rather than
+/// derived from `preset_id` being set or null. They are different acts —
+/// "put this person on HR - View Only" and "give this person exactly what their
+/// role gives" — and a reader of the history should not have to infer which from
+/// the nullability of another column.
+enum PermissionAuditAction {
+  PERMISSION_GRANTED @map("permission_granted")
+  PERMISSION_REVOKED @map("permission_revoked")
+  OVERRIDE_CLEARED   @map("override_cleared")
+  PRESET_APPLIED     @map("preset_applied")
+  RESET_TO_ROLE      @map("reset_to_role")
+}
+
 model User {
   id       String  @id @default(cuid())
   email    String  @unique
@@ -248,6 +348,26 @@ model User {
   /// `recipient_user_id` null, so this relation is the *directly addressed*
   /// subset rather than everything a person can see.
   notifications Notification[]
+
+  /// Where this account's permissions depart from what its role grants.
+  ///
+  /// Only the exceptions, never the whole matrix — a user who holds exactly what
+  /// their role gives has no rows here at all. See [UserPermissionOverride].
+  permissionOverrides UserPermissionOverride[]
+
+  /// Changes made to *this* account's permissions.
+  ///
+  /// Two relations to [PermissionAuditLog], which is why both carry an explicit
+  /// name: without one Prisma cannot tell which foreign key each side belongs to.
+  /// They are genuinely different facts — one is what was done to you, the other
+  /// is what you did to somebody — and one account regularly appears in both, as
+  /// an administrator who edits their colleagues' permissions and has their own
+  /// edited by the super-admin. The same shape `Employee.leaveRequests` and
+  /// `processedLeaveRequests` already use.
+  permissionAuditEntries PermissionAuditLog[] @relation("PermissionAuditTarget")
+
+  /// Changes this account made to other people's permissions.
+  permissionChangesMade PermissionAuditLog[] @relation("PermissionAuditActor")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1369,4 +1489,376 @@ model NotificationRecipient {
   /// person" — the question a `RESTRICT`ed employee delete asks — cannot use it.
   @@index([employeeId])
   @@map("notification_recipients")
+}
+
+/// One thing somebody may be allowed to do: a (resource, action) pair.
+///
+/// **The vocabulary of permissions, and vocabulary is seeded rather than
+/// managed.** There is no `POST /permissions` and no `DELETE /permissions/:id`,
+/// deliberately: a permission row is meaningless unless something in the
+/// application actually checks it, so inventing one through an API would produce
+/// a cell on the matrix screen that nothing anywhere reads. New permissions
+/// arrive with the feature that enforces them — as a seed entry and a migration —
+/// which is the same call Feature 003 recorded for how roles and permissions
+/// would be added. See `prisma/seeds/permissions.seed.ts` for the exact matrix.
+///
+/// `key` is the addressable name — `TIMESHEET.CREATE` — and it is stored rather
+/// than derived from the two enums on every read. Three reasons: it is what an
+/// API body, an audit line and a future `@RequirePermission('TIMESHEET.CREATE')`
+/// all quote, so it has to be one literal rather than a formatting convention
+/// each of them repeats; it is what `?search=` matches; and it is the natural key
+/// the seeds resolve ids by, which is what lets a later seed name a permission
+/// without knowing its cuid.
+///
+/// **Only the meaningful pairs exist.** The twelve resources and seven actions
+/// would multiply out to eighty-four rows, and most of them would be nonsense —
+/// `DASHBOARD.DELETE` names nothing, `WORK_SCHEDULE.CREATE` names a second copy
+/// of a table that holds exactly one row. Fifty-five pairs are seeded; the matrix
+/// screen renders an empty cell where a pair does not exist, which is the honest
+/// rendering of "this cannot be granted because it cannot be done".
+model Permission {
+  id String @id @default(cuid())
+
+  /// `RESOURCE.ACTION`, upper case, dot separated. Unique, because it is how
+  /// every other layer names this row.
+  key String @unique
+
+  resource PermissionResource
+  action   PermissionAction
+
+  /// What the cell says on the matrix — `Create`, `Approve`, `Page access`.
+  ///
+  /// Stored rather than title-cased from `action` on the way out, so a screen can
+  /// call `LEAVES.CONFIGURE` "Configure leave policies" where a generic
+  /// "Configure" would leave an administrator guessing which policies. The seed
+  /// is what decides; nothing derives it.
+  label String
+
+  /// A sentence explaining what granting this actually permits. Nullable,
+  /// because the obvious pairs explain themselves and a description invented for
+  /// each of fifty-five rows would be noise nobody reads.
+  description String?
+
+  /// What a role holds by default, what a preset bundles, where a user departs
+  /// from their role, and what the history records. Every one of them is
+  /// `RESTRICT` on delete — see each model for why.
+  rolePermissions RolePermission[]
+  presetItems     PermissionPresetItem[]
+  userOverrides   UserPermissionOverride[]
+  auditEntries    PermissionAuditLog[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// The catalog is filtered by resource, by action, or by both — the three
+  /// shapes the matrix screen asks for — and this serves all three plus the
+  /// default ordering. It holds fifty-five rows, so the index states the access
+  /// pattern rather than rescuing a scan; unlike `notifications`, this table does
+  /// not grow with use.
+  @@index([resource, action])
+  @@map("permissions")
+}
+
+/// What a role grants by default — the baseline every user of that role starts
+/// from.
+///
+/// **`SUPERADMIN` is not stored here, and must never be.** A super-admin holds
+/// every permission, which is not a set somebody configured but a statement about
+/// what the role *is*: the account that can always fix the system, including a
+/// permission matrix somebody has locked themselves out of. Seeded as rows it
+/// would be a set that could be edited, and the first edit would create a
+/// super-admin who could no longer administer. It is therefore one branch in
+/// `PermissionService.resolveEffective` and nothing else — see that method.
+///
+/// The role is the existing [UserRole] rather than a second role vocabulary. A
+/// `permission_roles` table would mean `users.role` and a role row could disagree
+/// about who somebody is, and every query joining a person to their permissions
+/// would translate between two spellings of `admin` forever. The call
+/// [Notification.recipientRole] already makes.
+///
+/// There is no runtime API for this table either. Changing what a *role* means is
+/// a decision about the product, not about one person — the per-user override is
+/// how one person is treated differently — so the baseline is seeded and a
+/// deviation is a [UserPermissionOverride].
+model RolePermission {
+  id String @id @default(cuid())
+
+  role UserRole
+
+  /// `RESTRICT`: the catalog outlives its bindings. A permission still bound to a
+  /// role is one the application checks somewhere, and deleting it would leave
+  /// every user of that role silently missing a grant nobody removed.
+  permissionId String     @map("permission_id")
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  /// No `updatedAt`. A binding is not editable — a role either grants a
+  /// permission or does not — so a modification timestamp would only ever repeat
+  /// `created_at`, the call [NotificationRecipient] already makes.
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// One binding per role per permission. Listing it twice is not a stronger
+  /// grant, and without the constraint it would double every count taken over
+  /// this table.
+  @@unique([role, permissionId])
+  /// The unique index leads with `role`, so "which roles grant this permission" —
+  /// the question a `RESTRICT`ed permission delete asks — cannot use it.
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+/// A named bundle of permissions an administrator can apply to somebody in one
+/// click — the quick-apply cards on the permissions screen.
+///
+/// **Its own table rather than more [UserRole] values**, and the distinction is
+/// the point: a role is *who somebody is*, stored on their account and read by
+/// everything from notification addressing to the administrative workspace; a
+/// preset is *a set of permissions somebody named*, applied once and then
+/// irrelevant. Spelling "HR - View Only" as a role would put six more values into
+/// an enum that four other features already branch on, and would make a person's
+/// role change every time their permissions were adjusted.
+///
+/// Applying a preset stores no link to it. The user's overrides are recomputed so
+/// their effective set equals the preset, and the fact that a preset was the
+/// reason is recorded in [PermissionAuditLog] rather than on the account —
+/// because it stops being true the moment somebody toggles one cell, and a column
+/// claiming "this user is on HR - Standard" would then be a label disagreeing
+/// with the matrix underneath it.
+///
+/// Seeded like the catalog, and for the same reason: a preset is a recommendation
+/// this product makes. Editing them is a later feature.
+model PermissionPreset {
+  id String @id @default(cuid())
+
+  /// `HR_FULL_ACCESS` — the stable name a body quotes and a seed resolves by.
+  key String @unique
+
+  /// `HR - Full Access` — what the card says.
+  name String
+
+  description String?
+
+  /// Which role the preset was written for, and **only** which role it is
+  /// *grouped under* on the screen. It is not a constraint: a preset may be
+  /// applied to any account that is not a super-admin, because "give this
+  /// particular USER what an HR person gets" is a real thing an administrator
+  /// does, and refusing it would send them to toggle thirty-five cells by hand.
+  ///
+  /// `SUPERADMIN` is not a legal value — that role holds everything and cannot be
+  /// modified, so a preset for it would be a card that does nothing. The column's
+  /// type is nevertheless the whole enum, because the rule belongs with the seed
+  /// that writes these rows rather than restated as a narrower type the database
+  /// cannot express.
+  targetRole UserRole @map("target_role")
+
+  items PermissionPresetItem[]
+
+  /// The history rows that name this preset as the reason for a change.
+  auditEntries PermissionAuditLog[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// The preset list is filtered by `?targetRole=` and ordered by it, over six
+  /// rows. Indexed for the reason `permissions` is: to state the access pattern,
+  /// not to rescue a scan.
+  @@index([targetRole])
+  @@map("permission_presets")
+}
+
+/// One permission inside one preset.
+///
+/// A join table rather than an array of keys on [PermissionPreset], because each
+/// entry is a *foreign key*: an array of strings would be a relation the database
+/// could not enforce, so a preset could name a permission that had since been
+/// renamed and nothing would notice until somebody applied it. The argument
+/// [LeaveRequestReplacement] makes, applied to a catalog instead of to people.
+model PermissionPresetItem {
+  id String @id @default(cuid())
+
+  /// `Cascade`. An item is part of its preset rather than a fact of its own — it
+  /// says nothing once the preset is gone — the same call
+  /// `notification_recipients.campaign_id` makes.
+  presetId String           @map("preset_id")
+  preset   PermissionPreset @relation(fields: [presetId], references: [id], onDelete: Cascade)
+
+  /// `RESTRICT`, like every other reference to the catalog: a permission a preset
+  /// hands out cannot be deleted out from under it.
+  permissionId String     @map("permission_id")
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// One entry per permission per preset — listing it twice does not grant it
+  /// twice, and would double the `permissionCount` the preset cards render.
+  @@unique([presetId, permissionId])
+  /// The unique index leads with `preset_id`, so "which presets hand out this
+  /// permission" — what a `RESTRICT`ed permission delete asks — cannot use it.
+  @@index([permissionId])
+  @@map("permission_preset_items")
+}
+
+/// One place where one user departs from what their role grants.
+///
+/// **Only the deviation is stored, never a copy of the matrix.** A user whose
+/// permissions are exactly their role's has zero rows here; a user who has been
+/// given one extra permission has exactly one. That is the feature's central
+/// storage decision, and it earns three things at once:
+///
+///  - the table stays proportional to the *exceptions* an organisation actually
+///    makes rather than to (users × fifty-five permissions);
+///  - "reset this person to their role" is `DELETE FROM user_permission_overrides
+///    WHERE user_id = …`, an operation that cannot half-succeed, instead of a
+///    rewrite of every row to match a baseline read from somewhere else;
+///  - and, most importantly, **a change to a role baseline reaches everybody it
+///    should.** With the full matrix copied per user, the day `HR` gained a
+///    permission every existing HR user would keep the frozen copy taken when
+///    their account was set up, and the new grant would apply only to people
+///    hired afterwards. Storing the exception means the baseline is read fresh
+///    every time and the exception survives on top of it.
+///
+/// An override that *agrees* with the baseline is therefore never written.
+/// `UserPermissionService` normalises every submitted matrix against the role
+/// before persisting, so a `GRANT` of something the role already gives is dropped
+/// rather than stored — it states a fact the baseline already states, and the two
+/// copies would disagree the moment the baseline changed.
+///
+/// There are no rows here for a `SUPERADMIN`, and the API refuses to write any.
+/// See [RolePermission].
+model UserPermissionOverride {
+  id String @id @default(cuid())
+
+  /// `Cascade`, and the fourth in this schema. An override says nothing once the
+  /// account it qualifies is gone: nobody can hold it, no resolution will ever
+  /// read it, and keeping it would only make an account undeletable for the sake
+  /// of exceptions to a role nobody has any more. The same argument
+  /// `notifications.recipient_user_id` makes.
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// `RESTRICT`: the catalog outlives the exceptions taken against it.
+  permissionId String     @map("permission_id")
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  /// Which way the deviation runs. `GRANT` is a permission the role does not give
+  /// and this person has; `REVOKE` is one the role gives and this person does not.
+  effect PermissionEffect
+
+  createdAt DateTime @default(now()) @map("created_at")
+  /// Kept, unlike [RolePermission] and [PermissionPresetItem], because this row
+  /// genuinely changes: flipping a cell from granted to revoked updates `effect`
+  /// in place rather than deleting and re-inserting, so "when was this exception
+  /// last touched" is a question the column can answer.
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// One override per user per permission. It is what makes "the exception" a
+  /// singular noun: two rows for one cell would be a user simultaneously granted
+  /// and denied, and no resolution could choose between them.
+  ///
+  /// It also serves the read this table exists for — every override of one user,
+  /// which every effective resolution runs — because it leads with `user_id`. A
+  /// separate index on `user_id` alone would duplicate that leading column.
+  @@unique([userId, permissionId])
+  /// The unique index leads with `user_id`, so "who has an exception on this
+  /// permission" — what a `RESTRICT`ed permission delete asks — cannot use it.
+  @@index([permissionId])
+  @@map("user_permission_overrides")
+}
+
+/// What was changed about somebody's permissions, by whom, and from what to what.
+///
+/// The history tab, and the reason every write in this module is a transaction.
+/// **Audit rows are written in the same `$transaction` as the override rows they
+/// describe**, never afterwards: a history written separately would be a second
+/// statement about one event, and the run where the second statement failed would
+/// leave a permission granted with nothing recording who granted it — which is
+/// the one question an audit trail exists to answer. Sharing the transaction
+/// makes "the history disagrees with the state" unreachable rather than unlikely.
+///
+/// Each row is one *transition*, not a snapshot: `previous_effect` and
+/// `new_effect` are the override state before and after, and either may be null
+/// because "no override" is a legitimate end of a transition in both directions.
+/// A snapshot per change would grow by fifty-five rows per click and still not say
+/// what actually moved.
+///
+/// `permission_id` is nullable, and exactly two of the five actions leave it null:
+/// `PRESET_APPLIED` and `RESET_TO_ROLE` are summaries of a whole operation,
+/// written once beside the per-permission rows that make it up. The alternative —
+/// a separate summary table — would mean the history tab reading two tables and
+/// interleaving them by timestamp to render one list.
+model PermissionAuditLog {
+  id String @id @default(cuid())
+
+  /// Whose permissions changed.
+  ///
+  /// `Cascade`, and the deliberate half of an asymmetric pair. This history is
+  /// only ever read through `GET /users/:id/permissions/history`, a route scoped
+  /// to an account: once the account is deleted the rows are unaddressable, and
+  /// the overrides they describe have cascaded away too, so keeping them would
+  /// preserve a history of a state that no longer exists while making the account
+  /// undeletable. It would also silently change what `DELETE /users/:id` means —
+  /// Feature 009 refuses that call only when an employee is linked — for every
+  /// account whose permissions somebody had once edited.
+  ///
+  /// The trade-off is real and is recorded in the feature document: a compliance
+  /// regime requiring permission changes to outlive the account needs an
+  /// append-only export or a nullable target, not a foreign key.
+  targetUserId String @map("target_user_id")
+  targetUser   User   @relation("PermissionAuditTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  /// Who made the change, taken from `@CurrentUser()` and never hardcoded.
+  ///
+  /// `RESTRICT` — the other half of the asymmetry, and the schema's standing rule
+  /// for every reference to a person that records something somebody *did*
+  /// (`notification_campaigns.created_by_employee_id`,
+  /// `leave_request_replacements.employee_id`). Granting somebody a permission is
+  /// an act, and the act outlives the actor's account: an administrator cannot be
+  /// deleted out from under the record of what they authorised, which is the
+  /// difference between an audit trail and a list.
+  changedByUserId String @map("changed_by_user_id")
+  changedBy       User   @relation("PermissionAuditActor", fields: [changedByUserId], references: [id])
+
+  /// Which permission moved, or null on the summary row of a bulk operation.
+  ///
+  /// `RESTRICT`, like every other reference to the catalog. A permission named in
+  /// the history cannot be deleted out from under it — the history would
+  /// otherwise say that *something* had been granted.
+  permissionId String?     @map("permission_id")
+  permission   Permission? @relation(fields: [permissionId], references: [id])
+
+  action PermissionAuditAction
+
+  /// The override state before and after. Both nullable, because null is the
+  /// meaningful value at both ends: null → `GRANT` is a permission added on top
+  /// of the role, `REVOKE` → null is an exception withdrawn so the role applies
+  /// again. Both null on the two summary actions, which describe an operation
+  /// rather than a cell.
+  previousEffect PermissionEffect? @map("previous_effect")
+  newEffect      PermissionEffect? @map("new_effect")
+
+  /// The preset that was applied, on a `PRESET_APPLIED` summary row; null on
+  /// everything else.
+  ///
+  /// `RESTRICT`, for the reason the catalog is: a history line saying "a preset
+  /// was applied" without being able to say which one has lost the fact it was
+  /// written to record.
+  presetId String?           @map("preset_id")
+  preset   PermissionPreset? @relation(fields: [presetId], references: [id])
+
+  /// No `updatedAt`. An audit row records a moment and is never edited; a
+  /// modification timestamp on one would be an invitation to.
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// The one read this table is built for: one user's history, newest first.
+  /// `created_at` comes second so PostgreSQL satisfies the filter and the sort
+  /// from a single scan instead of sorting the matches afterwards — the call
+  /// `notifications` makes for its three list indexes. Unlike the four tables
+  /// above, this one grows for as long as people administer the system.
+  @@index([targetUserId, createdAt])
+  /// The three foreign keys the index above does not lead with. Each is read
+  /// backwards by a delete: `RESTRICT` has to find the rows referencing a user, a
+  /// permission or a preset before it can refuse.
+  @@index([changedByUserId])
+  @@index([permissionId])
+  @@index([presetId])
+  @@map("permission_audit_logs")
 }
