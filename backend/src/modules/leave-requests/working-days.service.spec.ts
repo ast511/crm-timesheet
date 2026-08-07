@@ -200,6 +200,61 @@ describe('WorkingDaysService', () => {
       expect(calculator.isWorkingDay(utc('2026-09-12'))).toBe(false);
     });
   });
+
+  /**
+   * The day boundary, which is what the company timezone is *about* — and the
+   * reason this service is not one of its readers.
+   *
+   * Everything counted here is a **calendar date**, not an instant: a client
+   * posts `2026-09-07`, the column stores that day's UTC midnight, and the date
+   * is an anchor naming a square on a calendar rather than a moment somebody was
+   * at their desk. A date-only anchor has no time of day to be in a zone, so
+   * there is no boundary for a zone to move — and re-reading it in one would
+   * *create* the drift instead of correcting it, by turning midnight into the
+   * previous evening for every zone west of Greenwich.
+   *
+   * What the boundary must never do is follow the **server's** zone, and these
+   * two cases are what pin that. Both dates are read while the process is running
+   * in `America/New_York`, four hours behind: a local reading of Monday's anchor
+   * gives the Sunday before it, which would refuse a perfectly ordinary working
+   * day, and a local reading of Sunday's gives the Saturday, which would let a
+   * weekend through. Neither happens, because the classification is anchored to
+   * the stored calendar date and the same deployment answers the same way
+   * wherever it runs.
+   *
+   * `WorkSchedule.timezone` is therefore read by the features that group
+   * *instants* into days — Timesheet and Reporting — and deliberately not here.
+   */
+  describe('the day boundary', () => {
+    const ORIGINAL_TZ = process.env.TZ;
+
+    beforeEach(() => {
+      process.env.TZ = 'America/New_York';
+    });
+
+    afterEach(() => {
+      process.env.TZ = ORIGINAL_TZ;
+    });
+
+    it('classifies a date by its own calendar day, not the server zone', async () => {
+      const calculator = await service.createCalculator([2026]);
+
+      // Monday 7 September 2026. Read locally in New York, its stored anchor is
+      // the Sunday evening before — and would be refused as a weekend.
+      expect(calculator.isWorkingDay(utc('2026-09-07'))).toBe(true);
+
+      // Sunday 13 September 2026, which locally would read as the Saturday.
+      expect(calculator.isWorkingDay(utc('2026-09-13'))).toBe(false);
+    });
+
+    it('counts a working week as five days from a server four hours behind', async () => {
+      const calculator = await service.createCalculator([2026]);
+
+      expect(
+        calculator.countBetween(utc('2026-09-07'), utc('2026-09-11')),
+      ).toBe(5);
+    });
+  });
 });
 
 describe('yearsSpannedBy', () => {

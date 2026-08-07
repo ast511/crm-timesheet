@@ -54,6 +54,10 @@ const WEEKDAYS: Weekday[] = [
 const SCHEDULE: WorkScheduleEntity = {
   workingDays: WEEKDAYS,
   weekStartsOn: Weekday.MONDAY,
+  // Published by the schedule and read by nothing in this service: the fill
+  // engine works from stored calendar dates, not from instants it has to place
+  // on a day. Reporting is the feature that groups by the company zone.
+  timezone: 'Europe/Bucharest',
   workStartTime: '09:00',
   workEndTime: '18:00',
   minHoursPerEntry: 0.5,

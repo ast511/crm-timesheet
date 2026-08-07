@@ -31,6 +31,13 @@ export interface WorkScheduleEntity {
   weekStartsOn: Weekday;
   workStartTime: string;
   workEndTime: string;
+  /**
+   * The IANA zone the two wall-clock times above, and every calendar day in the
+   * application, are read in. Published so a client can show the current value
+   * and pre-fill the editor — without it the field would be writable through the
+   * `PUT` and invisible to the form that has to send it back.
+   */
+  timezone: string;
   minHoursPerEntry: number;
   maxHoursPerEntry: number;
   maxHoursPerDay: number;
@@ -60,6 +67,7 @@ export const WORK_SCHEDULE_PUBLIC_SELECT = {
   weekStartsOn: true,
   workStartTime: true,
   workEndTime: true,
+  timezone: true,
   minHoursPerEntry: true,
   maxHoursPerEntry: true,
   maxHoursPerDay: true,
@@ -91,6 +99,7 @@ export function toWorkScheduleEntity(
     weekStartsOn: schedule.weekStartsOn,
     workStartTime: schedule.workStartTime,
     workEndTime: schedule.workEndTime,
+    timezone: schedule.timezone,
     minHoursPerEntry: toHours(schedule.minHoursPerEntry),
     maxHoursPerEntry: toHours(schedule.maxHoursPerEntry),
     maxHoursPerDay: toHours(schedule.maxHoursPerDay),

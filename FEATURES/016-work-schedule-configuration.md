@@ -638,3 +638,331 @@ administrators actually work from, and the email is the copy.
 
 Part of `add_timesheet_management`. The column is defaulted, so the existing
 configuration row keeps the Monday-first grouping it always had.
+
+---
+
+## Amended: company timezone
+
+**Date:** 2026-08-07
+**Amendment, not a new feature.** One column, one DTO field, one accessor and
+one entity property. It takes no feature number of its own: it does not add a
+module, it completes this one. **Nothing above is retracted.**
+
+Done before Reporting (031) deliberately, because Timesheet (030) and Reporting
+will both read it and neither should be written against an assumed zone.
+
+### What changed
+
+```prisma
+/// The one zone the application interprets calendar days in.
+timezone String @default("Europe/Bucharest") @map("timezone")
+```
+
+That is the whole schema change. Alongside it: `timezone` on
+`UpdateWorkScheduleDto` (optional, validated), on `WorkScheduleEntity` and on
+`WORK_SCHEDULE_PUBLIC_SELECT`, and `WorkScheduleService.findTimezone()`.
+
+### Why it belongs to the working schedule
+
+This module already owns **what a working day means** — which weekdays are
+worked, how many hours one holds, when the office opens and closes, and (since
+Feature 030) which day a week turns over on. The timezone is the missing
+companion to all of it.
+
+The connection is written into this document already. `workStartTime` and
+`workEndTime` are stored as text because `09:00` is a *wall-clock label* rather
+than an instant, and the note above says the `timestamp` alternative "would drag
+a date and a timezone along with a value that has neither". That was the right
+call and it left a question open: **a wall-clock label in which zone?** The
+answer had nowhere to live, so every consumer would have had to assume one. It
+lives here now, once, next to the labels it qualifies.
+
+Every day-level question in the application is the same question:
+
+| Question | Asked by |
+| --- | --- |
+| Which calendar day does this instant belong to? | Timesheet, Reporting |
+| Where does a day end and the next begin? | Timesheet |
+| Which day is a weekend rule applied to? | working-days classification |
+| How does a day-level report group its rows? | Reporting (031) |
+
+They have one answer, and one place to read it.
+
+### Company-wide, not per employee
+
+**There is no `Employee.timezone`, and this amendment deliberately does not open
+that door.**
+
+Which calendar day an instant falls on must have exactly one answer, or the same
+timesheet totals differently depending on who is looking at it — a monthly total
+that disagrees with itself between two viewers is not a total. A per-person zone
+is a genuinely larger feature: it would touch how every timesheet is grouped, how
+every report is bucketed, and what a "day" means in an approval workflow that two
+people in different zones both act on. If it is ever wanted, it is its own
+feature with its own document, and this column would become the default it falls
+back to — which is why the field is on the *company's* schedule and reads as one.
+
+### Why an IANA name and not an offset
+
+The column holds `Europe/Bucharest`, not `+02:00`.
+
+An offset is not a zone. It is a zone's answer on one particular day: Bucharest
+is `+02:00` in January and `+03:00` in July, because daylight saving moves it. A
+stored offset would therefore freeze half the year's answer and apply it to the
+other half, and every day boundary in the six months on the wrong side of the
+change would be an hour out — quietly, and only for the instants that fall in
+that hour.
+
+The IANA name is the stable fact, and it is the thing that *carries* the rules
+for when the offset changes. It is stored as `text` because that is exactly what
+it is: an identifier. There is no narrower column type for it, and inventing a
+constrained one would be inventing a second tz database.
+
+### How it is validated
+
+`@IsTimezone()` — trim, `@IsString()`, then membership of the runtime's own tz
+database:
+
+```ts
+const SUPPORTED_TIMEZONES: ReadonlySet<string> = new Set([
+  ...Intl.supportedValuesOf('timeZone'),
+  'UTC',
+]);
+```
+
+Three decisions in that:
+
+1. **Membership, not a pattern.** A `Region/City` regular expression accepts
+   `Europe/Atlantis` — perfectly well shaped, and names nothing. The failure
+   would surface much later, as days grouped against a zone nothing can resolve.
+   Checking that the name is *recognised* is the only check that means anything
+   here, and it is the case the DTO spec pins by name.
+2. **The runtime's list, not one in this repository.** Zones are added and
+   renamed; a list checked in here is a list that goes stale and starts refusing
+   names the same runtime resolves perfectly well. `Intl.supportedValuesOf` is
+   the tz database the platform already ships and already updates.
+3. **`UTC` added explicitly.** ECMA-402 leaves it out of that enumeration on
+   purpose — the specification canonicalises it separately — while it remains the
+   one identifier every runtime understands and the obvious choice for a company
+   that wants no local zone. Without the addition, the most defensible
+   configuration anybody could send would be a `400`.
+
+The comparison is **exact**, so `europe/bucharest` is refused rather than folded.
+IANA names have one canonical spelling, and a second in the column would be two
+values meaning one zone — the same argument the `HH:mm` pattern makes about
+`9:00`. An unrecognised value is a `400` naming `timezone`, which is cheap to
+fix; a silently re-cased one is a configuration that no longer matches what an
+administrator typed.
+
+### Optional on the `PUT`, and what its absence means
+
+`timezone` is optional, which makes it the second exception to this document's
+"every field is required, because `PUT` replaces" rule. Both exceptions exist for
+the same reason — each column arrived after the endpoint's contract was
+published, and a body written against the older contract must not start failing.
+
+But **the two behave differently when omitted**, and that is deliberate:
+
+| Field | Omitted from the body | Why |
+| --- | --- | --- |
+| `weekStartsOn` | stores `MONDAY` (a property initialiser) | Restating the column's default changes nothing. |
+| `timezone` | **leaves the stored value unchanged** | Defaulting it would change something, and something consequential. |
+
+A company that had configured `America/New_York` and then saved its hours from a
+form built before this field existed would, under an initialiser, be moved back
+to `Europe/Bucharest` — and, per the next section, that re-interprets which
+calendar day every stored instant falls on. A setting that consequential is
+changed because somebody asked for it, never as the side effect of a request
+about something else.
+
+Mechanically: the property has no initialiser, so an omitted value reaches the
+service as `undefined`, which Prisma reads as "do not write this column" on the
+update half of the upsert and as "take the column's default" on the create half.
+Both are the answer this field needs, and the service spec pins each.
+
+### The retroactive-interpretation caveat
+
+**Changing this value changes how instants that have already been recorded map to
+calendar days.** An entry stored at a given UTC instant does not move; the day it
+*falls on* can. Move the company from `Europe/Bucharest` to `America/New_York`
+and an entry recorded at 01:00 Bucharest time on the 8th is 18:00 New York time
+on the 7th — the same instant, a different day, and therefore a different
+timesheet.
+
+So:
+
+- **Nothing is rewritten.** No timesheet, leave request or holiday is migrated,
+  recomputed or re-dated when the timezone changes. Stored facts stay as stored;
+  only their interpretation follows the current zone. This is the same stance the
+  project takes everywhere else — a public holiday is versioned rather than
+  edited, a leave request's day count is computed rather than frozen — and it
+  rests on the same principle: **a configuration change does not silently edit
+  facts already recorded.**
+- **It is a rare administrative setting, not a routine toggle.** The caveat is
+  written into the schema comment as well as here, so an administrator reading
+  either understands the consequence before making the change.
+
+Deliberately **not** built for it: no confirmation workflow, no audit table, no
+re-processing job. Each would be a feature of its own with its own document, and
+each would imply a guarantee this amendment does not make. There is no existing
+Work Schedule audit mechanism to hook into — the audit trail is still listed as a
+Future Improvement above, and when it arrives this field is recorded by it like
+any other, needing nothing special.
+
+### The accessor other features use
+
+```ts
+WorkScheduleService.findTimezone(): Promise<string>
+```
+
+One column, not the whole entity — the call `findWorkingDays()` makes, and for
+the same reason: a feature that needs to know which day an instant belongs to has
+no business receiving eight hour figures, and publishing the entity would make
+every future column of this table part of the contract between the modules. It
+answers `404` when nothing is configured, like every other read here, because a
+guessed zone is a guess about which day somebody's work happened.
+
+It **interprets nothing**. No date is converted and no day is grouped inside this
+module; the features that group days do the grouping. That is the division this
+document has insisted on since Feature 016, and it survives intact.
+
+`timezone` is also on `WorkScheduleEntity`, so `GET /api/v1/work-schedule`
+publishes it and the frontend can pre-fill the editor. A column that is writable
+through the `PUT` and invisible on the `GET` would be a form that cannot show what
+it is about to overwrite.
+
+### Why `working-days.service.ts` was **not** changed
+
+The amendment asked for this service to read the company zone if it classified
+days on a server-local or UTC assumption. It was reviewed and left alone, because
+**making the change would have introduced the bug it was meant to prevent.**
+
+Everything that service counts is a **calendar date, not an instant**. A client
+posts `2026-09-07`; the column stores that day's UTC midnight; the value is an
+anchor naming a square on a calendar, not a moment anybody was at their desk. A
+date-only anchor has no time of day to be *in* a zone, so there is no boundary
+for a zone to move.
+
+Re-reading those anchors in the company zone would therefore not correct a drift
+— it would create one. `2026-09-07T00:00:00Z` interpreted in `America/New_York`
+is the evening of Sunday the 6th, so a five-day leave request would come back as
+four days, and a Monday would be refused as a weekend. Every part of the pipeline
+is UTC-anchored end to end — `weekdayOf` reads `getUTCDay()`, `toDateKey` slices
+the UTC ISO string, and holiday spans arrive at `T00:00:00.000Z` — so the
+server's own zone never enters the calculation at any point.
+
+That property is now **pinned by tests rather than left as a comment**. A new
+`the day boundary` block runs the classification with `process.env.TZ` set to
+`America/New_York` and asserts that Monday 7 September is still a working day and
+Sunday 13 September is still not, and that a Monday-to-Friday span still counts
+as five. Under a local reading both would be wrong, in opposite directions.
+
+The zone belongs to the features that group **instants** into days — Timesheet
+and Reporting — which is exactly where this amendment leaves it. If a later
+feature does need this service to classify a timestamp, it takes the zone as an
+argument at that point, with a reason written next to it.
+
+### What was deliberately not done
+
+- No `Employee.timezone`, and no groundwork for one.
+- No UI. The existing `PUT` already exposes the field to the frontend.
+- No confirmation or re-processing workflow for a zone change.
+- No rewriting of stored timesheet or leave data.
+- No refactor of Timesheet or Reporting. They read the accessor in their own
+  work; this amendment only makes the value available.
+
+### Migration
+
+`prisma/migrations/20260807140000_add_work_schedule_timezone/migration.sql`
+
+```sql
+-- AlterTable
+ALTER TABLE "work_schedules" ADD COLUMN     "timezone" TEXT NOT NULL DEFAULT 'Europe/Bucharest';
+```
+
+**Required**, because the column cannot exist without it and `prisma db push` is
+forbidden by the project rules — and would in any case leave no record of the
+change.
+
+**Additive and safe on a populated database.** The column is `NOT NULL` with a
+default, which is what makes that true: PostgreSQL back-fills the one existing
+configuration row to `Europe/Bucharest` rather than rejecting the `ALTER` for
+having no value to put in it. `Europe/Bucharest` is also what that row has always
+meant in practice, so the back-fill states what was already true instead of
+re-grouping a running company's days — which would have been precisely the
+retroactive re-interpretation described above, applied by a migration nobody
+asked to run.
+
+The seed is unchanged and does not state a timezone, matching how it already
+treats `weekStartsOn`: the column's default is the seeded value, in one place.
+
+```bash
+cd backend && npm run prisma:migrate
+```
+
+### Testing
+
+| Spec | Added |
+| --- | --- |
+| `work-schedule.service.spec.ts` | The default zone published on `find`; a stated zone persisted to both halves of the upsert; an omitted zone left out of the write entirely (`undefined`, not a default) while `weekStartsOn` still restates `MONDAY`; `findTimezone` reading the one column, and its `404` |
+| `update-work-schedule.dto.spec.ts` | Optional and absent by default; `UTC`, `America/New_York`, `Asia/Tokyo`, `Europe/Bucharest` accepted; trimming; the `400` naming `timezone`; `Europe/Atlantis`, `Not/A/Zone`, `GMT+2`, `+02:00`, `UTC+02:00`, `europe/bucharest`, `''` and a number all refused |
+| `working-days.service.spec.ts` | The `the day boundary` block described above |
+| `test/app.e2e-spec.ts` | An unrecognised zone refused by the pipe, reported by name |
+
+One existing test needed correcting rather than extending: the DTO spec's
+"rejects an unknown property" case used `timezone: 'UTC'` as its example of a
+field that does not exist. It does now, so the example moved to `weekendDays` —
+which is the near-miss most likely to be sent by mistake, since `workingDays` has
+always been the only statement about which days are worked.
+
+`timesheet-fill.service.spec.ts` gained `timezone` on its `WorkScheduleEntity`
+fixture, with a note saying the service reads it for nothing: that engine works
+from stored calendar dates, not from instants it has to place on a day.
+
+Results: `npm run typecheck` clean, `npm test` 2184 passed (109 suites),
+`npm run test:e2e` 49 passed, `npm run build` clean, `prettier --check` clean.
+
+### Files
+
+| File | Change |
+| --- | --- |
+| `backend/prisma/migrations/20260807140000_add_work_schedule_timezone/migration.sql` | **Created** — the one column |
+| `backend/prisma/schema.prisma` | `WorkSchedule.timezone`, documented in the surrounding voice |
+| `backend/src/modules/work-schedule/work-schedule.constants.ts` | `DEFAULT_TIMEZONE`, the supported-zone set, `isSupportedTimezone` |
+| `backend/src/modules/work-schedule/dto/work-schedule-field.decorators.ts` | `IsTimezone()` and its `registerDecorator` constraint |
+| `backend/src/modules/work-schedule/dto/update-work-schedule.dto.ts` | The optional field, and the class doc's two exceptions |
+| `backend/src/modules/work-schedule/entities/work-schedule.entity.ts` | `timezone` on the interface, the `select` and the mapper |
+| `backend/src/modules/work-schedule/work-schedule.service.ts` | `timezone` in the upsert data; `findTimezone()` |
+| `backend/src/modules/work-schedule/work-schedule.service.spec.ts` | Fixtures and the new cases |
+| `backend/src/modules/work-schedule/dto/update-work-schedule.dto.spec.ts` | The `timezone` block; the unknown-property example corrected |
+| `backend/src/modules/leave-requests/working-days.service.spec.ts` | The `the day boundary` block |
+| `backend/src/modules/timesheet-management/timesheet-fill.service.spec.ts` | `timezone` on the schedule fixture |
+| `backend/test/app.e2e-spec.ts` | The unrecognised-zone case |
+| `FEATURES/016-work-schedule-configuration.md` | This section |
+| `FEATURES/HISTORY.md` | An `Amendments` table, and this row in it |
+
+### Notes
+
+- The seeded and default zone is `Europe/Bucharest` rather than `UTC`. `UTC` is
+  the more neutral-looking default and would have been the wrong one: it is not
+  what this deployment has meant, and a default that quietly re-grouped a running
+  company's days is exactly what the caveat above warns against.
+- No guard on the endpoint, as everywhere else in this module. This is
+  administrator-only configuration in practice — more obviously so than the hour
+  fields, given what changing it re-interprets — and it stays unprotected until
+  authentication and authorization are features, on the same reasoning stated
+  above: half an access check reads as protection while providing none.
+- `Intl.supportedValuesOf` returns some four hundred names, so the validation
+  message gives one example rather than listing the alternatives. A `400` carrying
+  all of them would be unreadable in exactly the situation somebody is trying to
+  read it.
+
+### Future Improvements
+
+- Reporting (031) and Timesheet (030) actually reading `findTimezone()` to group
+  days. That is what the field exists for; the accessor is exported ready.
+- A warning in the UI when the zone is changed on a company with stored
+  timesheets, stating plainly which existing days may be re-grouped. It belongs
+  with the screen that can show it, not with a backend that can only refuse.
+- Per-employee zones, if the company ever spans them, on the terms described
+  above: a separate feature, with this column as the fallback default.

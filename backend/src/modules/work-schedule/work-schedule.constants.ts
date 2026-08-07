@@ -33,6 +33,61 @@ export const WORK_SCHEDULE_ID = 'work_schedule';
 export const WORK_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
+ * The zone a configuration starts out in.
+ *
+ * The same literal is the `timezone` column's default in `schema.prisma`, for
+ * the same reason {@link WORK_SCHEDULE_ID} is duplicated there: neither side can
+ * derive the other, so both carry the note that they move together. Here it is
+ * additionally the example in the validation message, so an administrator who
+ * sends an offset is shown the shape of a name rather than only told the value
+ * was wrong.
+ *
+ * Bucharest rather than `UTC`, because it is what this deployment has always
+ * meant in practice and a default that quietly re-grouped a running company's
+ * days would be exactly the retroactive re-interpretation the column's comment
+ * warns about.
+ */
+export const DEFAULT_TIMEZONE = 'Europe/Bucharest';
+
+/**
+ * Every IANA zone name this runtime recognises.
+ *
+ * Built from `Intl.supportedValuesOf('timeZone')` — the tz database the platform
+ * already ships and already keeps updated — rather than from a list checked into
+ * this repository. A hand-maintained list is a list that goes stale: zones are
+ * added and renamed, and one that lags would refuse a name the same runtime is
+ * perfectly able to resolve.
+ *
+ * `UTC` is added explicitly because ECMA-402 leaves it out of that set on
+ * purpose: the specification canonicalises it separately, so it is absent from
+ * the enumeration while being the one identifier every runtime understands — and
+ * the obvious answer for a company that wants no local zone at all. Omitting it
+ * would make the most defensible configuration a `400`.
+ *
+ * A `Set`, so the check is a hash lookup rather than a scan over four hundred
+ * strings on every request, and built once at module load rather than per
+ * validation.
+ */
+const SUPPORTED_TIMEZONES: ReadonlySet<string> = new Set([
+  ...Intl.supportedValuesOf('timeZone'),
+  'UTC',
+]);
+
+/**
+ * Whether a string names a zone the application can actually interpret days in.
+ *
+ * An **exact** match, so `europe/bucharest` is refused rather than folded. IANA
+ * names have one canonical spelling, and storing a second one would leave the
+ * column holding two values that mean the same zone — the same argument the
+ * `HH:mm` pattern makes about `9:00`. A rejected value is a `400` naming the
+ * field, which is cheap to fix; a silently re-cased one is a configuration that
+ * no longer matches what an administrator typed.
+ */
+export function isSupportedTimezone(value: string): boolean {
+  return SUPPORTED_TIMEZONES.has(value);
+}
+
+/**
  * Decimals an hour value may carry, matching `decimal(5, 2)`.
  *
  * Validated rather than left to the column, because PostgreSQL would *round*

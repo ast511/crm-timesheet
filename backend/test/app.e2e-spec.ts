@@ -322,6 +322,23 @@ describe('Application endpoints (e2e)', () => {
         .expect(400);
     });
 
+    /**
+     * The zone is optional, so it is absent from the missing-field report above;
+     * what it must never be is a free-text field. `Europe/Atlantis` is well
+     * shaped and names nothing, which is the case a `Region/City` pattern would
+     * have waved through.
+     */
+    it('rejects a timezone that is not an IANA zone name', async () => {
+      const response = await request(app.getHttpServer())
+        .put(WORK_SCHEDULE_PATH)
+        .send({ timezone: 'Europe/Atlantis' })
+        .expect(400);
+
+      const { message } = response.body as { message: string[] };
+
+      expect(message.join(' ')).toMatch(/timezone/);
+    });
+
     it('rejects an approval address that is not an address', () => {
       return request(app.getHttpServer())
         .post(`${WORK_SCHEDULE_PATH}/emails`)

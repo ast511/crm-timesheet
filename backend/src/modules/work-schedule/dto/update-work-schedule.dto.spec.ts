@@ -1,4 +1,8 @@
-import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
+import {
+  ArgumentMetadata,
+  BadRequestException,
+  ValidationPipe,
+} from '@nestjs/common';
 
 import {
   MAX_HOURS_PER_DAY,
@@ -80,8 +84,95 @@ describe('UpdateWorkScheduleDto', () => {
     await expect(validate(partial)).rejects.toThrow();
   });
 
+  // The example used to be `timezone`, which stopped being unknown when the
+  // company zone was added to this DTO. Anything genuinely not on the class does
+  // the job; `weekendDays` is the near-miss most likely to be sent by mistake,
+  // since nothing here has ever had such a field — `workingDays` is the only
+  // statement about which days are worked.
   it('rejects an unknown property instead of ignoring it', async () => {
-    await expect(validate({ ...VALID, timezone: 'UTC' })).rejects.toThrow();
+    await expect(validate({ ...VALID, weekendDays: [] })).rejects.toThrow();
+  });
+
+  /**
+   * The company zone: one value for the whole application, in which every
+   * calendar day and day boundary is read. An IANA *name*, never an offset.
+   */
+  describe('timezone', () => {
+    it('is optional, and omitting it sends nothing to be stored', async () => {
+      const dto = await validate(VALID);
+
+      // `undefined` rather than a default, which is what makes an omitted zone
+      // leave the stored one alone instead of resetting it.
+      expect(dto.timezone).toBeUndefined();
+    });
+
+    it.each(['UTC', 'America/New_York', 'Asia/Tokyo', 'Europe/Bucharest'])(
+      'accepts %p',
+      async (timezone) => {
+        await expect(validate({ ...VALID, timezone })).resolves.toMatchObject({
+          timezone,
+        });
+      },
+    );
+
+    it('trims before checking, so a padded value is still valid', async () => {
+      const dto = await validate({ ...VALID, timezone: '  UTC  ' });
+
+      expect(dto.timezone).toBe('UTC');
+    });
+
+    // The name matters as much as the rejection: an administrator who typed the
+    // zone by hand has to be told which of eleven fields the 400 is about. The
+    // pipe carries that in the response payload rather than in `Error.message`,
+    // which is the flat "Bad Request Exception".
+    it('reports the field by name when the zone is not recognised', async () => {
+      const error = await validate({
+        ...VALID,
+        timezone: 'Europe/Atlantis',
+      }).catch((thrown: BadRequestException) => thrown);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+
+      const { message } = (error as BadRequestException).getResponse() as {
+        message: string[];
+      };
+
+      expect(message.join(' ')).toMatch(/timezone/);
+    });
+
+    /**
+     * The check is membership of the runtime's tz database rather than a
+     * `Region/City` pattern, and this is the case that tells the two apart:
+     * `Europe/Atlantis` above is perfectly well shaped and names nothing.
+     */
+    it.each(['Not/A/Zone', 'GMT+2', '+02:00', '2', ''])(
+      'rejects %p',
+      async (timezone) => {
+        await expect(validate({ ...VALID, timezone })).rejects.toThrow();
+      },
+    );
+
+    /**
+     * An offset is not a zone: `+02:00` is Bucharest's answer for half the year
+     * and wrong for the other half, because daylight saving moves it. The name
+     * carries the rules for when that happens, which is why the column holds one.
+     */
+    it('rejects a numeric offset in place of a name', async () => {
+      await expect(
+        validate({ ...VALID, timezone: 'UTC+02:00' }),
+      ).rejects.toThrow();
+    });
+
+    /** IANA names have one canonical spelling; a second would mean one zone. */
+    it('rejects a lower-case spelling rather than folding it', async () => {
+      await expect(
+        validate({ ...VALID, timezone: 'europe/bucharest' }),
+      ).rejects.toThrow();
+    });
+
+    it('rejects a non-string, since a zone is a name', async () => {
+      await expect(validate({ ...VALID, timezone: 2 })).rejects.toThrow();
+    });
   });
 
   describe('workingDays', () => {

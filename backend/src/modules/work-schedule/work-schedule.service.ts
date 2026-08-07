@@ -83,6 +83,17 @@ export class WorkScheduleService {
    *
    * The body is complete, so `update` writes every column: a `PUT` replaces the
    * configuration rather than merging into it.
+   *
+   * `timezone` is the one exception, and it is an exception on purpose. It is
+   * optional on the DTO with no initialiser, so an omitted one arrives here as
+   * `undefined` — which Prisma reads as "do not write this column" on the update
+   * half and as "take the column's default" on the create half. Both are the
+   * answer this field needs: an administrator saving the hours from a form that
+   * predates the field keeps the zone they configured, and a first-ever `PUT`
+   * lands on `Europe/Bucharest`. Spelling it out rather than leaving it implicit,
+   * because the alternative — defaulting it here — would quietly re-interpret
+   * which calendar day every stored instant falls on, and would do it as the side
+   * effect of a request about something else.
    */
   async save(dto: UpdateWorkScheduleDto): Promise<WorkScheduleEntity> {
     assertEntryRangeIsOrdered(dto);
@@ -90,6 +101,7 @@ export class WorkScheduleService {
     const data = {
       workingDays: dto.workingDays,
       weekStartsOn: dto.weekStartsOn,
+      timezone: dto.timezone,
       workStartTime: dto.workStartTime,
       workEndTime: dto.workEndTime,
       minHoursPerEntry: dto.minHoursPerEntry,
@@ -149,6 +161,42 @@ export class WorkScheduleService {
     }
 
     return schedule.workingDays;
+  }
+
+  /**
+   * The zone the company's calendar days are read in.
+   *
+   * The accessor Timesheet and Reporting call rather than reading
+   * `work_schedules` themselves — the same hand-off {@link findWorkingDays}
+   * makes, and one column for the same reason: a feature that needs to know which
+   * day an instant belongs to has no business receiving eight hour figures, and
+   * publishing the whole entity would make every future column of this table part
+   * of the contract between the modules.
+   *
+   * **One zone for the whole application, not one per employee.** Which day an
+   * instant falls on has to have a single answer, or the same timesheet would
+   * total differently depending on who asked; a per-person zone is a separate and
+   * much larger feature, and nothing here anticipates one.
+   *
+   * A `404` when nothing has been configured, which is what every other read here
+   * answers and for the same reason: a guessed zone is a guess about which day
+   * somebody's work happened, and the message names the request that fixes it.
+   *
+   * It reports the configuration and interprets nothing — no date is converted
+   * here, and no day is grouped. The module that has a reason to group days does
+   * the grouping, which is the division this class has kept since Feature 016.
+   */
+  async findTimezone(): Promise<string> {
+    const schedule = await this.prisma.workSchedule.findUnique({
+      where: { id: WORK_SCHEDULE_ID },
+      select: { timezone: true },
+    });
+
+    if (schedule === null) {
+      throw new NotFoundException(NOT_CONFIGURED_MESSAGE);
+    }
+
+    return schedule.timezone;
   }
 
   /**

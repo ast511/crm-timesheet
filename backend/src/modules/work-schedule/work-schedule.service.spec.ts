@@ -8,7 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateWorkScheduleDto } from './dto/update-work-schedule.dto';
 import { PublicWorkScheduleRow } from './entities/work-schedule.entity';
-import { WORK_SCHEDULE_ID } from './work-schedule.constants';
+import { DEFAULT_TIMEZONE, WORK_SCHEDULE_ID } from './work-schedule.constants';
 import { WorkScheduleService } from './work-schedule.service';
 
 /**
@@ -25,6 +25,7 @@ const UPDATED_AT = new Date('2026-08-04T10:30:00.000Z');
 const SCHEDULE_ROW: PublicWorkScheduleRow = {
   workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
   weekStartsOn: 'MONDAY',
+  timezone: DEFAULT_TIMEZONE,
   workStartTime: '09:00',
   workEndTime: '18:00',
   minHoursPerEntry: decimal(0.5),
@@ -41,6 +42,7 @@ const SCHEDULE_ROW: PublicWorkScheduleRow = {
 const SCHEDULE_ENTITY = {
   workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
   weekStartsOn: 'MONDAY',
+  timezone: DEFAULT_TIMEZONE,
   workStartTime: '09:00',
   workEndTime: '18:00',
   minHoursPerEntry: 0.5,
@@ -129,6 +131,20 @@ describe('WorkScheduleService', () => {
       await expect(service.find()).rejects.toBeInstanceOf(NotFoundException);
     });
 
+    /**
+     * The frontend edits the zone through the same `PUT` as everything else, so
+     * it has to be able to read the current one to pre-fill the field. A column
+     * that is writable and invisible would be a form that cannot show what it is
+     * about to overwrite.
+     */
+    it('publishes the timezone, so an editor can be pre-filled', async () => {
+      prisma.workSchedule.findUnique.mockResolvedValue(SCHEDULE_ROW);
+
+      const schedule = await service.find();
+
+      expect(schedule.timezone).toBe(DEFAULT_TIMEZONE);
+    });
+
     /** The decimals must leave as numbers, or a client receives Decimal.js. */
     it('renders the hour columns as plain numbers', async () => {
       prisma.workSchedule.findUnique.mockResolvedValue(SCHEDULE_ROW);
@@ -212,6 +228,67 @@ describe('WorkScheduleService', () => {
       await expect(
         service.save({ ...SAVE_BODY, lunchBreakHours: 0 }),
       ).resolves.toEqual(SCHEDULE_ENTITY);
+    });
+
+    it('persists a timezone the body states', async () => {
+      await service.save({ ...SAVE_BODY, timezone: 'America/New_York' });
+
+      const [{ update, create }] = prisma.workSchedule.upsert.mock.calls[0] as [
+        { update: UpdateWorkScheduleDto; create: UpdateWorkScheduleDto },
+      ];
+
+      expect(update.timezone).toBe('America/New_York');
+      expect(create.timezone).toBe('America/New_York');
+    });
+
+    /**
+     * The rule the whole optionality of this field exists for. An administrator
+     * saving the hours from a form built before the zone was configurable must
+     * not have their zone reset underneath them — per the schema comment, that
+     * would silently re-interpret which calendar day every stored instant falls
+     * on, as the side effect of a request about something else entirely.
+     *
+     * `undefined` rather than a value is what makes that true: Prisma leaves an
+     * undefined column out of the update, and falls back to the column's default
+     * on the create. This is deliberately *not* the answer `weekStartsOn` gives,
+     * which restates its default because restating it changes nothing.
+     */
+    it('leaves the stored timezone alone when the body omits one', async () => {
+      await service.save(SAVE_BODY);
+
+      const [{ update }] = prisma.workSchedule.upsert.mock.calls[0] as [
+        { update: UpdateWorkScheduleDto },
+      ];
+
+      expect(update.timezone).toBeUndefined();
+      expect(update.weekStartsOn).toBe('MONDAY');
+    });
+  });
+
+  /**
+   * The accessor Timesheet and Reporting call instead of querying
+   * `work_schedules`, so the zone days are grouped in has one owner.
+   */
+  describe('findTimezone', () => {
+    it('reads the one column, not the whole configuration', async () => {
+      prisma.workSchedule.findUnique.mockResolvedValue({
+        timezone: 'America/New_York',
+      });
+
+      await expect(service.findTimezone()).resolves.toBe('America/New_York');
+      expect(prisma.workSchedule.findUnique).toHaveBeenCalledWith({
+        where: { id: WORK_SCHEDULE_ID },
+        select: { timezone: true },
+      });
+    });
+
+    /** A guessed zone is a guess about which day somebody's work happened. */
+    it('reports the schedule missing rather than assuming a zone', async () => {
+      prisma.workSchedule.findUnique.mockResolvedValue(null);
+
+      await expect(service.findTimezone()).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
   });
 

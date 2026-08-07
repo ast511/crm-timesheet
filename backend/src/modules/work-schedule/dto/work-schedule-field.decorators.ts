@@ -11,13 +11,17 @@ import {
   Matches,
   Max,
   Min,
+  registerDecorator,
+  ValidationArguments,
 } from 'class-validator';
 
 import { Trim } from '../../../common/decorators/trim.decorator';
 import { Weekday } from '../../../generated/prisma/enums';
 import {
   compareWeekdays,
+  DEFAULT_TIMEZONE,
   HOURS_DECIMAL_PLACES,
+  isSupportedTimezone,
   MAX_HOURS_PER_DAY,
   MAX_HOURS_PER_WEEK,
   WORK_TIME_PATTERN,
@@ -113,6 +117,58 @@ export function IsWorkTime() {
       message: 'must be a time in 24-hour HH:mm format, for example 09:00',
     }),
   );
+}
+
+/**
+ * `timezone` — the IANA zone the company's calendar days are read in.
+ *
+ * Trimmed first, like the two times, so a value pasted with a stray space is
+ * accepted rather than refused for something the client cannot see.
+ *
+ * The check is membership of the runtime's own tz database, not a pattern. A
+ * regular expression over `Region/City` would accept `Europe/Atlantis` — a
+ * perfectly well-shaped name for a zone that does not exist — and the failure
+ * would surface much later, as days grouped against a zone nothing can resolve.
+ * Checking the name is *recognised* is the only check that means anything here.
+ *
+ * Note what is deliberately **not** accepted: a numeric offset. `+02:00` is not
+ * a zone, it is a zone's answer on one particular day; daylight saving moves it,
+ * so storing the offset would freeze half the year's answer and apply it to the
+ * other half. The name is the stable fact, which is why the column holds one.
+ */
+export function IsTimezone() {
+  return applyDecorators(Trim(), IsString(), IsIanaTimezone());
+}
+
+/**
+ * Rejects a string that does not name a zone this runtime knows.
+ *
+ * Written with `registerDecorator` for the reason `MaxByteLength` in the users
+ * module is: `class-validator` has no constraint for it, and a `@Matches()`
+ * standing in would check the shape rather than the fact. Non-strings pass,
+ * leaving them to the `@IsString()` alongside, whose message is far better than
+ * a set lookup failing on a number.
+ *
+ * The message names an example rather than listing the alternatives: there are
+ * some four hundred, and a `400` carrying all of them would be unreadable in
+ * exactly the situation somebody is trying to read it.
+ */
+function IsIanaTimezone(): PropertyDecorator {
+  return (target, propertyName) => {
+    registerDecorator({
+      name: 'isIanaTimezone',
+      target: target.constructor,
+      propertyName: propertyName as string,
+      validator: {
+        validate(value: unknown): boolean {
+          return typeof value !== 'string' || isSupportedTimezone(value);
+        },
+        defaultMessage({ property }: ValidationArguments): string {
+          return `${property} must be an IANA timezone name, for example ${DEFAULT_TIMEZONE}`;
+        },
+      },
+    });
+  };
 }
 
 /**

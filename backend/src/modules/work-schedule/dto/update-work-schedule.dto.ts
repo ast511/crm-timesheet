@@ -4,6 +4,7 @@ import { Weekday } from '../../../generated/prisma/enums';
 import {
   IsHours,
   IsLunchBreakHours,
+  IsTimezone,
   IsWeekStartsOn,
   IsWeeklyHours,
   IsWorkingDays,
@@ -18,6 +19,12 @@ import {
  * afterwards is exactly what was sent. A partial body is rejected, so there is
  * no request that leaves the schedule half-updated and no need to reason about
  * which fields the previous administrator happened to set.
+ *
+ * Two fields are exceptions — {@link weekStartsOn} and {@link timezone} — and
+ * both for the same reason: each arrived after this endpoint's contract was
+ * published, and a `PUT` written against the older one must not start failing
+ * because a field nobody knew about became compulsory. Each carries its own note
+ * saying what its absence means, because the two answers are not the same.
  *
  * That completeness is also why the one cross-field rule —
  * `maxHoursPerEntry > minHoursPerEntry` — could have lived here. It is in the
@@ -49,12 +56,16 @@ export class UpdateWorkScheduleDto {
   /**
    * Which weekday the working week begins on. Defaults to `MONDAY`.
    *
-   * **The one optional field on this DTO**, which is a deliberate exception to
-   * the "every field is required" rule above, and the exception is the migration
-   * rather than the design: this column arrived with Feature 030, and a `PUT`
-   * written against the previous contract must not start failing because a field
-   * nobody knew about is now compulsory. The initialiser supplies what the column
-   * defaults to, so an old body and a new one store the same thing.
+   * **Optional**, which is a deliberate exception to the "every field is
+   * required" rule above, and the exception is the migration rather than the
+   * design: this column arrived with Feature 030, and a `PUT` written against the
+   * previous contract must not start failing because a field nobody knew about is
+   * now compulsory. The initialiser supplies what the column defaults to, so an
+   * old body and a new one store the same thing.
+   *
+   * {@link timezone} is optional for the same migration reason and behaves
+   * differently on omission — it is left unchanged rather than reset to a
+   * default. See its own note for why the two answers differ.
    *
    * It is configuration and not a constant because the working week does not
    * begin on Monday everywhere this application may be deployed — Sunday is the
@@ -72,6 +83,34 @@ export class UpdateWorkScheduleDto {
   @IsOptional()
   @IsWeekStartsOn()
   readonly weekStartsOn: Weekday = Weekday.MONDAY;
+
+  /**
+   * The IANA zone the company's calendar days are read in — `Europe/Bucharest`,
+   * `UTC`, `America/New_York`. Company-wide; there is no per-employee zone.
+   *
+   * **Optional, and omitting it leaves the stored value alone.** That is a
+   * different kind of optional from {@link weekStartsOn} above, which carries an
+   * initialiser and therefore stores `MONDAY` when a body says nothing: this
+   * property has no initialiser, so an omitted `timezone` reaches the service as
+   * `undefined` and is left out of the write entirely.
+   *
+   * The distinction is deliberate and follows from what the two fields are worth
+   * getting wrong. Defaulting `weekStartsOn` restates the value the column
+   * already held, so a `PUT` that omits it changes nothing. Defaulting `timezone`
+   * would not: a company that had configured `America/New_York` and then saved
+   * its hours from a form built before this field existed would be silently moved
+   * back to Bucharest — and, per the schema comment, that re-interprets which day
+   * every stored instant falls on. A configuration this consequential is changed
+   * because somebody asked for it, never as the side effect of saving something
+   * else.
+   *
+   * It is the one field on this DTO whose absence is not equivalent to sending
+   * its default, and that is why the `PUT` on this singleton is honest about
+   * updating in place rather than claiming to replace a value it never received.
+   */
+  @IsOptional()
+  @IsTimezone()
+  readonly timezone?: string;
 
   /** `09:00` — when the office opens. */
   @IsWorkTime()

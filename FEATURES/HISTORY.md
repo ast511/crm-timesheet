@@ -34,3 +34,14 @@ Append new features to the end of this table.
 | 028 | [Notification Delivery Engine](028-notification-delivery-engine.md) | Completed | 2026-08-05 |
 | 029 | [Permission Management](029-permission-management.md) | Completed | 2026-08-06 |
 | 030 | [Timesheet Management](030-timesheet-management.md) | Completed | 2026-08-06 |
+
+## Amendments
+
+A change that extends an existing feature rather than adding one keeps that
+feature's number and is appended to that feature's document. It is listed here
+so the history still reads in order, and so an amendment is not mistaken for a
+feature that was never written.
+
+| Amends | Change | Status | Date |
+| --- | --- | --- | ---- |
+| 016 | [Work Schedule — company timezone](016-work-schedule-configuration.md) | Completed | 2026-08-07 |

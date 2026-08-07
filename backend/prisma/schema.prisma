@@ -714,6 +714,42 @@ model WorkSchedule {
   workStartTime String @map("work_start_time") @db.VarChar(5)
   workEndTime   String @map("work_end_time") @db.VarChar(5)
 
+  /// The one zone the application interprets calendar days in.
+  ///
+  /// **An IANA zone name — `Europe/Bucharest`, `UTC`, `America/New_York` — and
+  /// never a numeric offset.** Stored as text because that is exactly what the
+  /// value is: a zone *identifier*, not an amount of time. An offset is not the
+  /// same fact; `+02:00` describes Bucharest for half the year and is wrong for
+  /// the other half, because daylight saving moves it. The IANA name is the
+  /// stable thing, and it is what carries the rules for when the offset changes.
+  ///
+  /// This is the companion piece to [workStartTime] and [workEndTime] above.
+  /// Those are wall-clock labels precisely so they do not each drag a zone along
+  /// with them; this column is the single zone they — and every day boundary in
+  /// the application — are read in. Which instant belongs to which calendar day,
+  /// where a day ends, which day a weekend rule is applied to and how a day-level
+  /// report groups its rows are all one question, and it is answered here once.
+  ///
+  /// It is **company-wide, not per employee**. It belongs to the working
+  /// schedule because the schedule already owns what a working day means; a
+  /// per-person zone is a different and much larger feature, and this column
+  /// deliberately does not open that door.
+  ///
+  /// **Changing it re-interprets days that have already happened.** Nothing
+  /// stored moves — an entry recorded at a given instant stays at that instant —
+  /// but the calendar day that instant falls on can change, so a timesheet or a
+  /// report may group the same rows differently afterwards. Nothing is rewritten,
+  /// recomputed or migrated when this value changes, which is the same stance
+  /// taken everywhere else here: a configuration change does not silently edit
+  /// facts already recorded. That makes this a rare administrative setting rather
+  /// than a routine toggle, and Feature 016's document says so at length.
+  ///
+  /// Defaulted to `Europe/Bucharest`, which is what the existing configuration
+  /// row has always meant in practice; the same literal is `DEFAULT_TIMEZONE` in
+  /// `src/modules/work-schedule/work-schedule.constants.ts`, and the two move
+  /// together for the reason `id` and `WORK_SCHEDULE_ID` do.
+  timezone String @default("Europe/Bucharest") @map("timezone")
+
   /// Hour bounds, as `decimal(5,2)` — never `double`.
   ///
   /// Half hours (`0.5`) and quarter hours (`0.25`) are the granularity people
