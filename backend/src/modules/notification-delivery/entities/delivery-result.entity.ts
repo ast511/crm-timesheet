@@ -33,11 +33,27 @@ export enum EmailDeliveryStatus {
  */
 export interface DeliveryResultEntity {
   readonly source: DeliverySource;
-  /** The campaign that was sent, or null for a reminder run. */
+  /** The campaign that was sent, or null for a reminder or an event run. */
   readonly campaignId: string | null;
-  /** The reminder rule that fired, or null for a campaign. */
+  /** The reminder rule that fired, or null for a campaign or an event. */
   readonly reminderId: string | null;
-  /** How many people the audience resolved to at this moment. */
+  /**
+   * Which application event was announced — `timesheet_rejected` — or null for a
+   * campaign or a reminder.
+   *
+   * A key rather than an id, because an event has no stored row to point at: it
+   * is something that *happened* in another module, announced as it happened. The
+   * key is what a log line and a template are both named by. Added by Feature 030.
+   */
+  readonly eventKey: string | null;
+  /**
+   * How many people the audience resolved to at this moment.
+   *
+   * `0` on a delivery addressed to a *workspace* rather than to people — an
+   * administrative broadcast is one notification row that every administrator
+   * reads, so there is no list of recipients to count. `notificationsCreated`
+   * says `1` there, which together are the honest description.
+   */
   readonly recipientCount: number;
   readonly notificationsCreated: number;
   readonly emailsSent: number;

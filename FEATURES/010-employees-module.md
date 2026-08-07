@@ -728,3 +728,78 @@ endpoint of the departments, positions and users modules.
 - An audit trail for changes to seniority, status and department, which are the
   fields a person will eventually want a history of. Schema change.
 - Swagger annotations for the DTOs and the envelope, when Swagger arrives.
+
+---
+
+## Amended by Feature 030 — `terminationDate`
+
+[Feature 030](030-timesheet-management.md) added one nullable column to
+`Employee`. **Nothing in this document is retracted**; what follows is the
+addition and the reasoning behind it.
+
+```prisma
+/// The last day the person worked here, or null while they still do.
+terminationDate DateTime? @map("termination_date")
+```
+
+### Why it was needed
+
+Feature 030 bounds a timesheet entry at `[hireDate, terminationDate ?? today]`.
+Without a stored date there are only two possible rules for a leaver's final
+month, and both are wrong: refuse the whole month, so the days they *did* work
+cannot be accounted for, or allow the whole month, so hours can be booked weeks
+after they left.
+
+### Why it is independent of `status`
+
+The two facts are deliberately not kept in step, and this is the part worth
+reading before somebody "fixes" it:
+
+- `status` says where a person stands **now** and is what every list filters on.
+- `terminationDate` says **when** they left, which a status cannot carry.
+
+A notice period is real. Somebody whose last day is in three weeks is `ACTIVE`
+*and* has a termination date, and coupling the two would either terminate them
+early or refuse to record the date. Setting one therefore does not set the other,
+in either direction.
+
+This does **not** change Feature 020's behaviour: `TERMINATED` still closes open
+project memberships, still from the status *transition*, and still stamping
+`leftAt` from the employee's own `updatedAt`. That write is untouched.
+
+### API changes
+
+| Endpoint | Change |
+| --- | --- |
+| `POST /api/v1/employees` | Accepts an optional `terminationDate` (ISO-8601 or `null`) |
+| `PATCH /api/v1/employees/:id` | The same, and the **second nullable field**: an explicit `null` says the person is not leaving after all, which has to be undoable |
+| every employee response | Carries `terminationDate: string \| null` |
+
+One cross-field rule was added, checked in `EmployeeService` against the state a
+write would leave behind: **`terminationDate` must not precede `hireDate`**. The
+comparison is `<`, so a single day's contract — hired and terminated on the same
+date — is allowed. A `400`, because nothing stored conflicts; the submitted span
+simply contradicts itself.
+
+### `DELETE /api/v1/employees/:id`
+
+`timesheets` joins the four relations already counted, and is the strongest of
+them: a month somebody worked is what payroll and reporting are drawn from.
+`reviewedTimesheets` is deliberately **not** counted, for the same reason
+`processedLeaveRequests` is not — that foreign key is `SetNull`, and counting it
+would make an administrator undeletable for as long as any month they ever
+reviewed exists.
+
+### New hand-off
+
+`EmployeeService.findEmploymentWindow(id)` returns `{ hireDate, terminationDate }`
+or `null`, on the same principle as `findStatus` and `findExistingIds`: this
+module owns the `employees` table, so the timesheet module asks it rather than
+querying. It returns the two dates as `Date`s rather than the whole employee,
+because publishing `findOne()` to a consumer would hand it three joined records it
+has no business reading.
+
+### Migration
+
+Part of `add_timesheet_management`. The column is nullable, so no existing row
+needs a value and no existing request body becomes invalid.

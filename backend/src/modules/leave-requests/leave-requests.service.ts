@@ -13,7 +13,10 @@ import {
   toSkipTake,
 } from '../../common/utils/pagination.util';
 import type { Prisma } from '../../generated/prisma/client';
-import { LeaveRequestStatus } from '../../generated/prisma/enums';
+import {
+  LeaveHalfDayPortion,
+  LeaveRequestStatus,
+} from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   EmployeeLeaveBalancesService,
@@ -80,7 +83,42 @@ interface StoredRequestFacts extends LeaveSpan {
   readonly employeeId: string;
   readonly leaveTypeId: string;
   readonly status: LeaveRequestStatus;
+  readonly isHalfDay: boolean;
+  readonly halfDayPortion: LeaveHalfDayPortion | null;
   readonly replacementEmployeeIds: string[];
+}
+
+/**
+ * The half-day pair, resolved and checked against itself.
+ *
+ * The two fields are one fact stated in two columns — *is* this half a day, and
+ * *which* half — so they are merged, judged and written together. Returning them
+ * as a pair rather than reading the DTO twice is what keeps
+ * "`halfDayPortion` is null unless `isHalfDay`" a property of one function
+ * instead of a convention two call sites happen to share.
+ */
+interface HalfDay {
+  readonly isHalfDay: boolean;
+  readonly halfDayPortion: LeaveHalfDayPortion | null;
+}
+
+/**
+ * One approved absence, as the Timesheets module has to read it.
+ *
+ * The span, and how much of a day it takes. Deliberately not
+ * `LeaveRequestEntity`: that resource is shaped for a screen — ISO strings, a
+ * leave type resolved to an icon and a colour, every replacement resolved to a
+ * person — and the fill-in engine needs none of it. It needs the two dates as
+ * `Date`s to walk a month with, the id to write onto each entry it produces, and
+ * the half-day pair to decide how many hours the day is worth. The same call
+ * `CampaignDelivery` makes over `NotificationCampaignEntity`.
+ *
+ * **No hours.** How long half a day is comes from the work schedule, which this
+ * module does not read and has no opinion about.
+ */
+export interface ApprovedLeaveDay extends LeaveSpan, HalfDay {
+  readonly id: string;
+  readonly leaveTypeLabel: string;
 }
 
 /**
@@ -237,6 +275,11 @@ export class LeaveRequestsService {
       replacementEmployeeIds: dto.replacementEmployeeIds,
     };
 
+    const halfDay = resolveHalfDay(dto.isHalfDay, dto.halfDayPortion, {
+      isHalfDay: false,
+      halfDayPortion: null,
+    });
+
     const policy = await this.assertRequestIsValid(facts);
     const requestedDays = await this.countAndAssertWorkingDays(facts);
 
@@ -251,6 +294,8 @@ export class LeaveRequestsService {
           leaveTypeId: facts.leaveTypeId,
           startDate: facts.startDate,
           endDate: facts.endDate,
+          isHalfDay: halfDay.isHalfDay,
+          halfDayPortion: halfDay.halfDayPortion,
           reason: dto.reason,
           status: approvedOnCreation
             ? LeaveRequestStatus.APPROVED
@@ -318,6 +363,8 @@ export class LeaveRequestsService {
         dto.replacementEmployeeIds ?? current.replacementEmployeeIds,
     };
 
+    const halfDay = resolveHalfDay(dto.isHalfDay, dto.halfDayPortion, current);
+
     await this.assertRequestIsValid(facts, id);
 
     const requestedDays = await this.countAndAssertWorkingDays(facts);
@@ -345,6 +392,11 @@ export class LeaveRequestsService {
           leaveTypeId: dto.leaveTypeId,
           startDate: dto.startDate === undefined ? undefined : facts.startDate,
           endDate: dto.endDate === undefined ? undefined : facts.endDate,
+          // Both halves are written from the resolved pair rather than from the
+          // DTO, so "the portion is cleared when the request stops being a half
+          // day" is decided in one place and cannot be half-applied.
+          isHalfDay: halfDay.isHalfDay,
+          halfDayPortion: halfDay.halfDayPortion,
           reason: dto.reason,
         },
         select: MY_LEAVE_REQUEST_SELECT,
@@ -503,6 +555,98 @@ export class LeaveRequestsService {
     });
 
     return this.toEntityWithWorkingDays(decided, toLeaveRequestEntity);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Read by the Timesheets module, and by nothing else.
+  //
+  // Feature 023 exported this service saying that a later feature would need to
+  // know when a request changes state, and wrote no method for it in advance.
+  // These two are that method set, added by the caller that needed them.
+  //
+  // They are here rather than in the timesheet module for the rule this project
+  // keeps everywhere: the module that owns a table is the only one that queries
+  // it. What is still *not* here: how long a day is, what a timesheet entry looks
+  // like, or what should happen when an approval invalidates one. Those are the
+  // Timesheets module's, and nothing in this file has learned them.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Every approved absence of one person that touches a span.
+   *
+   * The fill-in engine's input for pre-populating `LEAVE` entries: it walks the
+   * month, and for each day asks which of these covers it. One query per
+   * timesheet rather than one per day, which is what makes the pre-population
+   * affordable.
+   *
+   * **Only `APPROVED` requests.** A `PENDING` one may yet be refused, and
+   * pre-populating a day from it would put hours on a timesheet for an absence
+   * nobody has granted — and would leave them there, looking approved, if the
+   * request were later rejected. This is the same line
+   * {@link assertNoApprovedOverlap} draws, for the same reason.
+   *
+   * The overlap is inclusive at both ends, through the shared {@link
+   * overlapFilter}, so a leave running from the previous month into this one is
+   * returned and its days inside the span are the ones the caller uses.
+   */
+  async findApprovedInSpan(
+    employeeId: string,
+    span: LeaveSpan,
+  ): Promise<ApprovedLeaveDay[]> {
+    const requests = await this.prisma.leaveRequest.findMany({
+      where: {
+        employeeId,
+        status: LeaveRequestStatus.APPROVED,
+        ...overlapFilter(span),
+      },
+      orderBy: [{ startDate: SortOrder.ASC }, { id: SortOrder.ASC }],
+      select: {
+        id: true,
+        startDate: true,
+        endDate: true,
+        isHalfDay: true,
+        halfDayPortion: true,
+        leaveType: { select: { label: true } },
+      },
+    });
+
+    return requests.map(({ leaveType, ...request }) => ({
+      ...request,
+      leaveTypeLabel: leaveType.label,
+    }));
+  }
+
+  /**
+   * Whether anybody's approved leave overlapping a span has been decided since a
+   * given moment — the question a timesheet asks to find out it has gone stale.
+   *
+   * It answers about *one* person's span rather than returning rows, because the
+   * caller does not want the leave: it wants to know whether the month it is
+   * about to show somebody still reflects what the company has approved. A
+   * boolean is the whole answer, and `select: { id }` with `take: 1` is the whole
+   * query.
+   *
+   * `processedAt` is what is compared, not `updatedAt`: `updatedAt` moves
+   * whenever any column does, so a typo corrected in a reason would mark every
+   * timesheet touching that month stale for a change nobody's hours depend on.
+   * The moment the *decision* was taken is the fact that matters.
+   */
+  async hasApprovalsSince(
+    employeeId: string,
+    span: LeaveSpan,
+    since: Date,
+  ): Promise<boolean> {
+    const decided = await this.prisma.leaveRequest.findFirst({
+      where: {
+        employeeId,
+        status: LeaveRequestStatus.APPROVED,
+        processedAt: { gt: since },
+        ...overlapFilter(span),
+      },
+      select: { id: true },
+    });
+
+    return decided !== null;
   }
 
   // ---------------------------------------------------------------------------
@@ -879,6 +1023,8 @@ const STORED_FACTS_SELECT = {
   startDate: true,
   endDate: true,
   status: true,
+  isHalfDay: true,
+  halfDayPortion: true,
   replacements: { select: { employeeId: true } },
 } as const satisfies Prisma.LeaveRequestSelect;
 
@@ -890,6 +1036,8 @@ function toStoredFacts(request: {
   startDate: Date;
   endDate: Date;
   status: LeaveRequestStatus;
+  isHalfDay: boolean;
+  halfDayPortion: LeaveHalfDayPortion | null;
   replacements: { employeeId: string }[];
 }): StoredRequestFacts {
   return {
@@ -899,10 +1047,73 @@ function toStoredFacts(request: {
     startDate: request.startDate,
     endDate: request.endDate,
     status: request.status,
+    isHalfDay: request.isHalfDay,
+    halfDayPortion: request.halfDayPortion,
     replacementEmployeeIds: request.replacements.map(
       ({ employeeId }) => employeeId,
     ),
   };
+}
+
+/**
+ * The half-day pair a write would leave behind, checked against itself.
+ *
+ * `undefined` keeps what is stored, a value replaces it — the two cases a
+ * `PATCH` over a pair of coupled columns has to tell apart. On a create the
+ * stored pair is `false` and `null`, so the same function serves both, the shape
+ * `resolveSchedule` uses in `NotificationCampaignService`.
+ *
+ * One rule, stated in both directions, and both directions matter:
+ *
+ * - **A half day must say which half.** Without it the Timesheets module cannot
+ *   tell which hours are left for work, and would have to guess between somebody
+ *   away for the morning and somebody away for the afternoon.
+ * - **A whole day must not carry a portion.** It is not merely untidy: the value
+ *   would be stored, and a later reader could not tell whether the absence was
+ *   half a day recorded with the flag missing or a whole day recorded with a
+ *   stray portion.
+ *
+ * The second is enforced by *clearing* rather than by refusing, on the one path
+ * where refusing would be perverse: `{ "isHalfDay": false }` on a request that
+ * carries a portion is a caller saying "this is a whole day again", and rejecting
+ * it would demand they also send `halfDayPortion: null` to state the same thing
+ * twice. An explicitly *sent* portion alongside a false flag is still refused,
+ * because that body contradicts itself.
+ *
+ * A `400` rather than a `409`: nothing stored conflicts with the request, the
+ * resulting pair simply contradicts itself. The message is an array, the same
+ * shape the `ValidationPipe` produces.
+ */
+function resolveHalfDay(
+  isHalfDay: boolean | undefined,
+  halfDayPortion: LeaveHalfDayPortion | null | undefined,
+  current: HalfDay,
+): HalfDay {
+  const resolvedIsHalfDay = isHalfDay ?? current.isHalfDay;
+
+  if (!resolvedIsHalfDay) {
+    if (halfDayPortion !== undefined && halfDayPortion !== null) {
+      throw new BadRequestException([
+        'halfDayPortion must not be sent when isHalfDay is false',
+      ]);
+    }
+
+    // Cleared rather than carried over: a request that has stopped being a half
+    // day has no half to name, and leaving the stored value would be a column
+    // contradicting the flag beside it.
+    return { isHalfDay: false, halfDayPortion: null };
+  }
+
+  const resolvedPortion =
+    halfDayPortion === undefined ? current.halfDayPortion : halfDayPortion;
+
+  if (resolvedPortion === null) {
+    throw new BadRequestException([
+      'halfDayPortion is required when isHalfDay is true',
+    ]);
+  }
+
+  return { isHalfDay: true, halfDayPortion: resolvedPortion };
 }
 
 /** Message used for every 404 path, so they cannot drift apart. */

@@ -639,3 +639,119 @@ those to build on, with no method written in advance.
    somebody asks.
 6. **Cross-employee overlap reporting** — "how much of the Development team is
    away that week" — belongs to a reporting feature, deliberately deferred.
+
+---
+
+## Amended by Feature 030 — Half-day absences
+
+[Feature 030](030-timesheet-management.md) extended this feature with two columns
+and two read methods. **Nothing in this document is retracted**: the state
+machine, the balance arithmetic, the overlap rules and the working-day count are
+all unchanged.
+
+### The two columns
+
+```prisma
+isHalfDay      Boolean              @default(false) @map("is_half_day")
+halfDayPortion LeaveHalfDayPortion? @map("half_day_portion")
+```
+
+`LeaveHalfDayPortion` is a new enum with two values, `FIRST_HALF` and
+`SECOND_HALF`.
+
+### Why not a new leave type
+
+This is the whole decision, and it was made against the obvious alternative.
+
+**Half a day is a quantity, not a kind of leave.** Annual, medical and unpaid
+leave can each be taken for half a day. Spelled as a `LeaveType`, every existing
+type would have needed a half-day twin: the vocabulary HR maintains doubles, the
+balances hanging off each type double, `defaultAllocatedDays` has to be stated
+twice, and every report has to remember that `ANNUAL` and `ANNUAL_HALF_DAY` are
+one thing added together. The two columns are **orthogonal to `leave_type_id`**,
+which is what lets any type — including one added next year — be taken either way
+with no further work.
+
+Two values and no third. Quarter days and arbitrary hour ranges are deliberately
+not expressible: a vocabulary of fractions is a small language, and inventing one
+before anybody has asked would fix its syntax before anything could show which
+fractions are actually wanted.
+
+### Why the portion is stored rather than assumed
+
+It decides **which hours are left for work**. Somebody away for the morning fills
+the afternoon; a timesheet that could not say which half would be describing a
+different day. It is read only by the Timesheets module — nothing in this feature
+acts on it.
+
+### Validation
+
+`halfDayPortion` is required exactly when `isHalfDay` is true, and refused
+otherwise. Enforced in `LeaveRequestsService` rather than by a CHECK constraint,
+for the reason `decisionReason` is: it is a rule about two fields at once, judged
+against the state a write would **leave behind**, which a `PATCH` carrying only
+one of them makes unavoidable.
+
+One asymmetry is deliberate. Sending `{ "isHalfDay": false }` on a request that
+carries a portion **clears** the portion rather than failing — that body is a
+caller saying "this is a whole day again", and refusing it would demand they also
+send `halfDayPortion: null` to state the same thing twice. An explicitly *sent*
+portion beside a false flag is still refused, because that body contradicts
+itself.
+
+Both DTOs accept the pair; both are optional, and `isHalfDay` carries
+`@ValidateIfPresent()` (the column is not nullable) while `halfDayPortion` carries
+`@IsOptional()` (it is).
+
+### How many hours half a day is — not stated here
+
+Deliberately absent from this feature, which computes no hours and has no opinion
+about them. The Timesheets module books half of that day's
+`WorkSchedule.standardHoursPerDay`, so a company on a seven-hour day gets three
+and a half rather than a hard-coded four.
+
+### What did **not** change: the balance
+
+**A half-day absence still consumes a whole day of balance.**
+`requestedWorkingDays` is not halved, `EmployeeLeaveBalancesService.consume` is
+untouched, and `employee_leave_balances` is still counted in whole days.
+
+That is a stated limitation rather than an oversight. Making the day count
+fractional means a migration on the balance columns and a decision about how
+rounding works when somebody has half a day left and asks for a whole one — which
+is a leave-policy decision with its own name on it, not something to slip into a
+timesheet feature. It is recorded in Feature 030's Future Improvements.
+
+### Two read methods added
+
+Feature 023 exported `LeaveRequestsService` saying "the notifications feature will
+have to know when a request changes state" and wrote no method in advance. The
+Timesheets module is the caller that arrived first, and it needed:
+
+| Method | Answers |
+| --- | --- |
+| `findApprovedInSpan(employeeId, span)` | every **approved** absence of one person touching a span, with its half-day pair and its leave type label |
+| `hasApprovalsSince(employeeId, span, since)` | whether any approval touching that span was decided after a moment |
+
+Both are here rather than in the timesheet module for the rule this project keeps
+everywhere: the module that owns a table is the only one that queries it.
+
+Two details worth naming. `findApprovedInSpan` returns **only `APPROVED`**
+requests — a `PENDING` one may yet be refused, and pre-populating a timesheet from
+it would put hours on somebody's month for an absence nobody granted, and leave
+them there looking approved. `hasApprovalsSince` compares `processedAt` and not
+`updatedAt`, because `updatedAt` moves whenever any column does: a typo corrected
+in a reason would otherwise mark every timesheet touching that month as needing
+review.
+
+### API changes
+
+`isHalfDay` and `halfDayPortion` are accepted on `POST` and `PATCH
+/api/v1/me/leave-requests`, and appear on every leave-request response — both the
+employee's own and the HR list.
+
+### Migration
+
+Part of `add_timesheet_management`. `is_half_day` is defaulted and
+`half_day_portion` is nullable, so every request written before this extension is
+what it always was: a whole-day absence.

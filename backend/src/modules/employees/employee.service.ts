@@ -63,6 +63,24 @@ export interface EmployeeGenerationCandidate {
 }
 
 /**
+ * The span of somebody's employment — the two dates a timesheet is bounded by.
+ *
+ * `terminationDate` is null while the person still works here, which is the
+ * ordinary case, and the caller reads that as "up to today" rather than as "for
+ * ever": Feature 030 bounds entries at `[hireDate, terminationDate ?? today]`.
+ *
+ * It earns its own type rather than reusing `EmployeeEntity` for the reason
+ * {@link EmployeeGenerationCandidate} and {@link EmployeeDeliveryTarget} do: that
+ * resource is shaped for a screen, carries three joined objects, and renders its
+ * dates as strings — while every comparison the fill-in engine makes is between
+ * `Date`s.
+ */
+export interface EmploymentWindow {
+  readonly hireDate: Date;
+  readonly terminationDate: Date | null;
+}
+
+/**
  * One person, as the Notification Delivery Engine has to reach them.
  *
  * Three fields, and each is here because a delivery channel needs it: the
@@ -169,6 +187,8 @@ export class EmployeeService {
    * is otherwise sound can go on to conflict with an existing employee.
    */
   async create(dto: CreateEmployeeDto): Promise<EmployeeEntity> {
+    assertEmploymentSpanIsOrdered(dto.hireDate, dto.terminationDate);
+
     await this.assertRelationsExist(dto);
     await this.assertEmployeeCodeIsFree(dto.employeeCode);
 
@@ -181,6 +201,7 @@ export class EmployeeService {
         // The DTO guarantees an ISO-8601 string; this is the one place it
         // becomes the `Date` the `timestamp` column stores.
         hireDate: new Date(dto.hireDate),
+        terminationDate: toNullableDate(dto.terminationDate),
         userId: dto.userId,
         departmentId: dto.departmentId,
         positionId: dto.positionId,
@@ -230,14 +251,25 @@ export class EmployeeService {
    * membership, or a new one.
    */
   async update(id: string, dto: UpdateEmployeeDto): Promise<EmployeeEntity> {
-    const currentStatus = await this.findStatusOrThrow(id);
+    const current = await this.findEmploymentFactsOrThrow(id);
+
+    // Judged against the employment span the patch would *leave behind*, not
+    // against the fields the body happens to carry: `PATCH { terminationDate }`
+    // is weighed against the stored `hireDate`, and moving the hire date of
+    // somebody who has already left is weighed against the stored termination.
+    assertEmploymentSpanIsOrdered(
+      dto.hireDate ?? current.hireDate,
+      dto.terminationDate === undefined
+        ? current.terminationDate
+        : dto.terminationDate,
+    );
 
     await this.assertRelationsExist(dto, id);
     await this.assertEmployeeCodeIsFree(dto.employeeCode, id);
 
     const isBeingTerminated =
       dto.status === EmployeeStatus.TERMINATED &&
-      currentStatus !== EmployeeStatus.TERMINATED;
+      current.status !== EmployeeStatus.TERMINATED;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const employee = await tx.employee.update({
@@ -251,6 +283,12 @@ export class EmployeeService {
           phone: dto.phone,
           hireDate:
             dto.hireDate === undefined ? undefined : new Date(dto.hireDate),
+          // `undefined` leaves it alone; an explicit `null` says the person is
+          // not leaving after all, which has to stay undoable.
+          terminationDate:
+            dto.terminationDate === undefined
+              ? undefined
+              : toNullableDate(dto.terminationDate),
           userId: dto.userId,
           departmentId: dto.departmentId,
           positionId: dto.positionId,
@@ -294,12 +332,17 @@ export class EmployeeService {
    *   else's work. They belong to *another* employee's request, so removing them
    *   would silently leave that request with less cover than it was approved
    *   with — possibly none.
+   * - **Timesheets** record the months this person accounted for, and are the
+   *   strongest of the five: they are what payroll and reporting are eventually
+   *   drawn from, and an approved one is a month the company signed off. Added by
+   *   Feature 030.
    *
-   * `processedLeaveRequests` is deliberately **not** counted, and that is the one
-   * asymmetry here. A decision survives the person who made it: the foreign key
-   * is `ON DELETE SET NULL` rather than `RESTRICT`, `processedAt` keeps saying
-   * when it happened, and counting it would make an HR manager undeletable for
-   * as long as any request they ever touched exists.
+   * `processedLeaveRequests` and `reviewedTimesheets` are deliberately **not**
+   * counted, and that is the one asymmetry here. A decision survives the person
+   * who made it: both foreign keys are `ON DELETE SET NULL` rather than
+   * `RESTRICT`, `processedAt` and `reviewedAt` keep saying when each happened,
+   * and counting them would make an administrator undeletable for as long as any
+   * request or month they ever touched exists.
    *
    * The `409` asks the caller to clear whichever count is in the way, or to set
    * the employee's status to `TERMINATED` — which is what the enum is for, and a
@@ -321,6 +364,7 @@ export class EmployeeService {
             leaveBalances: true,
             leaveRequests: true,
             leaveRequestReplacements: true,
+            timesheets: true,
           },
         },
       },
@@ -487,21 +531,55 @@ export class EmployeeService {
   }
 
   /**
-   * The stored status, or a `404` if the employee is not there.
+   * When somebody was hired and when they left, or `null` when there is no such
+   * employee.
    *
-   * Built on {@link findStatus}, which asks exactly the same question. It is
-   * what `update` needs before writing: the existence check it has always made,
-   * plus the one value that decides whether this write is a termination. The
-   * full record — with its three joins — is read by the update itself.
+   * Public for the reason {@link findStatus} and {@link findExistingIds} are:
+   * this module owns the `employees` table, so another module asks it about a
+   * person rather than querying the table. Feature 030 is the caller — a
+   * timesheet entry is only acceptable inside
+   * `[hireDate, terminationDate ?? today]`, and the fill-in engine needs both
+   * ends as `Date`s to compare against the days somebody logged.
+   *
+   * It returns the two dates rather than the whole employee, on the same
+   * principle `WorkScheduleService.findWorkingDays` follows: publishing
+   * `findOne()` to a consumer would hand it three joined records it has no
+   * business reading, and would make every column added to this table part of
+   * the contract between the two modules.
+   *
+   * `null` for a missing employee rather than a thrown `404`, because only the
+   * caller knows what an absent employee means in its own request.
    */
-  private async findStatusOrThrow(id: string): Promise<EmployeeStatus> {
-    const status = await this.findStatus(id);
+  async findEmploymentWindow(id: string): Promise<EmploymentWindow | null> {
+    return this.prisma.employee.findUnique({
+      where: { id },
+      select: { hireDate: true, terminationDate: true },
+    });
+  }
 
-    if (status === null) {
+  /**
+   * The stored facts `update` has to merge its body into, or a `404` if the
+   * employee is not there.
+   *
+   * Three columns and no joins: the existence check this method has always made,
+   * the status that decides whether the write is a termination, and — since
+   * Feature 030 added `terminationDate` — the two dates whose ordering has to be
+   * judged against the state the patch would leave behind. The full record, with
+   * its three joins, is read by the update itself.
+   */
+  private async findEmploymentFactsOrThrow(
+    id: string,
+  ): Promise<EmploymentWindow & { status: EmployeeStatus }> {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id },
+      select: { status: true, hireDate: true, terminationDate: true },
+    });
+
+    if (employee === null) {
       throw new NotFoundException(notFoundMessage(id));
     }
 
-    return status;
+    return employee;
   }
 
   /**
@@ -605,6 +683,44 @@ function notFoundMessage(id: string): string {
   return `Employee ${id} was not found`;
 }
 
+/** `null` stays `null`; anything else becomes the `Date` the column stores. */
+function toNullableDate(value: string | null | undefined): Date | null {
+  return value === undefined || value === null ? null : new Date(value);
+}
+
+/**
+ * Rejects an employment span that ends before it begins.
+ *
+ * The comparison is `<`, so somebody hired and terminated on the same day — a
+ * single day's contract, or a hire reversed the same afternoon — is allowed:
+ * `terminationDate === hireDate` is not "before".
+ *
+ * A `400` rather than a `409`: nothing stored conflicts with the request, the
+ * submitted span simply contradicts itself. The message is an array, the same
+ * shape the `ValidationPipe` produces, so a form handles it with the code it
+ * already has for field errors — the call `WorkScheduleService` makes for its
+ * entry bounds.
+ *
+ * It matters beyond tidiness because Feature 030 bounds timesheet entries at
+ * `[hireDate, terminationDate ?? today]`: an inverted span is an empty range, so
+ * every day of every month would be refused with an explanation about employment
+ * dates that the person filling the timesheet cannot act on.
+ */
+function assertEmploymentSpanIsOrdered(
+  hireDate: string | Date,
+  terminationDate: string | Date | null | undefined,
+): void {
+  if (terminationDate === null || terminationDate === undefined) {
+    return;
+  }
+
+  if (new Date(terminationDate).getTime() < new Date(hireDate).getTime()) {
+    throw new BadRequestException([
+      'terminationDate must not be before hireDate',
+    ]);
+  }
+}
+
 /**
  * What each relation is called in the `409`, keyed by the count that guards it.
  *
@@ -618,6 +734,7 @@ const REFERENCE_LABELS = {
   leaveBalances: 'leave balance',
   leaveRequests: 'leave request',
   leaveRequestReplacements: 'leave request replacement',
+  timesheets: 'timesheet',
 } as const;
 
 /**

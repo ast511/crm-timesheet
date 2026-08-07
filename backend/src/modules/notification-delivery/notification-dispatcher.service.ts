@@ -6,10 +6,7 @@ import {
 } from '@nestjs/common';
 
 import { toIsoTimestamp } from '../../common/utils/date.util';
-import {
-  NotificationRecipientType,
-  NotificationWorkspace,
-} from '../../generated/prisma/enums';
+import { NotificationRecipientType } from '../../generated/prisma/enums';
 import { EmailException } from '../email/email.exception';
 import { EmailService } from '../email/email.service';
 import { CampaignDelivery } from '../notification-management/notification-campaign.service';
@@ -23,6 +20,7 @@ import {
 } from './entities/delivery-result.entity';
 import {
   DeliveryPlan,
+  EventDelivery,
   NotificationDeliveryRepository,
 } from './notification-delivery.repository';
 import { renderNotificationEmail } from './notification-email.template';
@@ -149,6 +147,34 @@ export class NotificationDispatcher {
   }
 
   /**
+   * Announces something that just happened in another module.
+   *
+   * **The seam Feature 028 said would exist** — "when the timesheet and leave
+   * features want to announce something, by importing this module then" — written
+   * by the caller that needed it. Feature 030 is that caller: a timesheet
+   * submitted, approved, rejected or gone stale.
+   *
+   * There is nothing to look up and nothing to claim, which is the whole
+   * difference from {@link executeCampaign}. A campaign is a stored row two runs
+   * can race over, so it is claimed by a conditional `UPDATE`; an event is a
+   * moment, and what stops it being announced twice is that the module raising it
+   * does so inside a state transition guarded on the current status. That
+   * guarantee belongs with the transition — see `TimesheetService.approve`, which
+   * announces only when its own `updateMany` moved exactly one row — and
+   * duplicating it here would be a second gate that eventually disagreed with the
+   * first.
+   *
+   * It therefore has no refusals of its own. An event about something that has
+   * already happened cannot be "too late" the way a campaign can be expired, and
+   * an audience that resolves to nobody is a successful delivery of nothing.
+   */
+  async executeEvent(event: EventDelivery): Promise<DeliveryResultEntity> {
+    const plan = await this.deliveries.buildEventPlan(event);
+
+    return this.deliver(plan, new Date());
+  }
+
+  /**
    * Executes a plan: notifications first, then email, then the report.
    *
    * The two channels are independent — a campaign may use either, both or,
@@ -166,7 +192,8 @@ export class NotificationDispatcher {
     const { emailsSent, emailStatus } = await this.sendEmails(plan);
 
     this.logger.log(
-      `${plan.source} delivery reached ${plan.targets.length} recipient(s): ` +
+      `${plan.source}${plan.eventKey === null ? '' : ` ${plan.eventKey}`} ` +
+        `delivery reached ${plan.targets.length} recipient(s): ` +
         `${notificationsCreated} notification(s), ${emailsSent} email(s) (${emailStatus})`,
     );
 
@@ -174,6 +201,7 @@ export class NotificationDispatcher {
       source: plan.source,
       campaignId: plan.campaignId,
       reminderId: plan.reminderId,
+      eventKey: plan.eventKey,
       recipientCount: plan.targets.length,
       notificationsCreated,
       emailsSent,
@@ -198,18 +226,34 @@ export class NotificationDispatcher {
    * thousand rows for one announcement. They are written by one statement, they
    * are what an inbox is made of, and the alternative is a read flag that lies.
    *
+   * **The one exception is a delivery addressed to a workspace**, which Feature
+   * 030 introduced: an `ADMINISTRATIVE_USERS` event writes exactly *one* row with
+   * no recipient, and fanning it out would be wrong rather than merely wasteful.
+   * The argument that makes a fan-out right for a campaign is that each employee
+   * should own their copy — read it, dismiss it, count it. Administrative review
+   * is the opposite: "a timesheet is waiting" is one piece of work that one
+   * administrator picks up, and three copies would leave the other two chasing a
+   * month a colleague has already approved. Feature 026's shared `isRead` is a
+   * limitation for an announcement and exactly the semantics wanted here.
+   *
    * Everything goes through `NotificationService.createMany`, never the table, so
    * the four-combination addressing rule is enforced by the module that owns it
    * however a notification comes to exist.
    */
   private async createNotifications(plan: DeliveryPlan): Promise<number> {
-    if (!plan.sendNotification || plan.targets.length === 0) {
+    if (!plan.sendNotification) {
       return 0;
     }
 
-    const created = await this.notifications.createMany(
-      plan.targets.map((target) => toNotificationDto(plan, target.userId)),
-    );
+    const dtos = isBroadcast(plan)
+      ? [toBroadcastNotificationDto(plan)]
+      : plan.targets.map((target) => toNotificationDto(plan, target.userId));
+
+    if (dtos.length === 0) {
+      return 0;
+    }
+
+    const created = await this.notifications.createMany(dtos);
 
     return created.length;
   }
@@ -238,18 +282,18 @@ export class NotificationDispatcher {
     emailsSent: number;
     emailStatus: EmailDeliveryStatus;
   }> {
-    if (!plan.sendEmail || plan.targets.length === 0) {
+    if (!plan.sendEmail || plan.emailRecipients.length === 0) {
       return { emailsSent: 0, emailStatus: EmailDeliveryStatus.Skipped };
     }
 
     try {
       await this.email.sendMany({
-        recipients: plan.targets.map((target) => target.email),
+        recipients: [...plan.emailRecipients],
         ...renderNotificationEmail(plan.subject, plan.message),
       });
 
       return {
-        emailsSent: plan.targets.length,
+        emailsSent: plan.emailRecipients.length,
         emailStatus: EmailDeliveryStatus.Sent,
       };
     } catch (error) {
@@ -270,16 +314,38 @@ export class NotificationDispatcher {
 }
 
 /**
+ * Whether this plan is one row for a whole workspace rather than one row per
+ * person.
+ *
+ * The two recipient types Feature 026 calls broadcasts are exactly the two that
+ * carry a null recipient, so the question is the same one either way. Only
+ * `ADMINISTRATIVE_USERS` is produced here today; `ALL_USERS` is included because
+ * the property being tested is "addressed to nobody in particular", and a check
+ * that named one value would silently fan the other out.
+ */
+function isBroadcast(plan: DeliveryPlan): boolean {
+  return (
+    plan.recipientType === NotificationRecipientType.ADMINISTRATIVE_USERS ||
+    plan.recipientType === NotificationRecipientType.ALL_USERS
+  );
+}
+
+/**
  * One notification, addressed to one account.
  *
- * `PERSONAL` + `USER` is the only pairing this engine produces, and both halves
- * are deliberate. Personal, because a campaign and a reminder are things the
- * company tells *an employee about themselves and their work* — the back-office
- * workspace is for what administrators need to act on, and filing an office
- * closure there would put it in front of three people instead of everybody.
- * `USER`, because the row is one person's copy: see
+ * `PERSONAL` + `USER` is what a campaign, a reminder and an employee-addressed
+ * event all produce, and both halves are deliberate. Personal, because those are
+ * things the company tells *an employee about themselves and their work* — the
+ * back-office workspace is for what administrators need to act on, and filing an
+ * office closure there would put it in front of three people instead of
+ * everybody. `USER`, because the row is one person's copy: see
  * {@link NotificationDispatcher} on why this is a fan-out rather than a
  * broadcast.
+ *
+ * Both are read off the plan rather than written in here, which is the change
+ * Feature 030 made: an administrative event is neither, and a constant in this
+ * function would have been the second place deciding a fact the plan already
+ * states.
  *
  * The DTO class is used as the shape rather than a bare object, so this is
  * checked against the same contract the temporary `POST` validates — a field
@@ -291,9 +357,29 @@ function toNotificationDto(
   recipientUserId: string,
 ): CreateNotificationDto {
   return {
-    workspace: NotificationWorkspace.PERSONAL,
-    recipientType: NotificationRecipientType.USER,
+    workspace: plan.workspace,
+    recipientType: plan.recipientType,
     recipientUserId,
+    title: plan.title,
+    message: plan.message,
+    category: plan.category,
+    type: plan.type,
+    priority: plan.priority,
+  };
+}
+
+/**
+ * One notification for a whole workspace, addressed to nobody in particular.
+ *
+ * The same message with `recipientUserId` left off, because a broadcast that
+ * named an account would be refused by `NotificationService`'s addressing rule —
+ * and rightly: a row addressed both to everybody and to one person is two
+ * different notifications.
+ */
+function toBroadcastNotificationDto(plan: DeliveryPlan): CreateNotificationDto {
+  return {
+    workspace: plan.workspace,
+    recipientType: plan.recipientType,
     title: plan.title,
     message: plan.message,
     category: plan.category,

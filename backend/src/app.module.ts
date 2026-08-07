@@ -20,6 +20,7 @@ import { PositionModule } from './modules/positions/position.module';
 import { ProjectMemberModule } from './modules/project-members/project-member.module';
 import { ProjectModule } from './modules/projects/project.module';
 import { PublicHolidayModule } from './modules/public-holidays/public-holiday.module';
+import { TimesheetManagementModule } from './modules/timesheet-management/timesheet-management.module';
 import { UserModule } from './modules/users/user.module';
 import { WorkScheduleModule } from './modules/work-schedule/work-schedule.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -103,6 +104,17 @@ import { PrismaModule } from './prisma/prisma.module';
     // is still whoever they claim to be — so it is a later feature that will
     // import this one and call its resolution method.
     PermissionManagementModule,
+    // What everything above was for: the monthly record of what people actually
+    // worked. It is the widest reader in the application — the work schedule, the
+    // public holidays, the approved leave, the employment dates and the projects
+    // all have to agree about a single day before an hour can be logged against
+    // it — and it is the first module whose data is produced by employees rather
+    // than configured by administrators. It owns the fill-in rules, the
+    // submit/approve/reject lifecycle and the hour aggregates; it announces what
+    // happens through the delivery engine and sends nothing itself, and it checks
+    // no permission, for the reason `PermissionManagementModule` above enforces
+    // none.
+    TimesheetManagementModule,
   ],
   controllers: [AppController],
   providers: [AppService],

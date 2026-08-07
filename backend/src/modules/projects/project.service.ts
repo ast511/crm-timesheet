@@ -174,33 +174,50 @@ export class ProjectService {
   /**
    * Hard-deletes a project nothing depends on.
    *
-   * Memberships are counted rather than cascaded: a membership records that
-   * somebody worked on this project, and deleting it to remove a project entry
-   * would rewrite that person's history — and, once time entries hang off a
-   * membership, silently drop the hours behind an invoice. The `409` asks the
-   * caller to remove the memberships first, or to archive the project instead,
-   * which is what `isArchived` is for — a decision only a human should make.
+   * Two relations are counted rather than cascaded, for the same reason:
    *
-   * The count is part of the existence query, so the common case is one round
-   * trip and a `404` and a `409` cannot be decided from two different
-   * snapshots. `memberships` is the only relation `Project` is on the far side
-   * of today; the feature that adds time entries will add a line here.
+   * - **Memberships** record that somebody worked on this project, and deleting
+   *   them to remove a project entry would rewrite that person's history.
+   * - **Timesheet entries** record the hours actually booked to it. Added by
+   *   Feature 030, which is the "feature that adds time entries" this method was
+   *   written in anticipation of, and it is the stronger of the two: an entry on
+   *   an approved timesheet is part of a month the company signed off, so
+   *   removing the project underneath it would silently drop the hours behind an
+   *   invoice.
+   *
+   * The `409` asks the caller to clear whichever count is in the way, or to
+   * archive the project instead — which is what `isArchived` is for, and a
+   * decision only a human should make.
+   *
+   * Both counts are part of the existence query, so the common case is one round
+   * trip and a `404` and a `409` cannot be decided from two different snapshots.
+   * Each is also backed by `ON DELETE RESTRICT` in the schema: without this check
+   * the database would refuse the delete anyway, but as a driver error surfacing
+   * as a `500` rather than a message naming what is in the way.
    */
   async remove(id: string): Promise<void> {
     const project = await this.prisma.project.findUnique({
       where: { id },
-      select: { _count: { select: { memberships: true } } },
+      select: {
+        _count: { select: { memberships: true, timesheetEntries: true } },
+      },
     });
 
     if (project === null) {
       throw new NotFoundException(notFoundMessage(id));
     }
 
-    const { memberships } = project._count;
+    const { memberships, timesheetEntries } = project._count;
 
     if (memberships > 0) {
       throw new ConflictException(
         `Project ${id} cannot be deleted while ${memberships} project member(s) reference it`,
+      );
+    }
+
+    if (timesheetEntries > 0) {
+      throw new ConflictException(
+        `Project ${id} cannot be deleted while ${timesheetEntries} timesheet entry(s) reference it`,
       );
     }
 
@@ -218,6 +235,8 @@ export class ProjectService {
    * guess.
    *
    * `id` alone is selected: the caller needs a yes or a no, not a row.
+   *
+   * See {@link findExistingIds} for the same question asked of a set.
    */
   async exists(id: string): Promise<boolean> {
     const project = await this.prisma.project.findUnique({
@@ -226,6 +245,37 @@ export class ProjectService {
     });
 
     return project !== null;
+  }
+
+  /**
+   * Which of these projects exist, as a list of the ids that were found.
+   *
+   * Public for the reason {@link exists} is — this module owns the `projects`
+   * table, so another module confirms a project through it rather than by
+   * querying the table — and separate from it because the question is genuinely
+   * different: `exists` asks about one project and this asks about a *set*. The
+   * same pair `EmployeeService` keeps, and added by the same kind of caller:
+   * Feature 030's fill-in engine validates a month whose entries may name a
+   * dozen projects across thirty days, and one `exists` per line would be sixty
+   * round trips to answer three questions.
+   *
+   * It returns the ids that were found rather than the ones that were not,
+   * because only the caller knows what a missing project means in its own request
+   * — a `400` naming a body field, for a timesheet — and what to say about it.
+   *
+   * `isArchived` is deliberately not filtered on. "Does this project exist" and
+   * "is it still being worked on" are different questions, and folding the second
+   * in here would make a caller that only asked the first treat an archived
+   * project as a typo — which matters for a timesheet in particular, since a month
+   * being filled in late may legitimately book hours to a project archived since.
+   */
+  async findExistingIds(ids: readonly string[]): Promise<string[]> {
+    const projects = await this.prisma.project.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true },
+    });
+
+    return projects.map(({ id }) => id);
   }
 
   /** Loads a project by id or reports it missing. */

@@ -23,6 +23,12 @@ import type { WorkScheduleModel } from '../../../generated/prisma/models';
  */
 export interface WorkScheduleEntity {
   workingDays: Weekday[];
+  /**
+   * Which weekday a working week begins on. Added by Feature 030, which is the
+   * first consumer that has to group days into weeks — see the schema comment on
+   * the column for why it is configured rather than assumed.
+   */
+  weekStartsOn: Weekday;
   workStartTime: string;
   workEndTime: string;
   minHoursPerEntry: number;
@@ -51,6 +57,7 @@ export interface WorkScheduleEntity {
  */
 export const WORK_SCHEDULE_PUBLIC_SELECT = {
   workingDays: true,
+  weekStartsOn: true,
   workStartTime: true,
   workEndTime: true,
   minHoursPerEntry: true,
@@ -81,6 +88,7 @@ export function toWorkScheduleEntity(
 ): WorkScheduleEntity {
   return {
     workingDays: schedule.workingDays,
+    weekStartsOn: schedule.weekStartsOn,
     workStartTime: schedule.workStartTime,
     workEndTime: schedule.workEndTime,
     minHoursPerEntry: toHours(schedule.minHoursPerEntry),

@@ -93,6 +93,30 @@ enum LeaveRequestStatus {
   CANCELLED @map("cancelled")
 }
 
+/// Which half of the working day a half-day absence covers.
+///
+/// **Two orthogonal fields rather than a new leave type**, and that is the whole
+/// decision. Half a day is not a *kind* of leave — annual, medical and unpaid
+/// leave can each be taken for half a day — so spelling it as a
+/// `LeaveType` would multiply every existing type by two, double the balances
+/// HR maintains, and leave `ANNUAL` and `ANNUAL_HALF_DAY` as two rows a report
+/// would have to remember to add together. It is a *quantity* qualifying a
+/// request of any type, which is what [LeaveRequest.isHalfDay] states.
+///
+/// Only two values, because a half day has two halves. Quarter days and
+/// arbitrary hour ranges are deliberately not expressible: the Timesheets module
+/// derives the hours from the work schedule — half of that day's configured
+/// hours — and a vocabulary of fractions would be a small language invented
+/// before anybody had asked for one.
+///
+/// Which half is stored rather than derived because it decides *which* hours are
+/// left for work: somebody away for the morning fills the afternoon, and a
+/// timesheet that could not say which would be describing a different day.
+enum LeaveHalfDayPortion {
+  FIRST_HALF  @map("first_half")
+  SECOND_HALF @map("second_half")
+}
+
 /// A day of the week, declared Monday-first because that is the order the
 /// business works in and the order a European calendar renders. The
 /// declaration order is not cosmetic: it is what `WorkSchedule.workingDays` is
@@ -308,6 +332,44 @@ enum PermissionEffect {
   REVOKE @map("revoke")
 }
 
+/// Where a monthly timesheet is in its lifecycle.
+///
+/// Four states and three transitions: `DRAFT → SUBMITTED`, `SUBMITTED →
+/// APPROVED`, `SUBMITTED → REJECTED`, and the one loop back — `REJECTED →
+/// SUBMITTED`. Nothing leaves `APPROVED`, ever.
+///
+/// `DRAFT` is private to the person filling it in: an administrator never sees
+/// one, because a half-finished month is not a claim about anything yet.
+/// `SUBMITTED` is locked to the owner and waiting for a decision. `REJECTED` is a
+/// state of its own rather than a return to `DRAFT`, and that is deliberate — it
+/// carries the reason it was refused, it is what a list renders in red, and
+/// collapsing it into `DRAFT` would erase the fact that somebody looked at the
+/// month and said no.
+///
+/// `APPROVED` is terminal and immutable. It is the record of what the company
+/// agreed somebody worked, and re-opening it would leave an approved month
+/// disagreeing with the approval — the same argument [LeaveRequestStatus] makes
+/// for a decided request, and [NotificationCampaignStatus] for a sent campaign.
+enum TimesheetStatus {
+  DRAFT     @map("draft")
+  SUBMITTED @map("submitted")
+  APPROVED  @map("approved")
+  REJECTED  @map("rejected")
+}
+
+/// What one line of a timesheet accounts for.
+///
+/// Three values, and only the first is something the employee chooses. `WORK` is
+/// time booked against a project; `LEAVE` and `HOLIDAY` are hours the company
+/// already knows about — an approved absence and a day the office is closed —
+/// which the fill-in engine writes from the leave requests and the public
+/// holidays. See [TimesheetEntry.type] for why the last two are not editable.
+enum TimesheetEntryType {
+  WORK    @map("work")
+  LEAVE   @map("leave")
+  HOLIDAY @map("holiday")
+}
+
 /// What happened to somebody's permissions — the vocabulary of the history tab.
 ///
 /// The first three describe one permission each and are written by the diff:
@@ -390,6 +452,27 @@ model Employee {
 
   hireDate DateTime @map("hire_date")
 
+  /// The last day the person worked here, or null while they still do.
+  ///
+  /// Added by Feature 030, which is the first thing in this application with a
+  /// reason to know it: a timesheet entry is only acceptable inside
+  /// `[hireDate, terminationDate ?? today]`, and without a date there is no way
+  /// to say that the 1st to the 12th of somebody's final month are fillable and
+  /// the 13th onwards are not.
+  ///
+  /// **A separate fact from `status = TERMINATED`**, not a duplicate of it. The
+  /// status says where the person stands *now* and is what every list filters on;
+  /// this says *when* they left, which a status cannot carry. The two are not
+  /// kept in step by the schema — a status is set by hand and this is entered
+  /// beside it — because the honest failure of a derived column would be a
+  /// termination date the application had invented, and Feature 020 already ends
+  /// project memberships from the status transition rather than from a date.
+  ///
+  /// Nullable, and null is the ordinary case: an employee who works here has no
+  /// termination date, and `hireDate` is the only end of the range that is always
+  /// known.
+  terminationDate DateTime? @map("termination_date")
+
   positionId String   @map("position_id")
   position   Position @relation(fields: [positionId], references: [id])
 
@@ -444,6 +527,17 @@ model Employee {
   /// *individually addressed* subset rather than every campaign a person will
   /// receive — the same distinction `User.notifications` draws.
   campaignRecipients NotificationRecipient[]
+
+  /// The months this person has accounted for — their own timesheets.
+  timesheets Timesheet[]
+
+  /// The timesheets this person approved or rejected, as an administrator.
+  ///
+  /// A second relation to the same table, which is why both ends carry an
+  /// explicit name — the shape `leaveRequests` and `processedLeaveRequests`
+  /// already use, and for the same reason: one person routinely appears in both,
+  /// as an administrator who reviews their colleagues' months and files their own.
+  reviewedTimesheets Timesheet[] @relation("TimesheetReviewer")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -524,6 +618,13 @@ model Project {
 
   memberships ProjectMember[]
 
+  /// The hours booked against this project, one row per line of a timesheet.
+  ///
+  /// The relation that finally gives `estimated_hours` something to be compared
+  /// with, though nothing in Feature 030 makes that comparison: it records what
+  /// was worked, and reporting on it is a later feature.
+  timesheetEntries TimesheetEntry[]
+
   startDate DateTime? @map("start_date")
   endDate   DateTime? @map("end_date")
 
@@ -571,7 +672,39 @@ model WorkSchedule {
   /// `String[]` would have accepted `"Funday"`. Held in `Weekday` declaration
   /// order; duplicates are rejected by the DTO, since an array column cannot
   /// express that.
+  ///
+  /// **This column is the only statement about which days are worked, and
+  /// nothing anywhere hard-codes a weekend.** A company that works Saturdays says
+  /// so here, and a company that works Monday to Sunday inclusive says that here
+  /// too — in both cases the Timesheets module lets those days be logged, because
+  /// "not loggable" means "not in this array" rather than "Saturday or Sunday".
+  /// A weekend rule of its own would contradict this configuration the moment
+  /// somebody used it.
   workingDays Weekday[] @map("working_days")
+
+  /// Which weekday a week begins on, for the purpose of a weekly total.
+  ///
+  /// Added by Feature 030, which is the first thing here that has to *group* days
+  /// into weeks: a timesheet's hours are capped per day and per week, and a
+  /// weekly cap is meaningless without saying where a week starts. It is
+  /// deliberately configuration rather than a constant — this application is not
+  /// deployed in one country, and the working week begins on Sunday in a great
+  /// deal of the world and on Saturday in some of it. A Monday hard-coded in the
+  /// grouping would split such a company's week across two buckets and let the
+  /// weekly ceiling be exceeded by design.
+  ///
+  /// **Not derivable from [workingDays], which is why it is stored.** An array
+  /// says which days are worked, not which of them the week turns over on: a
+  /// company working Sunday to Thursday and one working Monday to Friday can hold
+  /// overlapping arrays, and "the first working day" would call a Tuesday-to-
+  /// Saturday week a week beginning on Tuesday. The two facts are independent and
+  /// are stated independently.
+  ///
+  /// Defaulted to `MONDAY`, which is what the existing row means: `Weekday` is
+  /// declared Monday-first because that is the order a European calendar renders,
+  /// and the migration that adds this column must not silently re-group the weeks
+  /// of a schedule already configured.
+  weekStartsOn Weekday @default(MONDAY) @map("week_starts_on")
 
   /// `HH:mm`, 24-hour. Stored as text rather than as `time`, because the value
   /// is a wall-clock label — "the office opens at 09:00" — not an instant, and
@@ -845,6 +978,42 @@ model LeaveRequest {
   startDate DateTime @map("start_date")
   endDate   DateTime @map("end_date")
 
+  /// Whether the absence covers half a working day rather than whole ones.
+  ///
+  /// **Added by Feature 030, and deliberately a flag on the request rather than a
+  /// new [LeaveType].** Half a day is a quantity, not a kind of leave: annual,
+  /// medical and unpaid leave can each be taken for half a day, so a
+  /// `ANNUAL_HALF_DAY` type would double every type HR maintains, double the
+  /// balances hanging off them, and leave every report having to remember that
+  /// two rows are one thing. This column and [halfDayPortion] are orthogonal to
+  /// `leave_type_id`, which is what lets any type be taken either way.
+  ///
+  /// Defaulted to `false`, so every request written before this column existed is
+  /// what it always was: a whole-day absence.
+  ///
+  /// **How many hours half a day is, is not stated here.** The Timesheets module
+  /// takes half of that day's configured hours from the work schedule — see
+  /// [WorkSchedule.standardHoursPerDay] — so a company that moves to a seven-hour
+  /// day gets three and a half rather than a hard-coded four.
+  ///
+  /// Nothing about the *balance* changes: a half day still consumes a whole day
+  /// of entitlement, because `employee_leave_balances` is counted in whole days
+  /// and giving it halves is a decision with its own migration. Feature 030
+  /// records that limitation rather than quietly changing what a day means.
+  isHalfDay Boolean @default(false) @map("is_half_day")
+
+  /// Which half, on a half-day absence; null on every whole-day one.
+  ///
+  /// Required exactly when [isHalfDay] is true and refused otherwise, which the
+  /// API enforces rather than a CHECK constraint — the rule is about two columns
+  /// at once and is judged against the state a `PATCH` would leave behind, which
+  /// is the same reason the notification addressing rules live in a service.
+  ///
+  /// Stored rather than assumed, because it decides which hours are left for
+  /// work: somebody away for the morning fills the afternoon, and a timesheet
+  /// that could not say which half would be describing a different day.
+  halfDayPortion LeaveHalfDayPortion? @map("half_day_portion")
+
   /// Why the person is asking. Nullable, because "no reason given" is a real
   /// answer rather than a missing one: leave of a type that requires no approval
   /// is notified rather than requested, and demanding an explanation for a
@@ -887,6 +1056,13 @@ model LeaveRequest {
   /// Who covers the work. At least one, enforced by the API rather than by the
   /// schema — a column cannot require a row in another table to exist.
   replacements LeaveRequestReplacement[]
+
+  /// The timesheet days this absence accounts for.
+  ///
+  /// One entry per day the leave covers, written by the Timesheets module's
+  /// fill-in engine so a `LEAVE` line can be traced back to the request that
+  /// justifies it. Empty for a request nobody has yet filled a timesheet around.
+  timesheetEntries TimesheetEntry[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1861,4 +2037,279 @@ model PermissionAuditLog {
   @@index([permissionId])
   @@index([presetId])
   @@map("permission_audit_logs")
+}
+
+/// One employee's account of one month — the header of a timesheet.
+///
+/// **A header and its lines rather than one flat table of hours**, and the split
+/// is the model's central decision. A timesheet has facts that belong to the
+/// *month* and not to any day in it: whether it has been submitted, who reviewed
+/// it, why it was refused, whether the schedule it was filled against has since
+/// changed. Hung off the entries those facts would have to be repeated on every
+/// row and could then disagree — twenty lines each claiming a different reviewer
+/// — and a month with no hours logged yet could not exist at all, which is
+/// exactly the state `DRAFT` describes. The header is the unit that is submitted,
+/// approved and rejected; the lines are what it says.
+///
+/// **`(employee_id, month, year)` is unique**, which is the rule the whole
+/// feature rests on: a person accounts for a month once. Two timesheets for one
+/// month would be two answers to "how much did this person work in September",
+/// and no reader could choose between them — so `POST /timesheets/me` is
+/// idempotent, and this index is what makes that a guarantee rather than a race
+/// between a lookup and an insert.
+///
+/// `month` and `year` are two integers rather than a `DATE` pinned to the first
+/// of the month. They are what the URL carries (`?month=9&year=2026`), what the
+/// unique constraint is stated in, and what a person means by "a timesheet" — a
+/// date column would invite the first of October to be a different timesheet from
+/// October, and every query would have to normalise before comparing.
+model Timesheet {
+  id String @id @default(cuid())
+
+  /// Whose month this is. Never changes after creation — a timesheet filed by
+  /// the wrong person is deleted while it is not approved, not reassigned,
+  /// because reassigning it would move a record of work between two people with
+  /// nothing saying it happened. The same call `leave_requests.employee_id` makes.
+  ///
+  /// `RESTRICT`, like every other reference to a person that records something
+  /// somebody *did*. A month somebody worked is not erased because their
+  /// personnel record is removed: `EmployeeService.remove` already refuses to
+  /// delete anybody with leave or memberships behind them, and a timesheet is a
+  /// stronger reason still — it is what payroll and reporting are eventually
+  /// drawn from.
+  employeeId String   @map("employee_id")
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  /// 1–12 and a four-digit year, both bounded by the API. A timesheet for a
+  /// *future* month is refused: there is nothing to account for yet.
+  month Int
+  year  Int
+
+  /// Where the month stands. Defaulted to `DRAFT`, which is what a timesheet is
+  /// the instant it is opened — a private working copy no administrator sees.
+  status TimesheetStatus @default(DRAFT)
+
+  /// When the owner submitted, and when an administrator decided.
+  ///
+  /// Two columns rather than one, and both nullable, for the reason
+  /// `leave_requests` keeps `processed_at` beside `status`: `updated_at` moves
+  /// whenever any column does — including when [isStale] is raised — so it cannot
+  /// say when a timesheet was handed in or when it was answered. `submittedAt`
+  /// survives a rejection and is overwritten on resubmission, so it always names
+  /// the submission the current status refers to.
+  submittedAt DateTime? @map("submitted_at")
+  reviewedAt  DateTime? @map("reviewed_at")
+
+  /// Who approved or rejected it, or null while nobody has.
+  ///
+  /// An employee rather than a user, so a reviewer can be rendered as a name
+  /// beside the timesheet without a second join through `users` — the call
+  /// `leave_requests.processed_by_id` and `notification_campaigns.created_by_employee_id`
+  /// both make.
+  ///
+  /// `SetNull` on delete, matching `leave_requests.processed_by_id` exactly: the
+  /// fact that a decision was made survives the decider leaving the company, and
+  /// `reviewedAt` keeps saying when it happened. It is the one reference to a
+  /// person here that is not `RESTRICT`, because it records a decision *about*
+  /// somebody else's work rather than the work itself.
+  reviewedByEmployeeId String?   @map("reviewed_by_employee_id")
+  reviewedBy           Employee? @relation("TimesheetReviewer", fields: [reviewedByEmployeeId], references: [id], onDelete: SetNull)
+
+  /// Why it was refused. Required by the API on a rejection and refused on an
+  /// approval, but nullable in the column: an approval carries no explanation,
+  /// and a timesheet nobody has reviewed has nothing to explain.
+  ///
+  /// It is deliberately *not* cleared when the owner resubmits. The reason is
+  /// what they were asked to fix, and blanking it the moment they act on it would
+  /// leave the history of the month unable to say why it took two attempts.
+  rejectionReason String? @map("rejection_reason")
+
+  /// Something the timesheet was filled against has changed since — review it.
+  ///
+  /// **A flag rather than a recomputation**, and this is the decision that keeps
+  /// the feature honest. Leave gets approved, holidays get corrected and the work
+  /// schedule gets edited *after* people have filled their months in. Silently
+  /// rewriting somebody's entries in response would mean an employee opening a
+  /// timesheet to find hours they did not enter, with nothing saying who changed
+  /// them; and refusing to let the dependencies change at all would freeze the
+  /// company's calendar around its slowest timesheet.
+  ///
+  /// So the module changes nothing and says something. The flag is raised on a
+  /// `DRAFT` or `SUBMITTED` timesheet whose dependencies have moved, the owner is
+  /// notified once, and the *person* decides what their month should say. It is
+  /// lowered when they save their entries again.
+  ///
+  /// Never raised on an `APPROVED` timesheet: that one is frozen, and see
+  /// [scheduleSnapshot].
+  isStale Boolean @default(false) @map("is_stale")
+
+  /// The working-day and hours context this month was approved against, frozen.
+  ///
+  /// Written once, at approval, and never again. An approved timesheet is the
+  /// record of what the company agreed somebody worked, so it must stay readable
+  /// as it was agreed — and the rules it was judged by (which weekdays were
+  /// worked, how many hours a day, which days were holidays) are configuration
+  /// that keeps changing. Without the snapshot, opening a 2026 approval in 2028
+  /// would judge it against 2028's schedule and report violations of a rule that
+  /// did not exist when it was signed off.
+  ///
+  /// `Json` rather than columns, because it is a *photograph* rather than data:
+  /// nothing queries inside it, nothing joins to it, and the day the work
+  /// schedule grows a field the snapshot should grow one too without a migration
+  /// per approval. Structured columns would be this table promising to keep a
+  /// copy of another table's shape forever.
+  ///
+  /// Null on every timesheet that has not been approved, which is exactly the set
+  /// that has nothing to freeze.
+  scheduleSnapshot Json? @map("schedule_snapshot")
+
+  /// What the month actually says. Possibly empty — a `DRAFT` nobody has filled
+  /// in yet is a legitimate timesheet.
+  entries TimesheetEntry[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// One timesheet per person per month per year — the rule the feature is built
+  /// on, stated where it cannot be bypassed. `TimesheetService.openOwn` checks it
+  /// first so a second call returns the existing sheet rather than a `409`, but
+  /// this index is what closes the race between that check and the insert.
+  ///
+  /// It also serves every read scoped to one person, because it leads with
+  /// `employee_id`. A separate index on `employee_id` alone would duplicate that
+  /// leading column and buy nothing — the call [UserPermissionOverride] already
+  /// makes with its own unique constraint.
+  @@unique([employeeId, month, year])
+  /// The administrator's list is `WHERE status <> 'draft' AND month = … AND year
+  /// = …`, and the status is the selective half of it: drafts are excluded from
+  /// every administrative read, so this is the filter that runs on all of them.
+  /// Unlike the configuration tables of Features 016–021 this one gains a row per
+  /// employee per month, forever.
+  @@index([status])
+  /// PostgreSQL does not index a foreign key on its own, and this one is read
+  /// backwards: `SetNull` has to find the timesheets an employee reviewed before
+  /// it can blank them.
+  @@index([reviewedByEmployeeId])
+  @@map("timesheets")
+}
+
+/// One line of a timesheet: some hours, on one day, of one kind.
+///
+/// **A day holds as many of these as it needs, and that is the point.** The entry
+/// list — not a column per day, and not one row per day — is the source of truth
+/// for what a month says. Three hours on Project Alpha and five on Project Beta
+/// is two rows on one date; a half-day of leave and half a day of work is two
+/// rows on one date; a day nobody has filled in yet is no rows at all. A
+/// per-day-per-timesheet unique constraint would make the first two unstatable,
+/// and a `hours` column on a `timesheet_days` table would force every split to be
+/// squeezed into a description somebody typed.
+///
+/// It follows that the day's total is a *sum* rather than a stored number, and
+/// that the daily and weekly caps are checked over the set rather than against a
+/// field. `TimesheetFillService` does that; nothing here computes anything.
+model TimesheetEntry {
+  id String @id @default(cuid())
+
+  /// The month this line belongs to.
+  ///
+  /// `Cascade`, and the argument is the one `leave_request_replacements` and
+  /// `notification_recipients` each make: a line says nothing once the timesheet
+  /// it belongs to is gone. There is no reading of "five hours on Project Alpha"
+  /// that survives the removal of the month it was booked in, and keeping the row
+  /// would only make a deletable timesheet undeletable.
+  timesheetId String    @map("timesheet_id")
+  timesheet   Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+
+  /// The calendar day, at UTC midnight.
+  ///
+  /// A date rather than an instant, and the same convention `leave_requests` and
+  /// `public_holidays` already store: a client posts `2026-09-07` and the column
+  /// holds UTC midnight. Every comparison in the application is made in UTC, so
+  /// which day an entry falls on cannot depend on where the server is deployed —
+  /// a Monday read west of Greenwich would otherwise be the previous Sunday, and
+  /// a weekday check would refuse an entry somebody made correctly.
+  ///
+  /// It must fall inside the header's own month; that is a rule about two rows at
+  /// once, so the fill-in engine enforces it rather than a constraint.
+  date DateTime
+
+  /// What the hours account for.
+  ///
+  /// **`LEAVE` and `HOLIDAY` are not the employee's to write.** They are produced
+  /// by the fill-in engine from the approved leave requests and the public
+  /// holidays, and a submitted entry set that changes either one's type or hours
+  /// is refused. That is not paternalism: hours somebody typed against an absence
+  /// the company never approved would be an absence with no request behind it,
+  /// which is precisely the thing the leave feature exists to record.
+  type TimesheetEntryType
+
+  /// The project the work was booked to.
+  ///
+  /// Required for `WORK` and refused for the other two — a rule about two columns
+  /// at once, so the API enforces it rather than a CHECK constraint. `LEAVE` and
+  /// `HOLIDAY` name no project because nobody was working: attributing an absence
+  /// to a project would put hours in a project's total that were never worked on
+  /// it.
+  ///
+  /// `RESTRICT`, like every reference here to something that outlives the line: a
+  /// project with hours booked against it cannot be deleted out from under the
+  /// timesheets that recorded them. `ProjectService` already refuses to delete a
+  /// project with memberships; this is the same argument about a stronger record.
+  projectId String?  @map("project_id")
+  project   Project? @relation(fields: [projectId], references: [id])
+
+  /// How long, as `decimal(5, 2)` — never `double`.
+  ///
+  /// The same type and precision `work_schedules` states its bounds in, and the
+  /// agreement is load-bearing rather than tidy: these are the numbers compared
+  /// against `max_hours_per_day` and summed into a week. Binary floating point
+  /// cannot hold `0.1` exactly, so a column of totals would drift by fractions of
+  /// a second per row and a `>=` at the daily cap would come out differently
+  /// depending on how the total was reached. Half and quarter hours are the
+  /// granularity people book; `decimal` is exact for both.
+  ///
+  /// Always greater than zero, enforced by the API: an entry of no hours is not a
+  /// shorter entry, it is the absence of one, and storing it would put a line on
+  /// the screen that accounts for nothing.
+  hours Decimal @db.Decimal(5, 2)
+
+  /// The approved absence this line is justified by; null on `WORK` and
+  /// `HOLIDAY`.
+  ///
+  /// It is what makes a `LEAVE` entry auditable: the hours are not a claim the
+  /// employee typed but a consequence of a request somebody approved, and the
+  /// link says which. Without it, "four hours of leave on the 7th" would be
+  /// unfalsifiable.
+  ///
+  /// `SetNull` rather than `RESTRICT` or `Cascade`, and the choice is between
+  /// three bad-looking options for a case that barely arises — only a `PENDING`
+  /// request may be deleted, and a pending request has no timesheet entries. If
+  /// one ever were removed, the *hours were still not worked*: cascading would
+  /// delete a line from an approved month and change what the company signed off,
+  /// while `RESTRICT` would make a timesheet entry able to veto the removal of
+  /// somebody else's request. Blanking the link keeps the month intact and loses
+  /// only the pointer, which is the smallest of the three losses.
+  leaveRequestId String?       @map("leave_request_id")
+  leaveRequest   LeaveRequest? @relation(fields: [leaveRequestId], references: [id], onDelete: SetNull)
+
+  /// What was done, in the employee's own words. Optional, and read by nothing —
+  /// it is for the administrator reviewing the month and for the person who opens
+  /// it again next year.
+  description String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// The one read this table is built for: every line of one timesheet, in day
+  /// order. `date` comes second so PostgreSQL satisfies the filter and the
+  /// ordering from a single scan instead of sorting the matches afterwards — the
+  /// call `notifications` and `permission_audit_logs` both make.
+  @@index([timesheetId, date])
+  /// The two foreign keys the index above does not lead with. Each is read
+  /// backwards by a delete: `RESTRICT` has to find the entries booked to a
+  /// project before it can refuse, and `SetNull` has to find the entries pointing
+  /// at a leave request before it can blank them.
+  @@index([projectId])
+  @@index([leaveRequestId])
+  @@map("timesheet_entries")
 }

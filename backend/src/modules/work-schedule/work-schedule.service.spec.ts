@@ -24,6 +24,7 @@ const UPDATED_AT = new Date('2026-08-04T10:30:00.000Z');
 /** A configuration row, as PostgreSQL returns it. */
 const SCHEDULE_ROW: PublicWorkScheduleRow = {
   workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+  weekStartsOn: 'MONDAY',
   workStartTime: '09:00',
   workEndTime: '18:00',
   minHoursPerEntry: decimal(0.5),
@@ -39,6 +40,7 @@ const SCHEDULE_ROW: PublicWorkScheduleRow = {
 /** The same configuration, as the API publishes it. */
 const SCHEDULE_ENTITY = {
   workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+  weekStartsOn: 'MONDAY',
   workStartTime: '09:00',
   workEndTime: '18:00',
   minHoursPerEntry: 0.5,
@@ -53,6 +55,7 @@ const SCHEDULE_ENTITY = {
 
 const SAVE_BODY: UpdateWorkScheduleDto = {
   workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+  weekStartsOn: 'MONDAY',
   workStartTime: '09:00',
   workEndTime: '18:00',
   minHoursPerEntry: 0.5,

@@ -74,6 +74,23 @@ export function IsWorkingDays() {
 }
 
 /**
+ * `weekStartsOn` — the single weekday a week begins on.
+ *
+ * One value rather than an array, and deliberately unconstrained by
+ * {@link IsWorkingDays}: the day a week *turns over* need not itself be worked.
+ * A company working Monday to Friday whose payroll week begins on Sunday is a
+ * perfectly ordinary arrangement, and requiring the start to be a working day
+ * would refuse it for no reason a weekly total cares about.
+ *
+ * Its own decorator rather than a bare `@IsEnum(Weekday)` on the property, for
+ * the reason every other field here has one: the constraint belongs beside the
+ * others, and the day this gains a second rule there is one place to put it.
+ */
+export function IsWeekStartsOn() {
+  return IsEnum(Weekday);
+}
+
+/**
  * `workStartTime` / `workEndTime` — a wall-clock time as `HH:mm`.
  *
  * Trimmed first, then matched against the anchored pattern, so `" 09:00 "` is

@@ -33,6 +33,8 @@ const EMPLOYEE = {
   lastName: 'Popescu',
   phone: '+40 722 123 456',
   hireDate: new Date('2020-01-13T00:00:00.000Z'),
+  /** Null on somebody who still works here, which is the ordinary case. */
+  terminationDate: null,
   seniority: SeniorityLevel.SENIOR,
   status: EmployeeStatus.ACTIVE,
   canReplaceOthers: true,

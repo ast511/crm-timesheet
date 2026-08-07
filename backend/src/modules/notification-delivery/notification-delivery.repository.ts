@@ -1,12 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import {
   CampaignRecipientType,
   NotificationCategory,
   NotificationPriority,
+  NotificationRecipientType,
   NotificationType,
+  NotificationWorkspace,
 } from '../../generated/prisma/enums';
 import { EmployeeService } from '../employees/employee.service';
+import { WorkScheduleService } from '../work-schedule/work-schedule.service';
 import {
   CampaignDelivery,
   NotificationCampaignService,
@@ -57,10 +60,12 @@ export interface DeliveryTarget {
  */
 export interface DeliveryPlan {
   readonly source: DeliverySource;
-  /** The stored campaign this came from, or null for a reminder run. */
+  /** The stored campaign this came from, or null for a reminder or an event. */
   readonly campaignId: string | null;
-  /** The reminder rule this came from, or null for a campaign. */
+  /** The reminder rule this came from, or null for a campaign or an event. */
   readonly reminderId: string | null;
+  /** The application event this came from, or null for the two stored sources. */
+  readonly eventKey: string | null;
   /** The heading, as typed. Used for the email subject. */
   readonly subject: string;
   /** The heading, bounded to what a notification title may hold. */
@@ -71,8 +76,89 @@ export interface DeliveryPlan {
   readonly priority: NotificationPriority;
   readonly sendEmail: boolean;
   readonly sendNotification: boolean;
-  /** Resolved at this moment, never earlier. Possibly empty. */
+  /**
+   * Which inbox the notification is filed in, and how it names who it is for.
+   *
+   * Both were implicit before Feature 030 — every delivery was `PERSONAL` +
+   * `USER`, written into the dispatcher — and are stated on the plan now because
+   * an administrative event is neither. "A timesheet is waiting for review" is
+   * back-office work addressed to the people who do it, which is exactly what
+   * `ADMINISTRATIVE` + `ADMINISTRATIVE_USERS` means; filing it personally would
+   * put it in the inbox of whichever administrator happened to be resolved first.
+   *
+   * Only the two pairings Feature 026's `WORKSPACE_RECIPIENT_TYPES` calls legal
+   * are produced here, and `NotificationService` refuses the rest regardless.
+   */
+  readonly workspace: NotificationWorkspace;
+  readonly recipientType: NotificationRecipientType;
+  /**
+   * Who gets a notification row, resolved at this moment and never earlier.
+   *
+   * Possibly empty, and **empty by design on an administrative broadcast**: that
+   * is one row nobody is individually addressed by, so there is no list of people
+   * to fan out to. See {@link NotificationDispatcher.createNotifications}.
+   */
   readonly targets: readonly DeliveryTarget[];
+  /**
+   * Where the email copy goes.
+   *
+   * A separate list from {@link targets} since Feature 030, because the two
+   * genuinely differ on one delivery: an administrative broadcast reaches a
+   * *workspace* in-app, but an email needs an address, and the addresses the
+   * company has already nominated for this are the timesheet approval list
+   * Feature 016 stores. For a campaign, a reminder and a personal event it is
+   * exactly `targets.map(t => t.email)`, which is what it always was.
+   */
+  readonly emailRecipients: readonly string[];
+}
+
+/** Who an event is announced to. Two shapes, and they resolve differently. */
+export enum EventAudienceKind {
+  /** One named person — the owner of the thing that changed. */
+  Employee = 'EMPLOYEE',
+  /**
+   * The people who run the company, as a workspace rather than as a list.
+   *
+   * One `ADMINISTRATIVE_USERS` notification that every administrator sees, and an
+   * email to the addresses nominated for it. Deliberately *not* a fan-out over
+   * every account whose role is administrative: that would put the same message
+   * in three personal inboxes and make "how many administrators are there" a
+   * question the delivery of a timesheet depends on.
+   */
+  Administrative = 'ADMINISTRATIVE',
+}
+
+export type EventAudience =
+  | { readonly kind: EventAudienceKind.Employee; readonly employeeId: string }
+  | { readonly kind: EventAudienceKind.Administrative };
+
+/**
+ * Something that happened, handed to the engine to announce.
+ *
+ * **The engine's third input, and the first that is not a stored row.** A
+ * campaign is composed and a reminder is configured; an event is a moment in
+ * another module — a timesheet was rejected — and there is nothing to look up,
+ * claim or mark sent. The producing module composes the wording, because only it
+ * knows which timesheet and whose, and hands over exactly this.
+ *
+ * It carries its own `category`, `severity` and `priority` for the same reason:
+ * what a notification is *about* and how loudly it asks are facts about the
+ * event, not about the mechanism that delivered it.
+ *
+ * There is no `expiresAt` and no schedule. An event is announced now or not at
+ * all — the thing it describes has already happened.
+ */
+export interface EventDelivery {
+  /** `timesheet_rejected` — what this is, for the log and the template. */
+  readonly key: string;
+  readonly subject: string;
+  readonly message: string;
+  readonly category: NotificationCategory;
+  readonly severity: NotificationType;
+  readonly priority: NotificationPriority;
+  readonly sendEmail: boolean;
+  readonly sendNotification: boolean;
+  readonly audience: EventAudience;
 }
 
 /**
@@ -113,6 +199,11 @@ export class NotificationDeliveryRepository {
     private readonly campaigns: NotificationCampaignService,
     private readonly reminders: ReminderService,
     private readonly employees: EmployeeService,
+    // Added by Feature 030, and only for the administrative half of an event:
+    // `timesheet_approval_emails` is the list Feature 016 created for exactly
+    // this — "an address notified when a timesheet needs approval" — and it had
+    // no reader until an event had to reach the people who review one.
+    private readonly workSchedule: WorkScheduleService,
   ) {}
 
   /** One campaign in delivery shape, or `null` when there is no such campaign. */
@@ -154,10 +245,11 @@ export class NotificationDeliveryRepository {
    * included; somebody who left is not.
    */
   async buildCampaignPlan(campaign: CampaignDelivery): Promise<DeliveryPlan> {
-    return {
+    return toPersonalPlan({
       source: DeliverySource.Campaign,
       campaignId: campaign.id,
       reminderId: null,
+      eventKey: null,
       subject: campaign.subject,
       title: toNotificationTitle(campaign.subject),
       message: campaign.message,
@@ -170,7 +262,7 @@ export class NotificationDeliveryRepository {
         campaign.recipientType,
         campaign.employeeIds,
       ),
-    };
+    });
   }
 
   /**
@@ -190,10 +282,11 @@ export class NotificationDeliveryRepository {
    * has not submitted yet", which is a narrower list built the same way.
    */
   async buildReminderPlan(reminder: ReminderRow): Promise<DeliveryPlan> {
-    return {
+    return toPersonalPlan({
       source: DeliverySource.Reminder,
       campaignId: null,
       reminderId: reminder.id,
+      eventKey: null,
       subject: reminder.subject,
       title: toNotificationTitle(reminder.subject),
       message: reminder.message,
@@ -206,7 +299,96 @@ export class NotificationDeliveryRepository {
         CampaignRecipientType.ALL_EMPLOYEES,
         [],
       ),
+    });
+  }
+
+  /**
+   * Turns something that happened into the same work the dispatcher already
+   * executes.
+   *
+   * **No claim, no `SENT`, nothing marked.** A campaign is claimed before
+   * delivery because two runs can race over one stored row; an event has no row,
+   * and the thing that stops it being announced twice is that the module raising
+   * it does so inside a transition guarded on status — see
+   * `TimesheetService.approve`. That guarantee belongs where the transition is,
+   * not here.
+   *
+   * The audience resolves two ways, and the asymmetry is the point:
+   *
+   * - **`EMPLOYEE`** — the one person named, exactly as a single-recipient
+   *   campaign resolves, and filed `PERSONAL` + `USER`. Their timesheet was
+   *   approved; nobody else needs to know.
+   * - **`ADMINISTRATIVE`** — nobody in particular. One `ADMINISTRATIVE_USERS`
+   *   notification that every administrator reads, and email to the approval
+   *   addresses. There are no `targets`, which is why the plan carries the two
+   *   lists separately.
+   *
+   * An audience naming somebody who has since been deleted resolves to nobody,
+   * and that is a successful delivery of nothing rather than an error — the same
+   * call {@link resolveTargets} makes for a campaign whose recipients have all
+   * left.
+   */
+  async buildEventPlan(event: EventDelivery): Promise<DeliveryPlan> {
+    const base = {
+      source: DeliverySource.Event,
+      campaignId: null,
+      reminderId: null,
+      eventKey: event.key,
+      subject: event.subject,
+      title: toNotificationTitle(event.subject),
+      message: event.message,
+      category: event.category,
+      type: event.severity,
+      priority: event.priority,
+      sendEmail: event.sendEmail,
+      sendNotification: event.sendNotification,
+    } as const;
+
+    if (event.audience.kind === EventAudienceKind.Employee) {
+      return toPersonalPlan({
+        ...base,
+        targets: await this.employees.findDeliveryTargets([
+          event.audience.employeeId,
+        ]),
+      });
+    }
+
+    return {
+      ...base,
+      workspace: NotificationWorkspace.ADMINISTRATIVE,
+      recipientType: NotificationRecipientType.ADMINISTRATIVE_USERS,
+      targets: [],
+      emailRecipients: await this.findApprovalAddresses(),
     };
+  }
+
+  /**
+   * The addresses nominated to hear about timesheets needing approval.
+   *
+   * Read through `WorkScheduleService` rather than by querying
+   * `timesheet_approval_emails`, which is the rule every module here follows.
+   *
+   * **An empty list is a normal answer, not a failure**, and both ways of
+   * reaching one are treated alike. A company that has nominated no approval
+   * address still gets the in-app notification, which is the channel
+   * administrators actually work from; the email is the copy. A company that has
+   * not configured a work schedule at all makes that service answer `404` — the
+   * right answer to somebody *asking for* the schedule, and the wrong one to
+   * propagate here, because it would turn "your timesheet was submitted" into a
+   * failed submission over a missing mailing list.
+   */
+  private async findApprovalAddresses(): Promise<string[]> {
+    try {
+      const addresses = await this.workSchedule.findEmails();
+
+      return addresses.map(({ email }) => email);
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) {
+        throw error;
+      }
+
+      return [];
+    }
   }
 
   /**
@@ -257,4 +439,29 @@ function dedupeByEmployee(
   return [
     ...new Map(targets.map((target) => [target.employeeId, target])).values(),
   ];
+}
+
+/**
+ * Completes a plan addressed to *people*: `PERSONAL` + `USER`, and the email
+ * copy going to the same people.
+ *
+ * The three fields it fills were implicit before Feature 030 — every delivery
+ * was personal, and `sendEmails` read the addresses straight off the targets —
+ * so this function is that behaviour written down rather than a change to it.
+ * A campaign, a reminder and an employee-addressed event all take this path and
+ * come out exactly as they always did.
+ *
+ * It exists so the *administrative* plan is the only place that departs, and the
+ * departure is visible in one branch instead of three ternaries repeated across
+ * the builders.
+ */
+function toPersonalPlan(
+  plan: Omit<DeliveryPlan, 'workspace' | 'recipientType' | 'emailRecipients'>,
+): DeliveryPlan {
+  return {
+    ...plan,
+    workspace: NotificationWorkspace.PERSONAL,
+    recipientType: NotificationRecipientType.USER,
+    emailRecipients: plan.targets.map(({ email }) => email),
+  };
 }

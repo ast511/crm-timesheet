@@ -1,8 +1,11 @@
-import { IsOptional } from 'class-validator';
+import { IsBoolean, IsOptional } from 'class-validator';
 
 import { IsIsoDateString } from '../../../common/decorators/is-iso-date-string.decorator';
 import { IsRelationId } from '../../../common/decorators/is-relation-id.decorator';
+import { ValidateIfPresent } from '../../../common/decorators/validate-if-present.decorator';
+import { LeaveHalfDayPortion } from '../../../generated/prisma/enums';
 import {
+  IsLeaveHalfDayPortion,
   IsLeaveReplacementIds,
   IsLeaveRequestReason,
 } from './leave-request-field.decorators';
@@ -62,6 +65,44 @@ export class CreateLeaveRequestDto {
    */
   @IsIsoDateString()
   readonly endDate!: string;
+
+  /**
+   * Whether the absence covers half a working day rather than whole ones.
+   *
+   * Added by Feature 030. Omitted, the schema's `false` applies — every request
+   * written before this field existed is what it always was, a whole-day
+   * absence — so `null` is not the same request and is rejected: the column is
+   * not nullable and has nothing to store.
+   *
+   * **Orthogonal to `leaveTypeId`, deliberately.** Half a day is a quantity, not
+   * a kind of leave: any type may be taken for half a day, and spelling it as an
+   * `ANNUAL_HALF_DAY` type would have doubled every type HR maintains and every
+   * balance hanging off one.
+   *
+   * **How many hours half a day is, is not stated here**, and cannot be: it is
+   * half of that day's configured hours in the work schedule, so a company on a
+   * seven-hour day gets three and a half rather than a hard-coded four. The
+   * Timesheets module reads it; nothing in this feature computes hours at all.
+   */
+  @ValidateIfPresent()
+  @IsBoolean()
+  readonly isHalfDay?: boolean;
+
+  /**
+   * Which half, on a half-day absence.
+   *
+   * **Required when `isHalfDay` is true and refused otherwise.** That is a rule
+   * about two fields at once, so it is checked in the service beside the other
+   * statements about what a valid request is, rather than here — the same call
+   * `decisionReason` makes against the resolved status.
+   *
+   * It matters because it decides which hours are left for work: somebody away
+   * for the morning fills the afternoon, and a timesheet that could not say which
+   * half would be describing a different day.
+   */
+  @IsOptional()
+  @IsLeaveHalfDayPortion()
+  readonly halfDayPortion?: LeaveHalfDayPortion | null;
 
   /**
    * Why the person is asking.

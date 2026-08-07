@@ -58,6 +58,24 @@ export class UpdateEmployeeDto {
   @IsIsoDateString()
   readonly hireDate?: string;
 
+  /**
+   * The day the person left, or `null` to say they did not after all.
+   *
+   * The second nullable column, and the second field where `null` is a value
+   * rather than a mistake: a termination entered by accident, or a leaver who
+   * withdrew their notice, has to be undoable, and `@ValidateIfPresent()` would
+   * have made that a `400`.
+   *
+   * Setting it does **not** set `status`, and setting `status` to `TERMINATED`
+   * does not set this. The two are deliberately independent — see the schema
+   * comment on the column — because a notice period is real: somebody whose last
+   * day is in three weeks is `ACTIVE` and has a termination date, and coupling
+   * the two would either terminate them early or refuse to record the date.
+   */
+  @IsOptional()
+  @IsIsoDateString()
+  readonly terminationDate?: string | null;
+
   @ValidateIfPresent()
   @IsRelationId()
   readonly userId?: string;

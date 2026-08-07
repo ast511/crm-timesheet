@@ -5,7 +5,9 @@ import {
   NotificationCampaignStatus,
   NotificationCategory,
   NotificationPriority,
+  NotificationRecipientType,
   NotificationType,
+  NotificationWorkspace,
 } from '../../generated/prisma/enums';
 import { EmployeeService } from '../employees/employee.service';
 import { ReminderRow } from '../notification-management/entities/reminder.entity';
@@ -15,6 +17,7 @@ import {
 } from '../notification-management/notification-campaign.service';
 import { ReminderService } from '../notification-management/reminder.service';
 import { NOTIFICATION_TITLE_MAX_LENGTH } from '../notifications/notification.constants';
+import { WorkScheduleService } from '../work-schedule/work-schedule.service';
 import { DeliverySource } from './notification-delivery.constants';
 import { NotificationDeliveryRepository } from './notification-delivery.repository';
 
@@ -63,6 +66,7 @@ describe('NotificationDeliveryRepository', () => {
   };
   let reminders: { findEnabled: jest.Mock };
   let employees: { findDeliveryTargets: jest.Mock };
+  let workSchedule: { findEmails: jest.Mock };
 
   beforeEach(async () => {
     campaigns = {
@@ -77,12 +81,21 @@ describe('NotificationDeliveryRepository', () => {
         .mockResolvedValue([target('1'), target('2')]),
     };
 
+    // Added by Feature 030: the administrative half of an event is emailed to
+    // the timesheet approval addresses, which is the list Feature 016 stores.
+    workSchedule = {
+      findEmails: jest
+        .fn()
+        .mockResolvedValue([{ id: 'eml-1', email: 'approvals@example.com' }]),
+    };
+
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         NotificationDeliveryRepository,
         { provide: NotificationCampaignService, useValue: campaigns },
         { provide: ReminderService, useValue: reminders },
         { provide: EmployeeService, useValue: employees },
+        { provide: WorkScheduleService, useValue: workSchedule },
       ],
     }).compile();
 
@@ -128,6 +141,8 @@ describe('NotificationDeliveryRepository', () => {
         source: DeliverySource.Campaign,
         campaignId: 'cmp-1',
         reminderId: null,
+        // Null on both stored sources: only an event names one.
+        eventKey: null,
         subject: 'Planned maintenance',
         title: 'Planned maintenance',
         message: CAMPAIGN.message,
@@ -137,7 +152,12 @@ describe('NotificationDeliveryRepository', () => {
         priority: NotificationPriority.HIGH,
         sendEmail: true,
         sendNotification: true,
+        // Stated on the plan since Feature 030 rather than assumed by the
+        // dispatcher. A campaign is unchanged: personal, one row per person.
+        workspace: NotificationWorkspace.PERSONAL,
+        recipientType: NotificationRecipientType.USER,
         targets: [target('1'), target('2')],
+        emailRecipients: ['person1@example.com', 'person2@example.com'],
       });
     });
 
@@ -206,6 +226,7 @@ describe('NotificationDeliveryRepository', () => {
         source: DeliverySource.Reminder,
         campaignId: null,
         reminderId: 'rmd-1',
+        eventKey: null,
         subject: REMINDER.subject,
         title: REMINDER.subject,
         message: REMINDER.message,
@@ -214,7 +235,10 @@ describe('NotificationDeliveryRepository', () => {
         priority: NotificationPriority.LOW,
         sendEmail: false,
         sendNotification: true,
+        workspace: NotificationWorkspace.PERSONAL,
+        recipientType: NotificationRecipientType.USER,
         targets: [target('1'), target('2')],
+        emailRecipients: ['person1@example.com', 'person2@example.com'],
       });
       expect(employees.findDeliveryTargets).toHaveBeenCalledWith();
     });

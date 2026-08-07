@@ -57,6 +57,7 @@ const PLAN: DeliveryPlan = {
   source: DeliverySource.Campaign,
   campaignId: 'cmp-1',
   reminderId: null,
+  eventKey: null,
   subject: 'Planned maintenance',
   title: 'Planned maintenance',
   message: CAMPAIGN.message,
@@ -65,10 +66,15 @@ const PLAN: DeliveryPlan = {
   priority: NotificationPriority.HIGH,
   sendEmail: true,
   sendNotification: true,
+  // The pairing every campaign and reminder has always produced, stated on the
+  // plan since Feature 030 rather than written into the dispatcher.
+  workspace: NotificationWorkspace.PERSONAL,
+  recipientType: NotificationRecipientType.USER,
   targets: [
     { employeeId: 'emp-1', userId: 'usr-1', email: 'one@example.com' },
     { employeeId: 'emp-2', userId: 'usr-2', email: 'two@example.com' },
   ],
+  emailRecipients: ['one@example.com', 'two@example.com'],
 };
 
 const planOf = (overrides: Partial<DeliveryPlan> = {}): DeliveryPlan => ({
@@ -127,6 +133,8 @@ describe('NotificationDispatcher', () => {
         source: DeliverySource.Campaign,
         campaignId: 'cmp-1',
         reminderId: null,
+        // Null on a campaign: only an event names one. Added by Feature 030.
+        eventKey: null,
         recipientCount: 2,
         notificationsCreated: 2,
         emailsSent: 2,
@@ -317,7 +325,11 @@ describe('NotificationDispatcher', () => {
     // A campaign addressed to three people who have all left is not an error to
     // raise at whoever pressed the button.
     it('is a successful delivery of nothing when the audience resolves to nobody', async () => {
-      deliveries.buildCampaignPlan.mockResolvedValue(planOf({ targets: [] }));
+      // Both lists, because Feature 030 separated who gets a notification from
+      // where the email copy goes. An audience of nobody has neither.
+      deliveries.buildCampaignPlan.mockResolvedValue(
+        planOf({ targets: [], emailRecipients: [] }),
+      );
 
       const result = await dispatcher.executeCampaign('cmp-1');
 

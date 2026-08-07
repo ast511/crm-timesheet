@@ -89,6 +89,7 @@ export class WorkScheduleService {
 
     const data = {
       workingDays: dto.workingDays,
+      weekStartsOn: dto.weekStartsOn,
       workStartTime: dto.workStartTime,
       workEndTime: dto.workEndTime,
       minHoursPerEntry: dto.minHoursPerEntry,

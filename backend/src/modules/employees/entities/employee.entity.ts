@@ -1,4 +1,7 @@
-import { toIsoTimestamp } from '../../../common/utils/date.util';
+import {
+  toIsoTimestamp,
+  toNullableIsoTimestamp,
+} from '../../../common/utils/date.util';
 import type { Prisma } from '../../../generated/prisma/client';
 import type {
   EmployeeStatus,
@@ -66,6 +69,15 @@ export interface EmployeeEntity {
   lastName: string;
   phone: string | null;
   hireDate: string;
+  /**
+   * The day the person left, or `null` while they still work here.
+   *
+   * Added by Feature 030, which bounds a timesheet's entries at
+   * `[hireDate, terminationDate ?? today]`. Independent of `status` — somebody
+   * serving notice is `ACTIVE` and has a termination date — so a client renders
+   * both rather than deriving one from the other.
+   */
+  terminationDate: string | null;
   seniority: SeniorityLevel;
   status: EmployeeStatus;
   canReplaceOthers: boolean;
@@ -96,6 +108,7 @@ export const EMPLOYEE_PUBLIC_SELECT = {
   lastName: true,
   phone: true,
   hireDate: true,
+  terminationDate: true,
   seniority: true,
   status: true,
   canReplaceOthers: true,
@@ -129,6 +142,7 @@ export type EmployeeWithRelationsRow = Pick<
   | 'lastName'
   | 'phone'
   | 'hireDate'
+  | 'terminationDate'
   | 'seniority'
   | 'status'
   | 'canReplaceOthers'
@@ -151,6 +165,7 @@ export function toEmployeeEntity(
     lastName: employee.lastName,
     phone: employee.phone,
     hireDate: toIsoTimestamp(employee.hireDate),
+    terminationDate: toNullableIsoTimestamp(employee.terminationDate),
     seniority: employee.seniority,
     status: employee.status,
     canReplaceOthers: employee.canReplaceOthers,

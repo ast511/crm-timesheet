@@ -994,3 +994,147 @@ from 1717 in 90), `npm run test:e2e` **48 passed** (up from 44),
   know when a request changes state". The hand-off is still not taken up, and this
   is the module that will take it: a leave decision becomes a `DeliveryPlan` like
   everything else.
+
+---
+
+## Amended by Feature 030 — Application events as a third delivery source
+
+[Feature 030](030-timesheet-management.md) is the caller this feature said would
+arrive: *"the dispatcher is the only entry point for delivery, and it is reached
+through the manual endpoint, the two schedulers and — when the timesheet and leave
+features want to announce something — by importing this module then."*
+
+**Every addition is additive.** Campaigns and reminders take exactly the code path
+they always did, produce exactly the plan they always produced, and no existing
+behaviour changed.
+
+### `DeliverySource.Event`
+
+A third source, and the first that is **not a stored row**. A campaign is composed
+and a reminder is configured; an event is a *moment* in another module — a
+timesheet was rejected — and there is nothing to look up, claim or mark sent.
+
+It is therefore absent from `DELIVERY_CATEGORIES`, which now maps only the two
+stored sources. `NotificationCategory` says what a notification is *about*, and for
+an event that is the event — a timesheet announcement is `TIMESHEET`, a leave
+decision will be `LEAVE` — not the fact that this engine delivered it. A row in
+that table would have had to be one category for every event the application will
+ever raise, which is precisely the grouping the category exists to avoid.
+
+### `NotificationDispatcher.executeEvent(event)`
+
+The new entry point, and the only export this module now has.
+
+```ts
+interface EventDelivery {
+  key: string;                 // 'timesheet_rejected' — for the log and the template
+  subject: string;
+  message: string;
+  category: NotificationCategory;
+  severity: NotificationType;
+  priority: NotificationPriority;
+  sendEmail: boolean;
+  sendNotification: boolean;
+  audience: EventAudience;
+}
+```
+
+The producing module composes the wording, because only it knows *which* timesheet
+and *whose*, and hands over exactly this.
+
+**There is no claim and no `SENT`**, which is the whole difference from
+`executeCampaign`. A campaign is a stored row two runs can race over, so it is
+claimed by a conditional `UPDATE`. An event has no row, and what stops it being
+announced twice is that the module raising it does so inside a state transition
+guarded on the current status — `TimesheetService.approve` announces only when its
+own `updateMany` moved exactly one row. That guarantee belongs with the
+transition; duplicating it here would be a second gate that eventually disagreed
+with the first.
+
+It has no refusals of its own either. An event about something that has already
+happened cannot be "too late" the way a campaign can be expired, and an audience
+that resolves to nobody is a successful delivery of nothing.
+
+### `EventAudience` — and the first non-personal delivery
+
+```ts
+type EventAudience =
+  | { kind: EventAudienceKind.Employee; employeeId: string }
+  | { kind: EventAudienceKind.Administrative };
+```
+
+`Employee` resolves exactly as a single-recipient campaign does and is filed
+`PERSONAL` + `USER`.
+
+`Administrative` is the new shape: **one `ADMINISTRATIVE_USERS` notification, not
+a fan-out.** The argument that makes a fan-out right for a campaign is that each
+employee should own their copy — read it, dismiss it, count it. Administrative
+review is the opposite: "a timesheet is waiting" is one piece of work that one
+administrator picks up, and three personal copies would leave the other two
+chasing a month a colleague had already approved. Feature 026's shared `isRead` is
+a limitation for an announcement and is exactly the semantics wanted here.
+
+It is deliberately **not** a fan-out over every account whose role is
+administrative: that would make "how many administrators are there" a question the
+delivery of a timesheet depends on.
+
+### Changes to `DeliveryPlan`
+
+| Field | Was | Is |
+| --- | --- | --- |
+| `workspace`, `recipientType` | implicit `PERSONAL` + `USER`, written into `toNotificationDto` | stated on the plan |
+| `emailRecipients` | derived from `targets` inside `sendEmails` | its own list |
+| `eventKey` | — | which event a run announced, null on both stored sources |
+
+The first two were implicit and are now explicit because an administrative event
+is neither. `toPersonalPlan` fills them for campaigns, reminders and
+employee-addressed events, so the departure is visible in one branch rather than
+in three ternaries spread across the builders.
+
+`emailRecipients` is separate because the two lists genuinely differ on one
+delivery: an administrative broadcast reaches a *workspace* in-app, but an email
+needs an address. For every other plan it is exactly `targets.map(t => t.email)`,
+which is what it always was.
+
+`DeliveryResultEntity` gains `eventKey` for the same reason, and its
+`recipientCount` is documented as `0` on a workspace-addressed delivery —
+`notificationsCreated: 1` beside it is the honest description of a broadcast.
+
+### `WorkScheduleModule` is a fifth import
+
+The narrowest of the five: one method, `findEmails`, for the one audience that is
+not a list of employees. Feature 016 created `timesheet_approval_emails` as "an
+address notified when a timesheet needs approval" and nothing had read it until an
+event had to reach the people who review one.
+
+An empty list — or a work schedule nobody has configured, which makes that service
+answer `404` — is treated as "no addresses" rather than propagated. The in-app
+notification is the channel administrators work from; turning "your timesheet was
+submitted" into a failed submission over a missing mailing list would be the wrong
+trade.
+
+`PrismaModule` is still **absent**. This feature still owns no table, and every
+read still goes through the module that owns the data.
+
+### `NotificationDispatcher` is now exported
+
+The one export, added by the caller that needed it rather than in advance —
+exactly as this document said it would be. The repository and the two schedulers
+stay private: nothing outside this module has business building a delivery plan or
+deciding that a schedule has arrived.
+
+### No new email template
+
+`renderNotificationEmail` takes a subject and a body, which is precisely what a
+timesheet event composes. The wording lives in the producing module because only
+it knows which timesheet and whose — and when the templating feature this document
+anticipates arrives, it replaces that function and nothing about `EventDelivery`
+changes.
+
+### What this leaves for the leave feature
+
+The hand-off named in this document's Future Improvements — *"a leave decision
+becomes a `DeliveryPlan` like everything else"* — is now a smaller job than it was:
+`executeEvent` exists, `EventAudience.Employee` is the right shape for "tell the
+person whose leave it is", and `NotificationCategory.LEAVE` is already seeded.
+What remains is the wording and the call.

@@ -539,3 +539,102 @@ Results: `npm run typecheck` clean, `npm test` 765 passed (50 suites),
   singleton would become a default, and this feature's URL would keep meaning
   "the company's", which is why the path says `work-schedule` rather than
   `settings`.
+
+---
+
+## Amended by Feature 030 — `weekStartsOn`
+
+[Feature 030](030-timesheet-management.md) added one column to `WorkSchedule` and
+gave two of its existing ones their first reader. **Nothing in this document is
+retracted**, including the claim that this module computes nothing — it still
+does not.
+
+```prisma
+/// Which weekday a week begins on, for the purpose of a weekly total.
+weekStartsOn Weekday @default(MONDAY) @map("week_starts_on")
+```
+
+### Why a week needs a start
+
+The timesheet feature caps hours per **week**, and a weekly cap is meaningless
+without saying where a week ends and the next begins.
+
+**The working week does not begin on Monday everywhere this application may be
+deployed.** It begins on Sunday across much of the Middle East, Asia and the
+Americas, and on Saturday in parts of the Gulf. A Monday assumed in the grouping
+would split such a company's week across two buckets — and a ceiling checked over
+half a week each time is a ceiling that never binds. That is not a cosmetic bug:
+it is a limit the configuration screen claims to enforce and silently does not.
+
+### Why it cannot be derived from `workingDays`
+
+The obvious shortcut — "the first working day" — is wrong. A company working
+Sunday to Thursday and one working Tuesday to Saturday can hold overlapping
+arrays, and the shortcut would call a Tuesday-to-Saturday week a week beginning on
+Tuesday. The two are independent facts and are stated independently.
+
+It is also **not constrained** to be a working day. A company working Monday to
+Friday whose payroll week begins on Sunday is an ordinary arrangement, and
+requiring the start to be worked would refuse it for no reason a weekly total
+cares about.
+
+### Why it is optional on the `PUT`
+
+This is the one field on `UpdateWorkScheduleDto` that is not required, which
+departs from the "every field is required, because `PUT` replaces" rule stated
+above. The exception is the migration rather than the design: a `PUT` written
+against the previous contract must not start failing because a field nobody knew
+about is now compulsory. The DTO carries `MONDAY` as a property initialiser, so an
+old body and a new one store the same thing — and the column defaults to the same
+value, so rows written before the migration keep the grouping they always had.
+
+### Restated: there is no weekend rule anywhere
+
+`workingDays` was always the only statement about which days are worked, and
+Feature 030 is the first consumer that could have contradicted it. It does not.
+"Not loggable" means "not in `workingDays`", so:
+
+- a company that works Saturdays lists Saturday and can log Saturdays;
+- a company that works Monday **to Sunday** lists all seven and can log all seven.
+
+A `getUTCDay() === 0 || === 6` anywhere in the timesheet module would have
+contradicted this screen on every request. There is none.
+
+### The hour columns finally have readers
+
+Feature 016 said "the Timesheets module will read this configuration and validate
+against it" and that nothing would compute against it until something had a reason
+to. That module now exists, and reads:
+
+| Column | Read for |
+| --- | --- |
+| `workingDays` | whether a day may be logged at all |
+| `weekStartsOn` | which week a day belongs to |
+| `minHoursPerEntry`, `maxHoursPerEntry` | the bounds on one line |
+| `maxHoursPerDay` | the ceiling over every line on a day |
+| `standardHoursPerWeek` | the ceiling over a week |
+| `standardHoursPerDay` | what a full day of leave or holiday is worth — **halved** for a half-day absence |
+
+`lunchBreakHours` is still read by nothing, exactly as this document insists. The
+timesheet module subtracts it from nothing, and the open question about whether it
+should ever be deducted stays open with nobody's name on it yet.
+
+`WorkScheduleService.find()` is the hand-off the timesheet module uses, rather
+than a narrow method like `findWorkingDays`. That is deliberate and is the
+opposite call Feature 023 made: leave needed one column, while the fill-in engine
+needs seven of the eight, so publishing the whole configuration is the honest
+seam rather than six accessors.
+
+### `timesheet_approval_emails` has a reader
+
+The table this feature created as "an address notified when a timesheet needs
+approval" was unread for fourteen features. Feature 030 emails the timesheet
+*submitted* announcement to it, through the Notification Delivery Engine — which
+reaches it via `WorkScheduleService.findEmails()`, not by querying the table. An
+empty list is a normal answer: the in-app notification is the channel
+administrators actually work from, and the email is the copy.
+
+### Migration
+
+Part of `add_timesheet_management`. The column is defaulted, so the existing
+configuration row keeps the Monday-first grouping it always had.

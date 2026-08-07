@@ -52,6 +52,27 @@ export class CreateEmployeeDto {
   @IsIsoDateString()
   readonly hireDate!: string;
 
+  /**
+   * The last day the person works here, when that is already known.
+   *
+   * Optional, and null on almost every employee — somebody being hired does not
+   * usually have a leaving date. It is accepted at creation anyway, because a
+   * fixed-term contract is entered with both ends known, and requiring a second
+   * `PATCH` to state a fact the form already had would be ceremony.
+   *
+   * Added by Feature 030, which is the first thing here that reads it: a
+   * timesheet entry is only acceptable inside
+   * `[hireDate, terminationDate ?? today]`, so a leaver's final month can be
+   * filled up to the day they left and no further.
+   *
+   * That it must not precede `hireDate` is a rule about two fields at once, so it
+   * is checked in the service beside the other statements about what a valid
+   * employee is.
+   */
+  @IsOptional()
+  @IsIsoDateString()
+  readonly terminationDate?: string | null;
+
   @IsRelationId()
   readonly userId!: string;
 

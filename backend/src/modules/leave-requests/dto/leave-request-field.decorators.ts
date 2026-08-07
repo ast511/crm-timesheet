@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   ArrayUnique,
+  IsEnum,
   IsInt,
   IsString,
   Max,
@@ -12,6 +13,7 @@ import {
 } from 'class-validator';
 
 import { IsRelationId } from '../../../common/decorators/is-relation-id.decorator';
+import { LeaveHalfDayPortion } from '../../../generated/prisma/enums';
 import {
   LEAVE_REQUEST_DECISION_REASON_MAX_LENGTH,
   LEAVE_REQUEST_MAX_REPLACEMENTS,
@@ -92,6 +94,23 @@ export function IsLeaveDecisionReason() {
     IsString(),
     MaxLength(LEAVE_REQUEST_DECISION_REASON_MAX_LENGTH),
   );
+}
+
+/**
+ * `halfDayPortion` — which half of the day a half-day absence covers.
+ *
+ * Its own decorator rather than a bare `@IsEnum()` on the property, for the
+ * reason every other field here has one: the constraint belongs beside the
+ * others, and the day this gains a second rule there is one place to put it.
+ *
+ * It states nothing about `isHalfDay`. That the two must agree — a portion
+ * exactly when the request is a half day, and never otherwise — is a rule about
+ * two fields at once and is judged in the service against the state a write
+ * would leave behind, which a `PATCH` carrying only one of them makes
+ * unavoidable. The same call `decisionReason` makes against the resolved status.
+ */
+export function IsLeaveHalfDayPortion() {
+  return IsEnum(LeaveHalfDayPortion);
 }
 
 /**

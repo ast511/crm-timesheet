@@ -1,26 +1,10 @@
 import { Injectable } from '@nestjs/common';
 
+import { toDateKey, weekdayOf } from '../../common/utils/date.util';
 import { Weekday } from '../../generated/prisma/enums';
 import { PublicHolidayService } from '../public-holidays/public-holiday.service';
 import { WorkScheduleService } from '../work-schedule/work-schedule.service';
 import { MS_PER_DAY } from './leave-request.constants';
-
-/**
- * `Date.getUTCDay()` counts from Sunday; the `Weekday` enum is declared
- * Monday-first, because that is the order the business works in. This array is
- * the one place the two vocabularies are reconciled — indexed by the number
- * `getUTCDay()` returns, so the translation is a lookup rather than arithmetic
- * somebody has to re-derive at each call site.
- */
-const WEEKDAY_BY_UTC_DAY: readonly Weekday[] = [
-  Weekday.SUNDAY,
-  Weekday.MONDAY,
-  Weekday.TUESDAY,
-  Weekday.WEDNESDAY,
-  Weekday.THURSDAY,
-  Weekday.FRIDAY,
-  Weekday.SATURDAY,
-];
 
 /**
  * Counts working days over a span, against a company calendar loaded once.
@@ -169,8 +153,7 @@ function buildCalculator(
   closedDates: ReadonlySet<string>,
 ): WorkingDayCalculator {
   const isWorkingDay = (date: Date): boolean =>
-    workingDays.has(WEEKDAY_BY_UTC_DAY[date.getUTCDay()]) &&
-    !closedDates.has(toDateKey(date));
+    workingDays.has(weekdayOf(date)) && !closedDates.has(toDateKey(date));
 
   return {
     isWorkingDay,
@@ -218,9 +201,4 @@ export function yearsSpannedBy(
   }
 
   return years;
-}
-
-/** `2026-09-07` — the UTC calendar date, which is what "a day off" means. */
-function toDateKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
 }

@@ -8,6 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EmployeeLeaveBalancesService } from '../employee-leave-balances/employee-leave-balances.service';
 import { EmployeeService } from '../employees/employee.service';
 import {
+  LeaveHalfDayPortion,
   LeaveRequestStatus,
   EmployeeStatus,
 } from '../../generated/prisma/enums';
@@ -40,6 +41,10 @@ const STORED = {
   startDate: new Date(`${START}T00:00:00.000Z`),
   endDate: new Date(`${END}T00:00:00.000Z`),
   status: LeaveRequestStatus.PENDING,
+  // Added by Feature 030: a whole-day absence, which is what every request
+  // written before the half-day columns existed is.
+  isHalfDay: false,
+  halfDayPortion: null,
   replacements: [{ employeeId: 'emp-2' }],
 };
 
@@ -50,6 +55,8 @@ const ROW = {
   endDate: new Date(`${END}T00:00:00.000Z`),
   reason: 'Family trip',
   status: LeaveRequestStatus.PENDING,
+  isHalfDay: false,
+  halfDayPortion: null,
   processedAt: null,
   decisionReason: null,
   leaveType: {
@@ -79,6 +86,27 @@ const ROW = {
   },
   createdAt: new Date('2026-08-04T10:00:00.000Z'),
   updatedAt: new Date('2026-08-04T10:00:00.000Z'),
+};
+
+/**
+ * The field messages inside an exception thrown with an array payload.
+ *
+ * `.message` on such an exception is the generic `"Bad Request Exception"`; the
+ * messages a client actually reads live in `response.message`, which is the shape
+ * the global `ValidationPipe` produces and the shape this service copies so a form
+ * can mark each offending field.
+ */
+const messagesFrom = async (call: Promise<unknown>): Promise<string[]> => {
+  try {
+    await call;
+  } catch (error) {
+    const response = (error as BadRequestException).getResponse();
+    const { message } = response as { message: string | string[] };
+
+    return Array.isArray(message) ? message : [message];
+  }
+
+  throw new Error('Expected the call to reject, but it resolved');
 };
 
 describe('LeaveRequestsService', () => {
@@ -674,6 +702,214 @@ describe('LeaveRequestsService', () => {
       );
 
       expect(result.items[0]).not.toHaveProperty('employee');
+    });
+  });
+
+  /**
+   * The Feature 030 extension: half a day is a *quantity* qualifying a request of
+   * any type, not a kind of leave. The two columns are one fact stated twice, so
+   * they are merged, judged and written together.
+   */
+  describe('half-day absences', () => {
+    /** The `data` the last `create` was handed. */
+    const createdData = () =>
+      (prisma.leaveRequest.create.mock.calls.at(-1)?.[0] as { data: any }).data;
+
+    /** The `data` the last `update` was handed. */
+    const updatedData = () =>
+      (prisma.leaveRequest.update.mock.calls.at(-1)?.[0] as { data: any }).data;
+
+    /**
+     * A stored half-day request for a `PATCH` to merge into.
+     *
+     * `findFirst` serves two callers here — the facts read and the overlap check —
+     * so the mock discriminates by `select`, exactly as the `updateOwn` block
+     * above does. A blanket `mockResolvedValue` would make the overlap check
+     * believe the request conflicts with itself.
+     */
+    const storedHalfDay = (portion: LeaveHalfDayPortion) => {
+      prisma.leaveRequest.findFirst.mockImplementation(
+        (args: { select?: unknown }) =>
+          'status' in ((args.select ?? {}) as Record<string, unknown>)
+            ? Promise.resolve({
+                ...STORED,
+                isHalfDay: true,
+                halfDayPortion: portion,
+              })
+            : Promise.resolve(null),
+      );
+    };
+
+    it('stores a whole-day absence when nothing is said', async () => {
+      await service.createOwn('emp-1', CREATE_BODY);
+
+      expect(createdData()).toMatchObject({
+        isHalfDay: false,
+        halfDayPortion: null,
+      });
+    });
+
+    it('stores the portion of a half-day absence', async () => {
+      await service.createOwn('emp-1', {
+        ...CREATE_BODY,
+        isHalfDay: true,
+        halfDayPortion: LeaveHalfDayPortion.SECOND_HALF,
+      });
+
+      expect(createdData()).toMatchObject({
+        isHalfDay: true,
+        halfDayPortion: LeaveHalfDayPortion.SECOND_HALF,
+      });
+    });
+
+    // Without it the Timesheets module cannot tell which hours are left for work.
+    it('requires the portion when the absence is a half day', async () => {
+      const problems = await messagesFrom(
+        service.createOwn('emp-1', { ...CREATE_BODY, isHalfDay: true }),
+      );
+
+      expect(problems).toEqual([
+        'halfDayPortion is required when isHalfDay is true',
+      ]);
+    });
+
+    // A stray portion on a whole day would leave a later reader unable to tell
+    // which of the two columns was the mistake.
+    it('refuses a portion on a whole-day absence', async () => {
+      const problems = await messagesFrom(
+        service.createOwn('emp-1', {
+          ...CREATE_BODY,
+          halfDayPortion: LeaveHalfDayPortion.FIRST_HALF,
+        }),
+      );
+
+      expect(problems).toEqual([
+        'halfDayPortion must not be sent when isHalfDay is false',
+      ]);
+    });
+
+    it('is orthogonal to the leave type: any type may be taken for half a day', async () => {
+      await service.createOwn('emp-1', {
+        ...CREATE_BODY,
+        leaveTypeId: 'lvt-medical',
+        isHalfDay: true,
+        halfDayPortion: LeaveHalfDayPortion.FIRST_HALF,
+      });
+
+      expect(createdData()).toMatchObject({
+        leaveTypeId: 'lvt-medical',
+        isHalfDay: true,
+      });
+    });
+
+    /**
+     * Clearing rather than refusing on this one path: `{ isHalfDay: false }` is a
+     * caller saying "a whole day again", and demanding they also send
+     * `halfDayPortion: null` would be asking them to state it twice.
+     */
+    it('clears the portion when a patch makes the absence a whole day again', async () => {
+      storedHalfDay(LeaveHalfDayPortion.FIRST_HALF);
+
+      await service.updateOwn('emp-1', 'lvr-1', { isHalfDay: false });
+
+      expect(updatedData()).toMatchObject({
+        isHalfDay: false,
+        halfDayPortion: null,
+      });
+    });
+
+    it('keeps the stored portion when a patch touches neither field', async () => {
+      storedHalfDay(LeaveHalfDayPortion.SECOND_HALF);
+
+      await service.updateOwn('emp-1', 'lvr-1', { reason: 'Changed my mind' });
+
+      expect(updatedData()).toMatchObject({
+        isHalfDay: true,
+        halfDayPortion: LeaveHalfDayPortion.SECOND_HALF,
+      });
+    });
+
+    /**
+     * The limitation this extension deliberately does not change: balances are
+     * counted in whole days, so a half day still consumes one. Making the day
+     * count fractional is a decision with its own migration.
+     */
+    it('does not halve the working days a half-day request consumes', async () => {
+      const request = await service.createOwn('emp-1', {
+        ...CREATE_BODY,
+        isHalfDay: true,
+        halfDayPortion: LeaveHalfDayPortion.FIRST_HALF,
+      });
+
+      expect(request.requestedWorkingDays).toBe(5);
+    });
+  });
+
+  /**
+   * The two reads Feature 030 added for the Timesheets module. They are here
+   * rather than in that module for the rule this project keeps everywhere: the
+   * module that owns a table is the only one that queries it.
+   */
+  describe('reads for the timesheet module', () => {
+    it('returns only approved absences overlapping the span', async () => {
+      prisma.leaveRequest.findMany.mockResolvedValue([
+        {
+          id: 'lvr-1',
+          startDate: new Date(`${START}T00:00:00.000Z`),
+          endDate: new Date(`${END}T00:00:00.000Z`),
+          isHalfDay: false,
+          halfDayPortion: null,
+          leaveType: { label: 'Annual Leave' },
+        },
+      ]);
+
+      const span = {
+        startDate: new Date('2026-09-01T00:00:00.000Z'),
+        endDate: new Date('2026-09-30T00:00:00.000Z'),
+      };
+
+      await expect(service.findApprovedInSpan('emp-1', span)).resolves.toEqual([
+        expect.objectContaining({
+          id: 'lvr-1',
+          leaveTypeLabel: 'Annual Leave',
+          isHalfDay: false,
+        }) as unknown,
+      ]);
+
+      const { where } = prisma.leaveRequest.findMany.mock.calls.at(-1)?.[0] as {
+        where: Record<string, unknown>;
+      };
+
+      // A PENDING request may yet be refused; pre-populating from one would put
+      // hours on a timesheet for an absence nobody has granted.
+      expect(where).toMatchObject({
+        employeeId: 'emp-1',
+        status: LeaveRequestStatus.APPROVED,
+      });
+    });
+
+    it('reports whether any approval landed after a given moment', async () => {
+      prisma.leaveRequest.findFirst.mockResolvedValue({ id: 'lvr-1' });
+
+      const span = {
+        startDate: new Date('2026-09-01T00:00:00.000Z'),
+        endDate: new Date('2026-09-30T00:00:00.000Z'),
+      };
+      const since = new Date('2026-09-20T00:00:00.000Z');
+
+      await expect(
+        service.hasApprovalsSince('emp-1', span, since),
+      ).resolves.toBe(true);
+
+      const { where } = prisma.leaveRequest.findFirst.mock.calls.at(
+        -1,
+      )?.[0] as {
+        where: Record<string, unknown>;
+      };
+
+      // `processedAt` and not `updatedAt`: a typo corrected in a reason must not
+      // mark every timesheet touching that month stale.
+      expect(where).toMatchObject({ processedAt: { gt: since } });
     });
   });
 });

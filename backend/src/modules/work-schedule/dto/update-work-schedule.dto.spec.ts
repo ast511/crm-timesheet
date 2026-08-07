@@ -41,7 +41,37 @@ describe('UpdateWorkScheduleDto', () => {
   };
 
   it('accepts the documented configuration unchanged', async () => {
-    await expect(validate(VALID)).resolves.toEqual(VALID);
+    await expect(validate(VALID)).resolves.toEqual({
+      ...VALID,
+      // Supplied by the property initialiser rather than by the body: Feature 030
+      // added this column, and a `PUT` written against the previous contract must
+      // not start failing because a field nobody knew about is now compulsory.
+      weekStartsOn: 'MONDAY',
+    });
+  });
+
+  // The reason the column exists: the working week does not begin on Monday
+  // everywhere this application may be deployed, and the timesheet module's
+  // weekly hour ceiling has to know where one week ends and the next begins.
+  it('accepts a working week that begins on a Sunday', async () => {
+    await expect(
+      validate({ ...VALID, weekStartsOn: 'SUNDAY' }),
+    ).resolves.toMatchObject({ weekStartsOn: 'SUNDAY' });
+  });
+
+  // It is not constrained by `workingDays`: a company working Monday to Friday
+  // whose payroll week begins on Sunday is an ordinary arrangement, and a week
+  // turning over on a day nobody works is not a contradiction.
+  it('does not require the week to begin on a working day', async () => {
+    await expect(
+      validate({ ...VALID, weekStartsOn: 'SATURDAY' }),
+    ).resolves.toMatchObject({ weekStartsOn: 'SATURDAY' });
+  });
+
+  it('rejects a week beginning on something that is not a weekday', async () => {
+    await expect(
+      validate({ ...VALID, weekStartsOn: 'FUNDAY' }),
+    ).rejects.toThrow();
   });
 
   it('rejects a body missing a field, since PUT replaces rather than merges', async () => {

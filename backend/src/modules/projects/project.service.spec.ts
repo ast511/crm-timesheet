@@ -504,7 +504,7 @@ describe('ProjectService', () => {
   describe('remove', () => {
     it('deletes a project nobody is a member of', async () => {
       prisma.project.findUnique.mockResolvedValue({
-        _count: { memberships: 0 },
+        _count: { memberships: 0, timesheetEntries: 0 },
       });
 
       await expect(service.remove('prj-1')).resolves.toBeUndefined();
@@ -524,7 +524,24 @@ describe('ProjectService', () => {
 
     it('throws 409 while project members still reference it', async () => {
       prisma.project.findUnique.mockResolvedValue({
-        _count: { memberships: 3 },
+        _count: { memberships: 3, timesheetEntries: 0 },
+      });
+
+      await expect(service.remove('prj-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.project.delete).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Added by Feature 030 — the "feature that adds time entries" this method was
+     * written in anticipation of. An entry on an approved timesheet is part of a
+     * month the company signed off, so removing the project underneath it would
+     * silently drop the hours behind an invoice.
+     */
+    it('throws 409 while timesheet entries still reference it', async () => {
+      prisma.project.findUnique.mockResolvedValue({
+        _count: { memberships: 0, timesheetEntries: 12 },
       });
 
       await expect(service.remove('prj-1')).rejects.toBeInstanceOf(
@@ -535,12 +552,52 @@ describe('ProjectService', () => {
 
     it('decides both answers from one read', async () => {
       prisma.project.findUnique.mockResolvedValue({
-        _count: { memberships: 0 },
+        _count: { memberships: 0, timesheetEntries: 0 },
       });
 
       await service.remove('prj-1');
 
       expect(prisma.project.findUnique).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * The batch hand-off Feature 030's fill-in engine needs: a month may name a
+   * dozen projects across thirty days, and one `exists` per line would be sixty
+   * round trips to answer three questions.
+   */
+  describe('findExistingIds', () => {
+    it('answers with the ids that were found, in one query', async () => {
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'prj-1' },
+        { id: 'prj-3' },
+      ]);
+
+      await expect(
+        service.findExistingIds(['prj-1', 'prj-2', 'prj-3']),
+      ).resolves.toEqual(['prj-1', 'prj-3']);
+
+      expect(prisma.project.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['prj-1', 'prj-2', 'prj-3'] } },
+        select: { id: true },
+      });
+    });
+
+    /**
+     * "Does this project exist" and "is it still being worked on" are different
+     * questions. A month filled in late may legitimately book hours to a project
+     * archived since, so folding the second in would treat that as a typo.
+     */
+    it('does not filter out archived projects', async () => {
+      prisma.project.findMany.mockResolvedValue([{ id: 'prj-1' }]);
+
+      await service.findExistingIds(['prj-1']);
+
+      const { where } = prisma.project.findMany.mock.calls.at(-1)?.[0] as {
+        where: Record<string, unknown>;
+      };
+
+      expect(where).not.toHaveProperty('isArchived');
     });
   });
 

@@ -1,9 +1,11 @@
-import { IsOptional } from 'class-validator';
+import { IsBoolean, IsOptional } from 'class-validator';
 
 import { IsIsoDateString } from '../../../common/decorators/is-iso-date-string.decorator';
 import { IsRelationId } from '../../../common/decorators/is-relation-id.decorator';
 import { ValidateIfPresent } from '../../../common/decorators/validate-if-present.decorator';
+import { LeaveHalfDayPortion } from '../../../generated/prisma/enums';
 import {
+  IsLeaveHalfDayPortion,
   IsLeaveReplacementIds,
   IsLeaveRequestReason,
 } from './leave-request-field.decorators';
@@ -56,6 +58,25 @@ export class UpdateLeaveRequestDto {
   @ValidateIfPresent()
   @IsIsoDateString()
   readonly endDate?: string;
+
+  /**
+   * Turning a whole-day absence into a half day, or back.
+   *
+   * The two half-day fields are merged with the stored ones and judged together,
+   * like the span: sending `{ "isHalfDay": false }` on a request that carries a
+   * portion is the failing case, and neither field alone is wrong. The service
+   * therefore checks the pair a patch would *leave behind*, and clears the
+   * portion when the request stops being a half day rather than leaving a value
+   * behind that contradicts the flag.
+   */
+  @ValidateIfPresent()
+  @IsBoolean()
+  readonly isHalfDay?: boolean;
+
+  /** Nullable: `null` says the absence is no longer confined to one half. */
+  @IsOptional()
+  @IsLeaveHalfDayPortion()
+  readonly halfDayPortion?: LeaveHalfDayPortion | null;
 
   /** Nullable: `null` (or `""`) clears the reason. */
   @IsOptional()

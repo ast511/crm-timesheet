@@ -3,7 +3,10 @@ import {
   toNullableIsoTimestamp,
 } from '../../../common/utils/date.util';
 import type { Prisma } from '../../../generated/prisma/client';
-import type { LeaveRequestStatus } from '../../../generated/prisma/enums';
+import type {
+  LeaveHalfDayPortion,
+  LeaveRequestStatus,
+} from '../../../generated/prisma/enums';
 import type {
   DepartmentModel,
   EmployeeModel,
@@ -89,6 +92,19 @@ export interface MyLeaveRequestEntity {
   endDate: string;
   /** Derived, never stored. See `WorkingDaysService`. */
   requestedWorkingDays: number;
+  /**
+   * Whether the absence covers half a working day. Added by Feature 030.
+   *
+   * **`requestedWorkingDays` is not halved by it**, and that is stated rather
+   * than an oversight: balances are counted in whole days, so a half day still
+   * consumes one. What the flag changes is the *timesheet* — the Timesheets
+   * module books half of that day's configured hours and leaves the rest fillable
+   * with work. Making the day count fractional is a decision with its own
+   * migration, recorded in the feature document rather than taken quietly here.
+   */
+  isHalfDay: boolean;
+  /** Which half, on a half-day absence; `null` on every whole-day one. */
+  halfDayPortion: LeaveHalfDayPortion | null;
   reason: string | null;
   status: LeaveRequestStatus;
   /** At least one, always — the API refuses a request without cover. */
@@ -140,6 +156,8 @@ export const MY_LEAVE_REQUEST_SELECT = {
   id: true,
   startDate: true,
   endDate: true,
+  isHalfDay: true,
+  halfDayPortion: true,
   reason: true,
   status: true,
   processedAt: true,
@@ -196,6 +214,8 @@ export type MyLeaveRequestRow = Pick<
   | 'id'
   | 'startDate'
   | 'endDate'
+  | 'isHalfDay'
+  | 'halfDayPortion'
   | 'reason'
   | 'status'
   | 'processedAt'
@@ -252,6 +272,8 @@ export function toMyLeaveRequestEntity(
     startDate: toIsoTimestamp(request.startDate),
     endDate: toIsoTimestamp(request.endDate),
     requestedWorkingDays,
+    isHalfDay: request.isHalfDay,
+    halfDayPortion: request.halfDayPortion,
     reason: request.reason,
     status: request.status,
     replacements: request.replacements.map(({ employee }) =>

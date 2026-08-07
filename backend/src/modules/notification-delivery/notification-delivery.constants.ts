@@ -5,31 +5,59 @@ import { NOTIFICATION_TITLE_MAX_LENGTH } from '../notifications/notification.con
  * The delivery engine's literals, bounds and schedules, in one place.
  */
 
-/** What produced a delivery. The engine has exactly two sources. */
+/** What produced a delivery. The engine has three sources. */
 export enum DeliverySource {
   /** A `NotificationCampaign` somebody composed — manual or scheduled. */
   Campaign = 'CAMPAIGN',
   /** A `Reminder` rule the scheduler decided was due today. */
   Reminder = 'REMINDER',
+  /**
+   * Something that happened in another module and is worth telling somebody
+   * about — a timesheet submitted, approved or rejected.
+   *
+   * The third source, added by Feature 030, and the first that is not *stored*
+   * anywhere: a campaign and a reminder are rows somebody configured, while an
+   * event is a moment. It is delivered as it happens, by the module it happened
+   * in, through {@link NotificationDispatcher.executeEvent} — which is the seam
+   * Feature 028 said would exist "when the timesheet and leave features want to
+   * announce something", written by the caller that needed it.
+   */
+  Event = 'EVENT',
 }
 
 /**
- * Which notification category each source produces.
+ * The two sources whose category is a property of the *mechanism*.
+ *
+ * An event is deliberately not among them — see {@link DELIVERY_CATEGORIES}.
+ */
+export type StoredDeliverySource =
+  DeliverySource.Campaign | DeliverySource.Reminder;
+
+/**
+ * Which notification category each *stored* source produces.
  *
  * A table rather than a ternary, for the reason `WORKSPACE_RECIPIENT_TYPES` is
- * one: the day a third source exists, this is the line that has to change and the
- * type makes forgetting it a build error.
+ * one: the day a fourth source exists, this is the line that has to change and
+ * the type makes forgetting it a build error.
  *
  * A campaign is `GENERAL` — planned maintenance, a company meeting, an office
  * closure: things that come from nowhere in the system and are simply announced.
  * A reminder is `REMINDER`, the category Feature 026 created for exactly this and
- * which nothing has written until now. Neither is `SYSTEM`, which describes
- * something the application did to itself rather than something a person said.
+ * which nothing had written until Feature 028. Neither is `SYSTEM`, which
+ * describes something the application did to itself rather than something a
+ * person said.
+ *
+ * **An event names its own category and is therefore absent from this table.**
+ * `NotificationCategory` says what a notification is *about*, and for an event
+ * that is the event — a timesheet announcement is `TIMESHEET`, a leave decision
+ * would be `LEAVE` — not the fact that the engine delivered it. A row here would
+ * have to be one category for every event this application will ever raise, which
+ * is precisely the grouping the category exists to avoid.
  */
 export const DELIVERY_CATEGORIES = {
   [DeliverySource.Campaign]: NotificationCategory.GENERAL,
   [DeliverySource.Reminder]: NotificationCategory.REMINDER,
-} as const satisfies Record<DeliverySource, NotificationCategory>;
+} as const satisfies Record<StoredDeliverySource, NotificationCategory>;
 
 /**
  * What a truncated heading ends with.

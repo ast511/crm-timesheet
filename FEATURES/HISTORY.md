@@ -33,3 +33,4 @@ Append new features to the end of this table.
 | 027 | [Notification Management](027-notification-management.md) | Completed | 2026-08-05 |
 | 028 | [Notification Delivery Engine](028-notification-delivery-engine.md) | Completed | 2026-08-05 |
 | 029 | [Permission Management](029-permission-management.md) | Completed | 2026-08-06 |
+| 030 | [Timesheet Management](030-timesheet-management.md) | Completed | 2026-08-06 |

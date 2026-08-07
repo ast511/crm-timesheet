@@ -1,7 +1,10 @@
-import type { Weekday } from '../../../generated/prisma/enums';
+import { IsOptional } from 'class-validator';
+
+import { Weekday } from '../../../generated/prisma/enums';
 import {
   IsHours,
   IsLunchBreakHours,
+  IsWeekStartsOn,
   IsWeeklyHours,
   IsWorkingDays,
   IsWorkTime,
@@ -32,9 +35,43 @@ import {
  * silently ignored field.
  */
 export class UpdateWorkScheduleDto {
-  /** Distinct weekdays, stored in week order however they were submitted. */
+  /**
+   * Distinct weekdays, stored in week order however they were submitted.
+   *
+   * **This is the only statement about which days are worked.** A company that
+   * works Saturdays lists Saturday; one that works Monday to Sunday lists all
+   * seven, and the Timesheets module then lets every day of the week be logged.
+   * Nothing anywhere excludes a weekend by name.
+   */
   @IsWorkingDays()
   readonly workingDays!: Weekday[];
+
+  /**
+   * Which weekday the working week begins on. Defaults to `MONDAY`.
+   *
+   * **The one optional field on this DTO**, which is a deliberate exception to
+   * the "every field is required" rule above, and the exception is the migration
+   * rather than the design: this column arrived with Feature 030, and a `PUT`
+   * written against the previous contract must not start failing because a field
+   * nobody knew about is now compulsory. The initialiser supplies what the column
+   * defaults to, so an old body and a new one store the same thing.
+   *
+   * It is configuration and not a constant because the working week does not
+   * begin on Monday everywhere this application may be deployed — Sunday is the
+   * first working day across much of the Middle East and in parts of Asia and the
+   * Americas. It is read only by the Timesheets module's *weekly* hour ceiling,
+   * which has to know where one week ends and the next begins; a Monday assumed
+   * in that grouping would split such a company's week in two and let the ceiling
+   * be exceeded without anything noticing.
+   *
+   * It is independent of {@link workingDays} and cannot be derived from it: a
+   * company working Sunday to Thursday and one working Tuesday to Saturday both
+   * have a first *listed* day that says nothing about which day their week turns
+   * over on.
+   */
+  @IsOptional()
+  @IsWeekStartsOn()
+  readonly weekStartsOn: Weekday = Weekday.MONDAY;
 
   /** `09:00` — when the office opens. */
   @IsWorkTime()
