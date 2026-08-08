@@ -27,6 +27,31 @@ export interface WorkingDayCalculator {
 
   /** Whether one particular date is worked. */
   isWorkingDay(date: Date): boolean;
+
+  /**
+   * Whether the company works this **weekday**, ignoring holidays entirely.
+   *
+   * Added for Feature 031, and it is the other half of {@link isWorkingDay}
+   * rather than a variant of it. That one answers "was anybody at work" and
+   * folds two independent facts together — the weekday is not worked, *or* the
+   * company was closed — because for counting a leave span the difference does
+   * not matter: either way the day is not consumed.
+   *
+   * For a report the difference is the whole point. An attendance grid prints
+   * `L` on a Sunday and `S` on Christmas Day, and a status summary counts them
+   * in different columns, so a classifier needs to ask the two questions
+   * separately. Deriving them from a single boolean is impossible, and
+   * re-deriving the weekday rule in the reporting module would put a second
+   * answer to "does this company work Saturdays" in the codebase — which is
+   * exactly what this service exists to prevent.
+   *
+   * `isWorkingDay(d)` remains `isWorkingWeekday(d) && !isPublicHoliday(d)`, so
+   * no existing caller changes and the three cannot drift.
+   */
+  isWorkingWeekday(date: Date): boolean;
+
+  /** Whether the company is closed that date for a public holiday. */
+  isPublicHoliday(date: Date): boolean;
 }
 
 /**
@@ -152,11 +177,22 @@ function buildCalculator(
   workingDays: ReadonlySet<Weekday>,
   closedDates: ReadonlySet<string>,
 ): WorkingDayCalculator {
+  // The two independent facts, and the conjunction every counter uses. Stated
+  // in this order so `isWorkingDay` is visibly derived from the other two rather
+  // than being a third rule that has to agree with them.
+  const isWorkingWeekday = (date: Date): boolean =>
+    workingDays.has(weekdayOf(date));
+
+  const isPublicHoliday = (date: Date): boolean =>
+    closedDates.has(toDateKey(date));
+
   const isWorkingDay = (date: Date): boolean =>
-    workingDays.has(weekdayOf(date)) && !closedDates.has(toDateKey(date));
+    isWorkingWeekday(date) && !isPublicHoliday(date);
 
   return {
     isWorkingDay,
+    isWorkingWeekday,
+    isPublicHoliday,
     countBetween(startDate: Date, endDate: Date): number {
       let count = 0;
 

@@ -39,6 +39,35 @@ interface DateRange {
 }
 
 /**
+ * One project, as a report has to print it.
+ *
+ * Added for Feature 031. Four columns rather than `ProjectEntity`, which carries
+ * the description, the colour, the estimated hours, the two lifecycle enums, the
+ * archive flag and two nullable dates — none of which a grid of hours prints,
+ * and all of which a report covering five hundred projects would pay for per row.
+ * The same call this service's {@link findExistingIds} makes with a bare `id`.
+ */
+export interface ProjectReportRow {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly clientName: string;
+}
+
+/** How a report narrows the projects it covers. */
+export interface ProjectReportFilter {
+  readonly projectId?: string;
+  /**
+   * The customer, matched exactly and case-insensitively.
+   *
+   * A name rather than an id, because `clientName` is a text column and this
+   * application has no client table. Documented on {@link
+   * ProjectService.findForReporting}.
+   */
+  readonly clientName?: string;
+}
+
+/**
  * Every rule about projects lives here; the controller only routes.
  *
  * Three of them are worth naming, because they are what makes this more than a
@@ -276,6 +305,41 @@ export class ProjectService {
     });
 
     return projects.map(({ id }) => id);
+  }
+
+  /**
+   * The projects one report may cover, narrowed by the filters it was asked for.
+   *
+   * Added for Feature 031, which reads `projects` through this method rather than
+   * querying the table. Four columns, because four is what a grid prints: the id
+   * to key a cell by, the code and the name to head a row with, and the client to
+   * band the rows under.
+   *
+   * **`clientName` is matched case-insensitively and exactly**, not by prefix. It
+   * is a free text column rather than a foreign key — this application has no
+   * client entity — so the value a caller filters by is one it copied from a
+   * previous response, and a `contains` would make `Acme` also select
+   * `Acme Holdings`, quietly widening a report somebody scoped deliberately.
+   *
+   * `isArchived` is not filtered on, for the reason {@link findExistingIds} gives:
+   * a month being reported on may legitimately carry hours booked to a project
+   * archived since, and dropping it would lose those hours from a company total
+   * while leaving the grand total unchanged — the worst kind of reporting error,
+   * because the two would no longer add up.
+   */
+  async findForReporting(
+    filter: ProjectReportFilter = {},
+  ): Promise<ProjectReportRow[]> {
+    return this.prisma.project.findMany({
+      where: {
+        ...(filter.projectId === undefined ? {} : { id: filter.projectId }),
+        ...(filter.clientName === undefined
+          ? {}
+          : { clientName: { equals: filter.clientName, mode: 'insensitive' } }),
+      },
+      orderBy: [{ clientName: SortOrder.ASC }, { name: SortOrder.ASC }],
+      select: { id: true, code: true, name: true, clientName: true },
+    });
   }
 
   /** Loads a project by id or reports it missing. */

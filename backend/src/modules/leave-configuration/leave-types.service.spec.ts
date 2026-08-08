@@ -12,6 +12,7 @@ const LEAVE_TYPE: LeaveTypeRow = {
   id: 'lvt-1',
   code: 'ANNUAL',
   label: 'Annual Leave',
+  reportMarker: 'C',
   icon: 'umbrella-beach',
   color: '#3B82F6',
   description: 'Paid days off agreed in advance.',
@@ -30,6 +31,7 @@ const LEAVE_TYPE_ENTITY = {
   id: 'lvt-1',
   code: 'ANNUAL',
   label: 'Annual Leave',
+  reportMarker: 'C',
   icon: 'umbrella-beach',
   color: '#3B82F6',
   description: 'Paid days off agreed in advance.',
@@ -220,6 +222,7 @@ describe('LeaveTypesService', () => {
         service.create({
           code: 'ANNUAL',
           label: 'Annual Leave',
+          reportMarker: 'C',
           icon: 'umbrella-beach',
         }),
       ).resolves.toEqual(LEAVE_TYPE_ENTITY);
@@ -234,6 +237,7 @@ describe('LeaveTypesService', () => {
         service.create({
           code: 'ANNUAL',
           label: 'Annual Leave',
+          reportMarker: 'C',
           icon: 'umbrella-beach',
         }),
       ).rejects.toMatchObject({
@@ -253,6 +257,7 @@ describe('LeaveTypesService', () => {
         service.create({
           code: 'ANNUAL',
           label: 'Annual Leave',
+          reportMarker: 'C',
           icon: 'umbrella-beach',
         }),
       ).rejects.toMatchObject({
@@ -273,6 +278,7 @@ describe('LeaveTypesService', () => {
       await service.create({
         code: 'ANNUAL',
         label: 'Annual Leave',
+        reportMarker: 'C',
         icon: 'umbrella-beach',
       });
 
@@ -282,10 +288,37 @@ describe('LeaveTypesService', () => {
             OR: [
               { code: { equals: 'ANNUAL', mode: 'insensitive' } },
               { label: { equals: 'Annual Leave', mode: 'insensitive' } },
+              { reportMarker: { equals: 'C', mode: 'insensitive' } },
             ],
           },
         }),
       );
+    });
+
+    /**
+     * The third unique field, added by Feature 031. It is checked in the same
+     * query as the other two rather than separately, which is what makes one
+     * round trip answer "is this leave type distinguishable from every other".
+     */
+    it('rejects a duplicate report marker with a 409 naming it', async () => {
+      prisma.leaveType.findMany.mockResolvedValue([
+        { code: 'MEDICAL', label: 'Medical Leave', reportMarker: 'C' },
+      ]);
+
+      await expect(
+        service.create({
+          code: 'ANNUAL',
+          label: 'Annual Leave',
+          reportMarker: 'C',
+          icon: 'umbrella-beach',
+        }),
+      ).rejects.toMatchObject({
+        response: {
+          message: [
+            'A leave type with report marker "C" already exists: a marker is the letter a report grid prints for a day of this leave, so two types cannot share one',
+          ],
+        },
+      });
     });
   });
 

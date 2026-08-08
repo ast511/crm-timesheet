@@ -20,6 +20,8 @@ import {
   LEAVE_TYPE_LABEL_MAX_LENGTH,
   LEAVE_TYPE_MAX_ALLOCATED_DAYS,
   LEAVE_TYPE_MIN_ALLOCATED_DAYS,
+  LEAVE_TYPE_REPORT_MARKER_MAX_LENGTH,
+  LEAVE_TYPE_REPORT_MARKER_PATTERN,
 } from '../leave-type.constants';
 
 /**
@@ -53,6 +55,35 @@ export function IsLeaveTypeCode() {
     Matches(LEAVE_TYPE_CODE_PATTERN, {
       message:
         'code must contain only letters and digits, optionally separated by "-" or "_"',
+    }),
+  );
+}
+
+/**
+ * `reportMarker` — trimmed, upper-cased, then checked against the one-to-three
+ * character pattern.
+ *
+ * Upper-casing is the same normalisation `code` gets and for the same reason:
+ * PostgreSQL's unique index is case-sensitive, so without it `c` and `C` would
+ * be two markers as far as the database is concerned — and a grid printing both
+ * would have two legend entries for what a reader sees as one letter.
+ *
+ * Unlike `code`, this is not a natural key anybody quotes. It is a glyph a
+ * report cell prints, which is why the pattern is narrower and the length bound
+ * is three rather than twenty. Whether the marker is already taken is the
+ * service's question, checked alongside `code` and `label`.
+ */
+export function IsLeaveTypeReportMarker() {
+  return applyDecorators(
+    Transform(({ value }: { value: unknown }) =>
+      typeof value === 'string' ? value.trim().toUpperCase() : value,
+    ),
+    IsString(),
+    IsNotEmpty(),
+    MaxLength(LEAVE_TYPE_REPORT_MARKER_MAX_LENGTH),
+    Matches(LEAVE_TYPE_REPORT_MARKER_PATTERN, {
+      message:
+        'reportMarker must be 1 to 3 letters or digits, with no spaces or punctuation',
     }),
   );
 }

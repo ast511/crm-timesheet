@@ -1,4 +1,8 @@
-import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
+import {
+  ArgumentMetadata,
+  BadRequestException,
+  ValidationPipe,
+} from '@nestjs/common';
 
 import {
   LEAVE_TYPE_ICON_MAX_LENGTH,
@@ -32,15 +36,49 @@ describe('CreateLeaveTypeDto', () => {
   const MINIMAL = {
     code: 'ANNUAL',
     label: 'Annual Leave',
+    reportMarker: 'C',
     icon: 'umbrella-beach',
   };
 
-  it('accepts a payload with only code, label and icon', async () => {
+  it('accepts a payload with only code, label, marker and icon', async () => {
     const dto = await validate(MINIMAL);
 
     expect(dto.code).toBe('ANNUAL');
     expect(dto.label).toBe('Annual Leave');
+    expect(dto.reportMarker).toBe('C');
     expect(dto.icon).toBe('umbrella-beach');
+  });
+
+  /**
+   * The marker is what a report grid prints, so it is normalised exactly as
+   * `code` is: a stored `c` and a stored `C` would be two rows the unique index
+   * accepts and a reader cannot tell apart.
+   */
+  it('trims and upper-cases the report marker', async () => {
+    const dto = await validate({ ...MINIMAL, reportMarker: '  m  ' });
+
+    expect(dto.reportMarker).toBe('M');
+  });
+
+  it('rejects a report marker longer than three characters', async () => {
+    await expect(
+      validate({ ...MINIMAL, reportMarker: 'MEDI' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a report marker carrying a space or punctuation', async () => {
+    await expect(
+      validate({ ...MINIMAL, reportMarker: 'C-' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  /** Required, because the column is NOT NULL and nothing derives it. */
+  it('rejects a payload with no report marker', async () => {
+    const { reportMarker: _omitted, ...withoutMarker } = MINIMAL;
+
+    await expect(validate(withoutMarker)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('trims and upper-cases the code', async () => {

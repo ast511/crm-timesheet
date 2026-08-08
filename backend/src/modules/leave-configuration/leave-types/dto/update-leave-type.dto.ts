@@ -9,6 +9,7 @@ import {
   IsLeaveTypeDescription,
   IsLeaveTypeIcon,
   IsLeaveTypeLabel,
+  IsLeaveTypeReportMarker,
 } from './leave-type-field.decorators';
 
 /**
@@ -37,6 +38,24 @@ export class UpdateLeaveTypeDto {
   @ValidateIfPresent()
   @IsLeaveTypeLabel()
   readonly label?: string;
+
+  /**
+   * The glyph a report grid prints for a day of this leave.
+   *
+   * Editable, which is the half of the field that matters once the Feature 031
+   * migration has derived one for every existing type: a marker chosen by an
+   * algorithm is a starting point, not a decision. A company that finds its
+   * medical leave printing as `M1` because `M` went to maternity leave changes
+   * both here, on the leave-type screen, and every report follows.
+   *
+   * Re-checked for uniqueness by the service whenever the body mentions it,
+   * exactly as `code` and `label` are. `@ValidateIfPresent()` rather than
+   * `@IsOptional()`, because the column is NOT NULL: `null` is a `400` here
+   * rather than a request to clear something that cannot be cleared.
+   */
+  @ValidateIfPresent()
+  @IsLeaveTypeReportMarker()
+  readonly reportMarker?: string;
 
   @ValidateIfPresent()
   @IsLeaveTypeIcon()

@@ -135,6 +135,33 @@ Environment modifications require explicit user approval.
 - Separate presentation from business logic.
 - Organize components by feature whenever appropriate.
 
+### Dates and times
+
+- The API sends every timestamp as ISO-8601 UTC (`2026-08-07T08:36:11.816Z`).
+  Formatting is the frontend's job; the backend never formats a date.
+- Render every timestamp in the **company timezone**, read once from
+  `GET /api/v1/work-schedule` (`timezone`), never in the browser's zone.
+  These are shared business facts — when a timesheet was submitted, when leave
+  was approved — and they must mean the same thing to everyone in the company.
+  A screen that disagrees with the PDF exported from it is a bug.
+- Format with `ro-RO`, matching the exported reports.
+- Never call `toLocaleString()` / `toLocaleDateString()` without an explicit
+  `timeZone`. Without it they silently use the machine's zone: correct on a
+  laptop in Bucharest, wrong for a colleague abroad, and invisible in review.
+- Put both rules in **one** helper and format through it everywhere.
+
+```ts
+new Intl.DateTimeFormat('ro-RO', {
+  timeZone: companyTimezone, // from GET /api/v1/work-schedule
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hour12: false,
+}).format(new Date(isoString));
+```
+
+Full reasoning — instants versus calendar dates, and why the exports are fixed
+to the company zone — in
+[FEATURES/031-reporting.md](FEATURES/031-reporting.md#frontend).
+
 ---
 
 ## Backend

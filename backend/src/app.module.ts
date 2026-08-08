@@ -20,6 +20,7 @@ import { PositionModule } from './modules/positions/position.module';
 import { ProjectMemberModule } from './modules/project-members/project-member.module';
 import { ProjectModule } from './modules/projects/project.module';
 import { PublicHolidayModule } from './modules/public-holidays/public-holiday.module';
+import { ReportingModule } from './modules/reporting/reporting.module';
 import { TimesheetManagementModule } from './modules/timesheet-management/timesheet-management.module';
 import { UserModule } from './modules/users/user.module';
 import { WorkScheduleModule } from './modules/work-schedule/work-schedule.module';
@@ -115,6 +116,17 @@ import { PrismaModule } from './prisma/prisma.module';
     // no permission, for the reason `PermissionManagementModule` above enforces
     // none.
     TimesheetManagementModule,
+    // What the timesheets were recorded for: five predefined reports, each for a
+    // single month, previewed as JSON and exported as PDF or Excel. It is the
+    // first module in this application that owns no table and writes nothing —
+    // it reads the timesheets, the approved leave, the holidays, the work
+    // schedule, the projects and the employees, and renders them. Nothing is
+    // stored: no report row, no file on disk, no cache, so every request
+    // recomputes from live data and an export can never disagree with the screen
+    // it was downloaded from. Only administrative roles may generate one, checked
+    // as a domain rule in its service, for the reason the two modules above
+    // enforce no permission either.
+    ReportingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

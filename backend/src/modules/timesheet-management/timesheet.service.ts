@@ -98,6 +98,59 @@ type TimesheetFacts = Prisma.TimesheetGetPayload<{
 }>;
 
 /**
+ * The single month a report asks about.
+ *
+ * Added for Feature 031, whose every report is for one `(month, year)` — the same
+ * pair this table is keyed on, which is why reporting can read whole periods
+ * without a date range.
+ */
+export interface TimesheetPeriod {
+  readonly month: number;
+  readonly year: number;
+}
+
+/**
+ * Hours booked to one project by one person, in one period.
+ *
+ * The row the project × employee matrix is folded from. `employeeId` rather than
+ * `timesheetId`, because a report is about people: the timesheet is the document
+ * the hours arrived on, and no reader cares which one.
+ */
+export interface TimesheetProjectHoursRow {
+  readonly projectId: string;
+  readonly employeeId: string;
+  readonly hours: number;
+}
+
+/**
+ * One person's approved hours on one calendar day.
+ *
+ * `dateKey` is `YYYY-MM-DD` taken from the stored calendar date with UTC
+ * accessors — **not** re-interpreted through any zone. The column holds a
+ * calendar day at UTC midnight, so passing it through a timezone would move a
+ * day west of Greenwich into the previous column of the attendance grid.
+ */
+export interface TimesheetDayHoursRow {
+  readonly employeeId: string;
+  readonly dateKey: string;
+  readonly hours: number;
+}
+
+/**
+ * Where one person's month stands.
+ *
+ * `updatedAt` is a genuine **instant** and is handed over as a `Date` rather than
+ * a rendered string, because which calendar day it falls on depends on the
+ * company's timezone — and this service has no business knowing that. The
+ * reporting module renders it against the Work Schedule's zone.
+ */
+export interface TimesheetStateRow {
+  readonly employeeId: string;
+  readonly status: TimesheetStatus;
+  readonly updatedAt: Date;
+}
+
+/**
  * The lifecycle of a timesheet: who may move it where, and what it adds up to.
  *
  * The fill-in rules are **not** here — they are `TimesheetFillService`, which
@@ -617,6 +670,191 @@ export class TimesheetService {
     }
 
     await this.prisma.timesheet.delete({ where: { id } });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reporting reads — Feature 031
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Hours booked to each project by each person, over one period.
+   *
+   * The three methods below are what the module doc promised: "Reporting will
+   * read these tables eventually and will do it through `TimesheetService`."
+   * They write nothing, decide nothing and check no access — the reporting
+   * module applies its own administrative rule before it calls any of them, and
+   * a read method that enforced one would be a second place where the answer to
+   * "who may see this" lives.
+   *
+   * **`APPROVED` only, and `WORK` only.** An official report of what the company
+   * worked cannot include a month somebody is still typing into or one an
+   * administrator has refused, and leave and holiday lines are absence rather
+   * than effort — counting them would inflate a project's hours with days
+   * nobody was at work. Both filters are in the `WHERE` rather than applied
+   * afterwards, so the database never sends a row that will be discarded.
+   *
+   * **Two queries, and the fold that needs them.** `employeeId` lives on
+   * `timesheets` while `hours` lives on `timesheet_entries`, and Prisma's
+   * `groupBy` cannot group by a column of a related table — so the entries are
+   * grouped by `(timesheetId, projectId)` and the timesheets are read once to map
+   * each id to its owner. That is two round trips whatever the size of the
+   * period, and no entry is ever loaded: the summing is `SUM(hours)` in
+   * PostgreSQL, not a reduce over rows in Node.
+   *
+   * An empty population short-circuits, since `IN ()` is a query asking about no
+   * rows.
+   */
+  async findApprovedProjectHours(
+    period: TimesheetPeriod,
+    employeeIds: readonly string[],
+    projectIds?: readonly string[],
+  ): Promise<TimesheetProjectHoursRow[]> {
+    const owners = await this.findApprovedOwners(period, employeeIds);
+
+    if (owners.size === 0) {
+      return [];
+    }
+
+    const grouped = await this.prisma.timesheetEntry.groupBy({
+      by: ['timesheetId', 'projectId'],
+      where: {
+        timesheetId: { in: [...owners.keys()] },
+        type: TimesheetEntryType.WORK,
+        ...(projectIds === undefined
+          ? {}
+          : { projectId: { in: [...projectIds] } }),
+      },
+      _sum: { hours: true },
+    });
+
+    const rows: TimesheetProjectHoursRow[] = [];
+
+    for (const row of grouped) {
+      const employeeId = owners.get(row.timesheetId);
+
+      // `projectId` is nullable on the model because leave and holiday lines
+      // carry none. The `type` filter above already excludes those, so this is a
+      // narrowing rather than a case that occurs.
+      if (employeeId === undefined || row.projectId === null) {
+        continue;
+      }
+
+      rows.push({
+        projectId: row.projectId,
+        employeeId,
+        hours: row._sum.hours?.toNumber() ?? 0,
+      });
+    }
+
+    return rows;
+  }
+
+  /**
+   * Approved hours per person per calendar day, for the attendance grid.
+   *
+   * Grouped by `(timesheetId, date)` for the same reason and with the same two
+   * queries as the method above. A day with no entries produces no row and is
+   * mapped to "nothing recorded" by the caller, which is the honest shape: a
+   * blank day and a day of zero hours are different statements, and inventing
+   * rows here would erase the difference.
+   */
+  async findApprovedDailyHours(
+    period: TimesheetPeriod,
+    employeeIds: readonly string[],
+  ): Promise<TimesheetDayHoursRow[]> {
+    const owners = await this.findApprovedOwners(period, employeeIds);
+
+    if (owners.size === 0) {
+      return [];
+    }
+
+    const grouped = await this.prisma.timesheetEntry.groupBy({
+      by: ['timesheetId', 'date'],
+      where: {
+        timesheetId: { in: [...owners.keys()] },
+        type: TimesheetEntryType.WORK,
+      },
+      _sum: { hours: true },
+    });
+
+    const rows: TimesheetDayHoursRow[] = [];
+
+    for (const row of grouped) {
+      const employeeId = owners.get(row.timesheetId);
+
+      if (employeeId === undefined) {
+        continue;
+      }
+
+      rows.push({
+        employeeId,
+        // `toDateKey` reads UTC fields, which is correct here and would be wrong
+        // for an instant — see the type's documentation.
+        dateKey: toDateKey(row.date),
+        hours: row._sum.hours?.toNumber() ?? 0,
+      });
+    }
+
+    return rows;
+  }
+
+  /**
+   * Where each person's month stands, in **every** state.
+   *
+   * The one reporting read that is not restricted to `APPROVED`, and deliberately
+   * so: the status summary reports the status itself, so filtering by it would
+   * leave the report unable to answer the question it exists for. A `DRAFT`
+   * appears here although the administrative *list* never returns one — the
+   * difference is that this produces a count and a label in a grid, not a
+   * readable month, so nothing about a half-finished timesheet is exposed.
+   *
+   * An employee with no timesheet for the period simply has no row, and the
+   * builder renders that as its own state rather than as a fourth status.
+   */
+  async findStatesForPeriod(
+    period: TimesheetPeriod,
+    employeeIds: readonly string[],
+  ): Promise<TimesheetStateRow[]> {
+    if (employeeIds.length === 0) {
+      return [];
+    }
+
+    return this.prisma.timesheet.findMany({
+      where: {
+        month: period.month,
+        year: period.year,
+        employeeId: { in: [...employeeIds] },
+      },
+      select: { employeeId: true, status: true, updatedAt: true },
+    });
+  }
+
+  /**
+   * Which approved timesheet in the period belongs to whom.
+   *
+   * Shared by the two hour reads so the `APPROVED` rule is stated once. Returning
+   * a `Map` rather than a list is what makes the fold above a lookup instead of a
+   * scan per grouped row.
+   */
+  private async findApprovedOwners(
+    period: TimesheetPeriod,
+    employeeIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    if (employeeIds.length === 0) {
+      return new Map();
+    }
+
+    const timesheets = await this.prisma.timesheet.findMany({
+      where: {
+        month: period.month,
+        year: period.year,
+        status: TimesheetStatus.APPROVED,
+        employeeId: { in: [...employeeIds] },
+      },
+      select: { id: true, employeeId: true },
+    });
+
+    return new Map(timesheets.map(({ id, employeeId }) => [id, employeeId]));
   }
 
   // ---------------------------------------------------------------------------

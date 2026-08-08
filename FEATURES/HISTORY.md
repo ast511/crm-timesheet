@@ -34,6 +34,7 @@ Append new features to the end of this table.
 | 028 | [Notification Delivery Engine](028-notification-delivery-engine.md) | Completed | 2026-08-05 |
 | 029 | [Permission Management](029-permission-management.md) | Completed | 2026-08-06 |
 | 030 | [Timesheet Management](030-timesheet-management.md) | Completed | 2026-08-06 |
+| 031 | [Reporting](031-reporting.md) | Completed | 2026-08-07 |
 
 ## Amendments
 
@@ -45,3 +46,5 @@ feature that was never written.
 | Amends | Change | Status | Date |
 | --- | --- | --- | ---- |
 | 016 | [Work Schedule — company timezone](016-work-schedule-configuration.md) | Completed | 2026-08-07 |
+| 021 | [Leave Types — `reportMarker`](021-leave-configuration.md) | Completed | 2026-08-07 |
+| 003 | [Prisma — `timestamptz` for instants](003-prisma-orm-setup.md) | Completed | 2026-08-08 |

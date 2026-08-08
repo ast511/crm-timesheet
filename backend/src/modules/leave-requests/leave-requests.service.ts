@@ -116,6 +116,28 @@ interface HalfDay {
  * **No hours.** How long half a day is comes from the work schedule, which this
  * module does not read and has no opinion about.
  */
+/**
+ * One approved absence, as a **report** has to read it.
+ *
+ * The difference from {@link ApprovedLeaveDay} is `employeeId` and
+ * `reportMarker`, and both follow from the caller being a grid rather than one
+ * person's timesheet: a report resolves a whole population in one query, so each
+ * row has to say whose it is, and it prints a letter in a cell, so each row has
+ * to carry the letter its leave type was configured with.
+ *
+ * `reportMarker` is passed through untouched. This module does not know what a
+ * report grid looks like and the reporting module does not know what kinds of
+ * leave exist — the column is the contract between them.
+ */
+export interface ApprovedLeaveSpan extends LeaveSpan, HalfDay {
+  readonly id: string;
+  readonly employeeId: string;
+  readonly leaveTypeId: string;
+  readonly leaveTypeLabel: string;
+  /** `LeaveType.reportMarker` — `C`, `M`, `S`. Configuration, never a constant. */
+  readonly reportMarker: string;
+}
+
 export interface ApprovedLeaveDay extends LeaveSpan, HalfDay {
   readonly id: string;
   readonly leaveTypeLabel: string;
@@ -570,6 +592,61 @@ export class LeaveRequestsService {
   // like, or what should happen when an approval invalidates one. Those are the
   // Timesheets module's, and nothing in this file has learned them.
   // ---------------------------------------------------------------------------
+
+  /**
+   * Every approved absence of **several** people that touches a span, carrying
+   * the marker each one prints on a report grid.
+   *
+   * Added for Feature 031, and the third method this service has written for a
+   * caller that needed it. It is not a loop over {@link findApprovedInSpan}: a
+   * report covers a whole population, and one query per employee would be five
+   * hundred round trips for one month.
+   *
+   * **The marker comes from `LeaveType.reportMarker` and this module simply
+   * carries it.** The reporting module never decides that medical leave prints
+   * `M` — it prints whatever the leave type was configured with, so a company
+   * that adds a kind of leave next year sees it on every report with no code
+   * change. That is the whole reason the column exists rather than a list of
+   * codes living in the reporting module.
+   *
+   * `employeeId` is on every row, because the caller is grouping by person rather
+   * than asking about one.
+   */
+  async findApprovedForEmployeesInSpan(
+    employeeIds: readonly string[],
+    span: LeaveSpan,
+  ): Promise<ApprovedLeaveSpan[]> {
+    if (employeeIds.length === 0) {
+      return [];
+    }
+
+    const requests = await this.prisma.leaveRequest.findMany({
+      where: {
+        employeeId: { in: [...employeeIds] },
+        status: LeaveRequestStatus.APPROVED,
+        ...overlapFilter(span),
+      },
+      orderBy: [{ startDate: SortOrder.ASC }, { id: SortOrder.ASC }],
+      select: {
+        id: true,
+        employeeId: true,
+        startDate: true,
+        endDate: true,
+        isHalfDay: true,
+        halfDayPortion: true,
+        leaveType: {
+          select: { id: true, label: true, reportMarker: true },
+        },
+      },
+    });
+
+    return requests.map(({ leaveType, ...request }) => ({
+      ...request,
+      leaveTypeId: leaveType.id,
+      leaveTypeLabel: leaveType.label,
+      reportMarker: leaveType.reportMarker,
+    }));
+  }
 
   /**
    * Every approved absence of one person that touches a span.

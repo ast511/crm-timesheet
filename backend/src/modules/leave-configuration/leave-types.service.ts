@@ -31,8 +31,23 @@ import { LeaveTypeSortField } from './leave-types/leave-type.constants';
  */
 const CASE_INSENSITIVE = { mode: 'insensitive' } as const;
 
-/** The unique fields a leave type can collide on. */
-type UniqueLeaveTypeFields = Pick<UpdateLeaveTypeDto, 'code' | 'label'>;
+/**
+ * The unique fields a leave type can collide on.
+ *
+ * `reportMarker` joined `code` and `label` in Feature 031, and it belongs here
+ * rather than being checked separately for the reason the other two share a
+ * function: all three are one question — "is this leave type distinguishable
+ * from every other one?" — asked of one row, and asking it in two places would
+ * mean two round trips and two chances for the case folding to disagree.
+ *
+ * A collision on the marker is a real one and not a technicality: the attendance
+ * sheet and the leave calendar print it, so two types holding `C` would produce
+ * a grid where one letter means two things and a legend that lists it twice.
+ */
+type UniqueLeaveTypeFields = Pick<
+  UpdateLeaveTypeDto,
+  'code' | 'label' | 'reportMarker'
+>;
 
 /**
  * What generating a year's balances needs to know about one kind of leave.
@@ -113,12 +128,13 @@ export class LeaveTypesService {
   }
 
   async create(dto: CreateLeaveTypeDto): Promise<LeaveTypeEntity> {
-    await this.assertCodeAndLabelAreFree(dto);
+    await this.assertUniqueFieldsAreFree(dto);
 
     const created = await this.prisma.leaveType.create({
       data: {
         code: dto.code,
         label: dto.label,
+        reportMarker: dto.reportMarker,
         icon: dto.icon,
         color: dto.color,
         description: dto.description,
@@ -142,7 +158,7 @@ export class LeaveTypesService {
    */
   async update(id: string, dto: UpdateLeaveTypeDto): Promise<LeaveTypeEntity> {
     await this.findOrThrow(id);
-    await this.assertCodeAndLabelAreFree(dto, id);
+    await this.assertUniqueFieldsAreFree(dto, id);
 
     const updated = await this.prisma.leaveType.update({
       where: { id },
@@ -152,6 +168,7 @@ export class LeaveTypesService {
       data: {
         code: dto.code,
         label: dto.label,
+        reportMarker: dto.reportMarker,
         icon: dto.icon,
         color: dto.color,
         description: dto.description,
@@ -325,12 +342,19 @@ export class LeaveTypesService {
   }
 
   /**
-   * Rejects a code or a label already taken by another leave type.
+   * Rejects a code, a label or a report marker already taken by another leave
+   * type.
    *
-   * Both fields are checked in one query, and both conflicts are reported at
+   * All three fields are checked in one query, and every conflict is reported at
    * once — as an array, the same shape the `ValidationPipe` produces — so a form
    * can mark each offending input instead of discovering the second problem only
    * after fixing the first.
+   *
+   * `reportMarker` joined the other two in Feature 031. It is checked here rather
+   * than in the reporting module because uniqueness is a rule about what a valid
+   * leave type *is*, and reporting only reads them: a duplicate marker discovered
+   * while rendering a grid would be a report that fails, months after the
+   * configuration that caused it was saved.
    *
    * The comparison is case-insensitive because `Annual Leave` and `annual leave`
    * are the same leave type to a human, while PostgreSQL's unique index sees two
@@ -343,8 +367,8 @@ export class LeaveTypesService {
    * `excludeId` is the leave type being updated, which must not conflict with
    * itself.
    */
-  private async assertCodeAndLabelAreFree(
-    { code, label }: UniqueLeaveTypeFields,
+  private async assertUniqueFieldsAreFree(
+    { code, label, reportMarker }: UniqueLeaveTypeFields,
     excludeId?: string,
   ): Promise<void> {
     const candidates: Prisma.LeaveTypeWhereInput[] = [];
@@ -357,7 +381,13 @@ export class LeaveTypesService {
       candidates.push({ label: { equals: label, ...CASE_INSENSITIVE } });
     }
 
-    // A patch touching neither field has nothing to collide with.
+    if (reportMarker !== undefined) {
+      candidates.push({
+        reportMarker: { equals: reportMarker, ...CASE_INSENSITIVE },
+      });
+    }
+
+    // A patch touching none of the three fields has nothing to collide with.
     if (candidates.length === 0) {
       return;
     }
@@ -367,14 +397,16 @@ export class LeaveTypesService {
         OR: candidates,
         ...(excludeId === undefined ? {} : { NOT: { id: excludeId } }),
       },
-      select: { code: true, label: true },
+      select: { code: true, label: true, reportMarker: true },
     });
 
     if (conflicts.length === 0) {
       return;
     }
 
-    throw new ConflictException(describeConflicts(conflicts, { code, label }));
+    throw new ConflictException(
+      describeConflicts(conflicts, { code, label, reportMarker }),
+    );
   }
 }
 
@@ -442,7 +474,7 @@ function buildOrderBy(
 /** Names which of the submitted fields are already taken. */
 function describeConflicts(
   conflicts: readonly UniqueLeaveTypeFields[],
-  { code, label }: UniqueLeaveTypeFields,
+  { code, label, reportMarker }: UniqueLeaveTypeFields,
 ): string[] {
   const messages: string[] = [];
 
@@ -460,12 +492,24 @@ function describeConflicts(
     messages.push(`A leave type with label "${label}" already exists`);
   }
 
+  if (
+    reportMarker !== undefined &&
+    conflicts.some((it) => equalsIgnoringCase(it.reportMarker, reportMarker))
+  ) {
+    // Names the field's purpose, not only the collision: somebody who picked
+    // `C` for a second kind of leave has to understand that the letter is what a
+    // report grid prints, or the obvious next attempt is `c`.
+    messages.push(
+      `A leave type with report marker "${reportMarker}" already exists: a marker is the letter a report grid prints for a day of this leave, so two types cannot share one`,
+    );
+  }
+
   // Reached only if PostgreSQL and JavaScript disagree about case folding for
   // some character; the row is a genuine conflict either way, so it is reported
   // rather than swallowed into a 500.
   return messages.length > 0
     ? messages
-    : ['A leave type with this code or label already exists'];
+    : ['A leave type with this code, label or report marker already exists'];
 }
 
 function equalsIgnoringCase(left: string | undefined, right: string): boolean {

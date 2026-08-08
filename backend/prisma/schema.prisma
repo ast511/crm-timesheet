@@ -21,6 +21,51 @@ datasource db {
   provider = "postgresql"
 }
 
+// ---------------------------------------------------------------------------
+// How this schema stores time — two kinds of column, and they are not the same
+// ---------------------------------------------------------------------------
+//
+// Introduced by Feature 031, which found the distinction the hard way while
+// building reports. Every `DateTime` in this file is deliberately one or the
+// other, and the choice is visible in whether it carries `@db.Timestamptz(3)`.
+//
+// 1. AN INSTANT — a moment that happened.  `@db.Timestamptz(3)`
+//
+//    `created_at`, `updated_at`, `submitted_at`, `reviewed_at`, `processed_at`,
+//    `read_at`, `sent_at`, `scheduled_at`, `expires_at`, `joined_at`, `left_at`.
+//
+//    Which calendar day one of these falls on genuinely depends on where you are
+//    standing: 22:30 UTC is already tomorrow in Bucharest. `timestamptz` stores
+//    the instant (as UTC, internally) and lets PostgreSQL render it in whatever
+//    zone is asked for, so the column cannot be misread.
+//
+//    It is `timestamptz` rather than plain `timestamp` for one concrete reason:
+//    `DEFAULT CURRENT_TIMESTAMP` written into a `timestamp` column is cast using
+//    the *session* time zone. That is correct today only because the session is
+//    UTC — and the day somebody sets the container's zone to Europe/Bucharest,
+//    new rows would silently start recording local time beside older rows in
+//    UTC, mixed, with nothing to tell them apart. `timestamptz` removes the
+//    question entirely.
+//
+// 2. A CALENDAR DATE — a day, with no time in it.  plain `timestamp`
+//
+//    `hire_date`, `termination_date`, `start_date`, `end_date` (projects,
+//    holidays, leave requests) and `timesheet_entries.date`.
+//
+//    A client posts `2026-09-07` and the column holds UTC midnight; the time of
+//    day is padding, not data. These MUST NOT become `timestamptz`: rendering
+//    `2026-09-07T00:00Z` in a zone behind Greenwich yields the 6th, which would
+//    move somebody's leave, a public holiday and a day of logged hours one day
+//    earlier — silently, and everywhere at once.
+//
+//    They are read with UTC accessors throughout the application
+//    (`toDateKey`, `weekdayOf`), never through a zone. See
+//    `src/common/utils/date.util.ts`, which states both halves of the rule.
+//
+// When adding a `DateTime`, decide which of the two it is. If it is a moment,
+// give it `@db.Timestamptz(3)`. If it is a day, leave it plain and say so in the
+// field's own comment.
+
 enum UserRole {
   SUPERADMIN @map("superadmin")
   ADMIN      @map("admin")
@@ -431,8 +476,8 @@ model User {
   /// Changes this account made to other people's permissions.
   permissionChangesMade PermissionAuditLog[] @relation("PermissionAuditActor")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("users")
 }
@@ -539,8 +584,8 @@ model Employee {
   /// as an administrator who reviews their colleagues' months and files their own.
   reviewedTimesheets Timesheet[] @relation("TimesheetReviewer")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("employees")
 }
@@ -557,8 +602,8 @@ model Position {
 
   isActive Boolean @default(true)
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("positions")
 }
@@ -575,8 +620,8 @@ model Department {
 
   isActive Boolean @default(true)
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("departments")
 }
@@ -628,8 +673,8 @@ model Project {
   startDate DateTime? @map("start_date")
   endDate   DateTime? @map("end_date")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("projects")
 }
@@ -644,8 +689,8 @@ model ProjectMember {
 
   employee Employee @relation(fields: [employeeId], references: [id])
 
-  joinedAt DateTime  @default(now()) @map("joined_at")
-  leftAt   DateTime? @map("left_at")
+  joinedAt DateTime  @default(now()) @map("joined_at") @db.Timestamptz(3)
+  leftAt   DateTime? @map("left_at") @db.Timestamptz(3)
 
   @@id([projectId, employeeId])
   @@map("project_members")
@@ -778,8 +823,8 @@ model WorkSchedule {
 
   approvalEmails TimesheetApprovalEmail[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("work_schedules")
 }
@@ -851,8 +896,8 @@ model PublicHoliday {
   /// default is the database's answer for rows written outside it.
   isRecurring Boolean @default(false) @map("is_recurring")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("public_holidays")
 }
@@ -875,6 +920,33 @@ model LeaveType {
 
   code  String @unique
   label String @unique
+
+  /// The one-to-three character marker this kind of leave is drawn as in a
+  /// report grid — `C`, `M`, `S`.
+  ///
+  /// Added by Feature 031. The collective attendance sheet and the leave
+  /// calendar are grids of employees by days, where one cell is a few
+  /// millimetres wide: a day of absence has room for a letter and nothing more,
+  /// so the marker is what the report actually prints and the label is what its
+  /// legend expands.
+  ///
+  /// **It is a column rather than a rule in the reporting module**, and that is
+  /// the whole point of the field. Reporting must not decide that `MEDICAL` is
+  /// drawn as `M` — a hard-coded list would leave every leave type added
+  /// afterwards either invisible or colliding with an existing letter, and would
+  /// put a statement about leave types inside a feature that only reads them. A
+  /// company that adds `PATERNITY` gives it a marker on the leave-type screen and
+  /// it appears on every report with no code change.
+  ///
+  /// **Unique**, so two kinds of leave can never print the same letter: a grid
+  /// where `C` means two different things is a grid nobody can read, and the
+  /// legend would list one marker twice. `LeaveTypesService` folds case before
+  /// the check, as it already does for `code` and `label`.
+  ///
+  /// `varchar(3)` because the bound is the point: this is a glyph, not a name.
+  /// Existing rows were backfilled from `code` — the first character, widened
+  /// and then suffixed only where that collided — and are editable afterwards.
+  reportMarker String @unique @map("report_marker") @db.VarChar(3)
 
   /// The *name* of an icon — `umbrella-beach`, `hospital`, `baby` — never the
   /// icon itself. A CSV export, a native app and a PDF report each need their
@@ -962,8 +1034,8 @@ model LeaveType {
   /// and deducts the days straight away.
   requests LeaveRequest[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("leave_types")
 }
@@ -1081,7 +1153,7 @@ model LeaveRequest {
   /// and `processedAt` keeps saying when it happened.
   processedById String?   @map("processed_by_id")
   processedBy   Employee? @relation("LeaveRequestProcessor", fields: [processedById], references: [id], onDelete: SetNull)
-  processedAt   DateTime? @map("processed_at")
+  processedAt   DateTime? @map("processed_at") @db.Timestamptz(3)
 
   /// Why the decision went the way it did. Required by the API for `REJECTED`
   /// and `CANCELLED` and refused for `APPROVED`, but nullable in the column: an
@@ -1100,8 +1172,8 @@ model LeaveRequest {
   /// justifies it. Empty for a request nobody has yet filled a timesheet around.
   timesheetEntries TimesheetEntry[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// The three reads this table is built for, in the order they run hottest.
   ///
@@ -1151,7 +1223,7 @@ model LeaveRequestReplacement {
   employeeId String   @map("employee_id")
   employee   Employee @relation(fields: [employeeId], references: [id])
 
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@id([leaveRequestId, employeeId])
   /// The primary key leads with `leave_request_id`, so "which requests is this
@@ -1245,8 +1317,8 @@ model EmployeeLeaveBalance {
   /// nothing — it is for the person who opens this screen next year and wonders.
   notes String?
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// One balance per employee, per leave type, per year — the rule the feature
   /// is built on, stated where it cannot be bypassed. `EmployeeLeaveBalanceService`
@@ -1280,8 +1352,8 @@ model LeaveNotificationEmail {
 
   email String @unique
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("leave_notification_emails")
 }
@@ -1304,7 +1376,7 @@ model TimesheetApprovalEmail {
   workScheduleId String       @map("work_schedule_id")
   workSchedule   WorkSchedule @relation(fields: [workScheduleId], references: [id])
 
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@map("timesheet_approval_emails")
 }
@@ -1401,10 +1473,10 @@ model Notification {
   /// flag is raised and is null while it is down; the two are written together
   /// and never independently.
   isRead Boolean   @default(false) @map("is_read")
-  readAt DateTime? @map("read_at")
+  readAt DateTime? @map("read_at") @db.Timestamptz(3)
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// The two list queries this table exists to serve, plus their ordering.
   ///
@@ -1516,8 +1588,8 @@ model Reminder {
   sendEmail        Boolean @default(false) @map("send_email")
   sendNotification Boolean @default(true) @map("send_notification")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// No index beyond the unique one on `name`.
   ///
@@ -1577,7 +1649,7 @@ model NotificationCampaign {
   /// re-judged afterwards: a campaign scheduled for last Tuesday that the engine
   /// has not yet reached is late, not invalid, and refusing to edit its wording
   /// for that reason would punish the caller for time passing.
-  scheduledAt DateTime? @map("scheduled_at")
+  scheduledAt DateTime? @map("scheduled_at") @db.Timestamptz(3)
 
   /// When the announcement stops being worth showing, or null for one that never
   /// goes stale.
@@ -1586,7 +1658,7 @@ model NotificationCampaign {
   /// an expiry at or before the send is a campaign that is over before it
   /// begins. Nothing here acts on it — the engine decides what an expired
   /// campaign means for a notification already delivered.
-  expiresAt DateTime? @map("expires_at")
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
 
   /// When the engine actually sent it. **Null throughout this feature**, and the
   /// column exists anyway so the engine has somewhere to record the fact without
@@ -1596,7 +1668,7 @@ model NotificationCampaign {
   /// it was meant to go, and when it went — and from `updated_at`, which moves
   /// whenever any column does and so cannot say when a campaign was sent. The
   /// same argument `leave_requests` makes for `processed_at`.
-  sentAt DateTime? @map("sent_at")
+  sentAt DateTime? @map("sent_at") @db.Timestamptz(3)
 
   /// Who composed it.
   ///
@@ -1617,8 +1689,8 @@ model NotificationCampaign {
   /// — a column cannot require a row in another table to exist.
   recipients NotificationRecipient[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// The query the delivery engine will run on every tick: *which campaigns are
   /// scheduled, and due?*
@@ -1684,7 +1756,7 @@ model NotificationRecipient {
   /// No `updatedAt`. Nothing about an audience entry is editable — changing who
   /// a campaign is for means replacing the set, which is what `PATCH` does — so
   /// a modification timestamp would only ever repeat `created_at`.
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   /// One entry per person per campaign. Listing somebody twice is not a stronger
   /// nomination, and without the constraint it would double every count taken
@@ -1759,8 +1831,8 @@ model Permission {
   userOverrides   UserPermissionOverride[]
   auditEntries    PermissionAuditLog[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// The catalog is filtered by resource, by action, or by both — the three
   /// shapes the matrix screen asks for — and this serves all three plus the
@@ -1806,7 +1878,7 @@ model RolePermission {
   /// No `updatedAt`. A binding is not editable — a role either grants a
   /// permission or does not — so a modification timestamp would only ever repeat
   /// `created_at`, the call [NotificationRecipient] already makes.
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   /// One binding per role per permission. Listing it twice is not a stronger
   /// grant, and without the constraint it would double every count taken over
@@ -1867,8 +1939,8 @@ model PermissionPreset {
   /// The history rows that name this preset as the reason for a change.
   auditEntries PermissionAuditLog[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// The preset list is filtered by `?targetRole=` and ordered by it, over six
   /// rows. Indexed for the reason `permissions` is: to state the access pattern,
@@ -1898,7 +1970,7 @@ model PermissionPresetItem {
   permissionId String     @map("permission_id")
   permission   Permission @relation(fields: [permissionId], references: [id])
 
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   /// One entry per permission per preset — listing it twice does not grant it
   /// twice, and would double the `permissionCount` the preset cards render.
@@ -1955,12 +2027,12 @@ model UserPermissionOverride {
   /// and this person has; `REVOKE` is one the role gives and this person does not.
   effect PermissionEffect
 
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   /// Kept, unlike [RolePermission] and [PermissionPresetItem], because this row
   /// genuinely changes: flipping a cell from granted to revoked updates `effect`
   /// in place rather than deleting and re-inserting, so "when was this exception
   /// last touched" is a question the column can answer.
-  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// One override per user per permission. It is what makes "the exception" a
   /// singular noun: two rows for one cell would be a user simultaneously granted
@@ -2058,7 +2130,7 @@ model PermissionAuditLog {
 
   /// No `updatedAt`. An audit row records a moment and is never edited; a
   /// modification timestamp on one would be an invitation to.
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   /// The one read this table is built for: one user's history, newest first.
   /// `created_at` comes second so PostgreSQL satisfies the filter and the sort
@@ -2133,8 +2205,8 @@ model Timesheet {
   /// say when a timesheet was handed in or when it was answered. `submittedAt`
   /// survives a rejection and is overwritten on resubmission, so it always names
   /// the submission the current status refers to.
-  submittedAt DateTime? @map("submitted_at")
-  reviewedAt  DateTime? @map("reviewed_at")
+  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(3)
+  reviewedAt  DateTime? @map("reviewed_at") @db.Timestamptz(3)
 
   /// Who approved or rejected it, or null while nobody has.
   ///
@@ -2203,8 +2275,8 @@ model Timesheet {
   /// in yet is a legitimate timesheet.
   entries TimesheetEntry[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// One timesheet per person per month per year — the rule the feature is built
   /// on, stated where it cannot be bypassed. `TimesheetService.openOwn` checks it
@@ -2333,8 +2405,8 @@ model TimesheetEntry {
   /// it again next year.
   description String?
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// The one read this table is built for: every line of one timesheet, in day
   /// order. `date` comes second so PostgreSQL satisfies the filter and the

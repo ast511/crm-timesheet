@@ -78,10 +78,15 @@ import { TimesheetService } from './timesheet.service';
  * `@RequirePermission` of its own. `PermissionResource.TIMESHEET` is already
  * seeded and waiting.
  *
- * Nothing is exported. Reporting will read these tables eventually and will do it
- * through `TimesheetService`, but writing a method for a caller that does not
- * exist would be designing the seam around a guess — the call Features 022, 027
- * and 028 each made, and each was right to.
+ * **`TimesheetService` is exported, as of Feature 031.** This module said
+ * "Reporting will read these tables eventually and will do it through
+ * `TimesheetService`, but writing a method for a caller that does not exist would
+ * be designing the seam around a guess" — and declined to export anything. That
+ * caller now exists, and the three methods it needed were written for it rather
+ * than in advance: `findApprovedProjectHours`, `findApprovedDailyHours` and
+ * `findStatesForPeriod`. Nothing else about this module changed; the reporting
+ * module reads and no report writes a timesheet, moves a status or touches an
+ * entry.
  */
 @Module({
   imports: [
@@ -98,5 +103,6 @@ import { TimesheetService } from './timesheet.service';
     TimesheetFillService,
     TimesheetNotificationService,
   ],
+  exports: [TimesheetService],
 })
 export class TimesheetManagementModule {}

@@ -24,6 +24,12 @@ export interface LeaveTypeEntity {
   id: string;
   code: string;
   label: string;
+  /**
+   * The one-to-three character glyph a report grid prints for a day of this
+   * leave — `C`, `M`, `S`. Unique across leave types, so a legend never lists
+   * one marker twice. Added by Feature 031.
+   */
+  reportMarker: string;
   icon: string;
   color: string | null;
   description: string | null;
@@ -57,6 +63,7 @@ export const LEAVE_TYPE_PUBLIC_SELECT = {
   id: true,
   code: true,
   label: true,
+  reportMarker: true,
   icon: true,
   color: true,
   description: true,
@@ -88,6 +95,7 @@ export function toLeaveTypeEntity(leaveType: LeaveTypeRow): LeaveTypeEntity {
     id: leaveType.id,
     code: leaveType.code,
     label: leaveType.label,
+    reportMarker: leaveType.reportMarker,
     icon: leaveType.icon,
     color: leaveType.color,
     description: leaveType.description,

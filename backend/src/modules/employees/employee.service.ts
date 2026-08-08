@@ -101,6 +101,46 @@ export interface EmployeeDeliveryTarget {
 }
 
 /**
+ * One person, as a report has to print them.
+ *
+ * Added for Feature 031, and the fourth consumer-specific shape on this service
+ * for the reason the other three exist: a report needs a name to head a column,
+ * a code and a department to sub-label it with, and the employment window to
+ * decide whether a day before somebody's start date counts as an absence or as
+ * nothing at all. `EmployeeEntity` would additionally carry the user account,
+ * the seniority, the status and three joined objects rendered as strings — none
+ * of which a grid prints, and all of which a report of five hundred people would
+ * pay for per row.
+ *
+ * The two dates are `Date`s rather than ISO strings, like {@link
+ * EmploymentWindow} and for the same reason: every comparison made against them
+ * is against another `Date`.
+ */
+export interface EmployeeReportRow {
+  readonly id: string;
+  readonly employeeCode: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  /**
+   * The department and position are **not** nullable, because the columns are
+   * not: an employee is defined by its three relations, and `department_id` and
+   * `position_id` are both required. Typing them as optional here would invent a
+   * case the schema forbids and force every report to handle it.
+   */
+  readonly departmentCode: string;
+  readonly departmentName: string;
+  readonly positionName: string;
+  readonly hireDate: Date;
+  readonly terminationDate: Date | null;
+}
+
+/** How a report narrows the population it covers. */
+export interface EmployeeReportFilter {
+  readonly departmentId?: string;
+  readonly employeeId?: string;
+}
+
+/**
  * Every rule about employees lives here; the controller only routes.
  *
  * What makes this module more than a fourth copy of the same CRUD shape is that
@@ -484,6 +524,57 @@ export class EmployeeService {
       employeeId: employee.id,
       userId: employee.user.id,
       email: employee.user.email,
+    }));
+  }
+
+  /**
+   * The population one report covers, narrowed by the filters it was asked for.
+   *
+   * Added for Feature 031, which reads `employees` through this method rather
+   * than querying the table — the rule every module here follows, and the reason
+   * the reporting module imports this one.
+   *
+   * **Every employee is included by default, `TERMINATED` ones too**, and that is
+   * the opposite call {@link findDeliveryTargets} makes. The difference is what
+   * each is for: a notification is *sent to* somebody, so a leaver must be
+   * excluded or the send fails; a report is *about* a month, and somebody who
+   * left on the 20th worked the first three weeks of it. Excluding them would
+   * silently drop their hours from a company total that payroll is reconciled
+   * against, which is the one error a report must not make. The employment window
+   * travels with each row so a builder can mark the days after they left as
+   * outside employment rather than as absence.
+   *
+   * Ordered by surname then given name — the order the grids print their columns
+   * in, so two reports of the same month put the same person in the same place.
+   */
+  async findForReporting(
+    filter: EmployeeReportFilter = {},
+  ): Promise<EmployeeReportRow[]> {
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        ...(filter.departmentId === undefined
+          ? {}
+          : { departmentId: filter.departmentId }),
+        ...(filter.employeeId === undefined ? {} : { id: filter.employeeId }),
+      },
+      orderBy: [{ lastName: SortOrder.ASC }, { firstName: SortOrder.ASC }],
+      select: {
+        id: true,
+        employeeCode: true,
+        firstName: true,
+        lastName: true,
+        hireDate: true,
+        terminationDate: true,
+        department: { select: { code: true, name: true } },
+        position: { select: { name: true } },
+      },
+    });
+
+    return employees.map(({ department, position, ...employee }) => ({
+      ...employee,
+      departmentCode: department.code,
+      departmentName: department.name,
+      positionName: position.name,
     }));
   }
 

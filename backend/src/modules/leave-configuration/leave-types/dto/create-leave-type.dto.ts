@@ -8,6 +8,7 @@ import {
   IsLeaveTypeDescription,
   IsLeaveTypeIcon,
   IsLeaveTypeLabel,
+  IsLeaveTypeReportMarker,
 } from './leave-type-field.decorators';
 
 /**
@@ -32,6 +33,22 @@ export class CreateLeaveTypeDto {
 
   @IsLeaveTypeLabel()
   readonly label!: string;
+
+  /**
+   * The glyph a report grid prints for a day of this leave — `C`, `M`, `S`.
+   *
+   * **Required**, and it is the fourth required field rather than something
+   * derived from `code`. Deriving it would produce a collision the moment a
+   * company added a second type beginning with the same letter, and the
+   * resolution — silently handing one of them `AN` — would be a marker nobody
+   * chose appearing on every printed report. The one place a derivation *is*
+   * applied is the Feature 031 migration, which had rows with no answer at all
+   * and needed a deterministic one.
+   *
+   * Unique across leave types; the service checks it beside `code` and `label`.
+   */
+  @IsLeaveTypeReportMarker()
+  readonly reportMarker!: string;
 
   @IsLeaveTypeIcon()
   readonly icon!: string;

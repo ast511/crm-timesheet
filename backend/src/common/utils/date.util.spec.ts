@@ -4,6 +4,9 @@ import {
   toDateKey,
   toIsoTimestamp,
   toNullableIsoTimestamp,
+  toZonedDate,
+  toZonedDateKey,
+  toZonedTimestamp,
   weekdayOf,
 } from './date.util';
 
@@ -108,5 +111,75 @@ describe('daysSinceWeekStart', () => {
 describe('toDateKey', () => {
   it('renders the UTC calendar date, without the time nobody entered', () => {
     expect(toDateKey(new Date('2026-09-07T13:45:12.000Z'))).toBe('2026-09-07');
+  });
+});
+
+/**
+ * The three zoned helpers, and the distinction between them is the whole reason
+ * they are three.
+ *
+ * `toZonedDateKey` produces a **key** — ISO, whatever the language — because it
+ * identifies a column of a grid and an entry in a `Map`. The other two produce
+ * what a person **reads**, so they follow the locale's conventions.
+ */
+describe('the zoned helpers', () => {
+  /** 22:30 UTC on the 7th is already the 8th in Bucharest (UTC+3 in September). */
+  const LATE_EVENING = new Date('2026-09-07T22:30:00.000Z');
+
+  describe('toZonedDateKey', () => {
+    it('answers which calendar day an instant falls on, in the zone', () => {
+      expect(toZonedDateKey(LATE_EVENING, 'Europe/Bucharest')).toBe(
+        '2026-09-08',
+      );
+      expect(toZonedDateKey(LATE_EVENING, 'America/New_York')).toBe(
+        '2026-09-07',
+      );
+    });
+
+    /** ISO whatever the zone, because it is a key rather than a rendering. */
+    it('stays ISO-8601', () => {
+      expect(toZonedDateKey(LATE_EVENING, 'UTC')).toMatch(
+        /^\d{4}-\d{2}-\d{2}$/,
+      );
+    });
+  });
+
+  describe('toZonedDate', () => {
+    it('writes the same day the way the locale does', () => {
+      expect(toZonedDate(LATE_EVENING, 'Europe/Bucharest', 'ro-RO')).toBe(
+        '08.09.2026',
+      );
+      expect(toZonedDate(LATE_EVENING, 'America/New_York', 'ro-RO')).toBe(
+        '07.09.2026',
+      );
+    });
+  });
+
+  describe('toZonedTimestamp', () => {
+    /**
+     * The bug it was written for: printing the ISO string beside a zone name
+     * states the UTC time under a label three hours ahead of it, so a reader
+     * checking it against their own clock finds the document wrong by exactly
+     * the offset.
+     */
+    it('renders the wall-clock time in the zone, not the UTC one', () => {
+      const generated = new Date('2026-08-07T18:28:03.176Z');
+
+      expect(toZonedTimestamp(generated, 'Europe/Bucharest', 'ro-RO')).toBe(
+        '07.08.2026, 21:28',
+      );
+      expect(toZonedTimestamp(generated, 'UTC', 'ro-RO')).toBe(
+        '07.08.2026, 18:28',
+      );
+    });
+
+    it('is 24-hour, so 13:00 is not rendered as 1:00', () => {
+      expect(
+        toZonedTimestamp(new Date('2026-08-07T10:00:00.000Z'), 'UTC', 'ro-RO'),
+      ).toBe('07.08.2026, 10:00');
+      expect(
+        toZonedTimestamp(new Date('2026-08-07T22:00:00.000Z'), 'UTC', 'ro-RO'),
+      ).toBe('07.08.2026, 22:00');
+    });
   });
 });

@@ -713,3 +713,65 @@ so what is asserted is the object the controller receives — transforms include
 - Per-department or per-position leave types, if the company ever grants
   different leave to different groups. That is a scope column and a filter on the
   list, not a second table.
+
+---
+
+## Amended by Feature 031 — `reportMarker`
+
+[Feature 031](031-reporting.md) added one column to `LeaveType`:
+
+```prisma
+reportMarker String @unique @map("report_marker") @db.VarChar(3)
+```
+
+**What it is.** The one-to-three character glyph a report grid prints for a day
+of this leave — `C`, `M`, `S`. The collective attendance sheet and the leave
+calendar are grids of employees by days, where a cell is a few millimetres wide:
+a day of absence has room for a letter and nothing more, and `MEDICAL` in that
+cell would either overflow or be truncated differently by each of the three
+renderers reading the same data model.
+
+**Why it is a column here rather than a rule in the reporting module.** This is
+the whole point of the field, and it was the user's decision when the question
+was put to them.
+
+Reporting was originally going to hold a list of "medical" leave-type codes and
+split each month's days into a fixed leave-versus-medical pair of buckets. Both
+halves of that are wrong:
+
+- A hard-coded list is a statement *about leave types* living inside a feature
+  that only reads them. A company that adds `PATERNITY` next year would find it
+  either invisible on every report or silently counted as something else.
+- A fixed pair of buckets cannot represent a company with five kinds of leave.
+
+With the column, a leave type carries its own marker, every report reads it, and
+the legend on each grid is built from **only the types that actually occur in the
+period**. A leave type added later appears automatically, with no code change
+anywhere. The classes that stay fixed in the reporting module are the ones that
+are genuinely fixed — a public holiday, a non-working day, a worked day — because
+those are facts about the calendar rather than rows somebody configures.
+
+**Why unique.** Two kinds of leave printing the same letter would produce a grid
+where `C` means two different things and a legend listing it twice. It joined
+`code` and `label` in `assertUniqueFieldsAreFree` — renamed from
+`assertCodeAndLabelAreFree` — so all three are checked in one query and every
+conflict is reported at once. The comparison folds case, as it already did for
+the other two, and the DTO upper-cases before either.
+
+**Required on create, editable afterwards.** It is not derived from `code`:
+deriving would produce a collision the moment a company added a second type
+beginning with the same letter, and resolving that silently would put a marker
+nobody chose on every printed report. The one place a derivation *is* applied is
+the migration, which had existing rows with no answer at all and needed a
+deterministic one — first alphanumeric of `code`, widened then suffixed on
+collision, processed in `code` order. That is a starting point, and the field is
+editable from the leave-type screen thereafter.
+
+**Validation:** `@IsLeaveTypeReportMarker()` — trimmed, upper-cased, then matched
+against `/^[A-Z0-9]{1,3}$/`. Narrower than `LEAVE_TYPE_CODE_PATTERN`, which
+admits `-` and `_` as separators: that is right for a natural key somebody quotes
+in a URL and wrong for a single glyph drawn into a PDF cell.
+
+**Migration:** hand-authored, because the column is `NOT NULL` and `UNIQUE` over
+existing rows — see
+[Feature 031's Database section](031-reporting.md#migration--not-yet-applied).

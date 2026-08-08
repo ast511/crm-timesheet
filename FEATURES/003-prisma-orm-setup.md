@@ -560,3 +560,93 @@ across versions. Upgrade all three together.
 - **Query logging** — Prisma's `log` option routed into the project's logger,
   with no parameter values in production so credentials are never written to
   logs.
+
+---
+
+## Amended by Feature 031 — `timestamptz` for instants
+
+[Feature 031](031-reporting.md) split every `DateTime` in the schema into two
+kinds and gave one of them a different column type. **53 columns** became
+`@db.Timestamptz(3)`; **9 were deliberately left as plain `timestamp`**.
+
+The distinction was found while building reports, and it is the same one
+`src/common/utils/date.util.ts` states for the application side.
+
+### The two kinds
+
+| | An **instant** | A **calendar date** |
+| --- | --- | --- |
+| Means | a moment that happened | a day, with no time in it |
+| Columns | `created_at`, `updated_at`, `submitted_at`, `reviewed_at`, `processed_at`, `read_at`, `sent_at`, `scheduled_at`, `expires_at`, `joined_at`, `left_at` | `hire_date`, `termination_date`, `start_date` / `end_date` (projects, holidays, leave), `timesheet_entries.date` |
+| Count | 53 | 9 |
+| Type | `timestamptz(3)` | `timestamp(3)` |
+| Read as | whatever zone is asked for | UTC accessors, always |
+
+**An instant's calendar day depends on where you stand** — 22:30 UTC is already
+tomorrow in Bucharest — so the column should carry that knowledge.
+
+**A calendar date's does not.** A client posted `2026-09-07` and the column holds
+UTC midnight; the time of day is padding rather than data. Converting these would
+be actively wrong: read in a zone behind Greenwich, `2026-09-07T00:00Z` is the
+6th, so every leave day, public holiday and logged day would move one day earlier
+at once — silently, and everywhere.
+
+### Why the 53 changed
+
+Not because anything was broken. Every value in them was already UTC, and
+`timestamptz` stores UTC internally, so **no row's instant changes**.
+
+It closes a latent trap. `DEFAULT CURRENT_TIMESTAMP` written into a plain
+`timestamp` column is cast using the **session** time zone:
+
+```text
+session UTC       -> 2026-08-08 06:34:07     stored
+session Bucharest -> 2026-08-08 09:34:07     stored — same moment, different value
+```
+
+That produces UTC today only because the session happens to be UTC. The day
+somebody sets the container's or the connection's zone, new `created_at` values
+would start being written as local time beside older rows in UTC — mixed, with
+nothing distinguishing them, and unrecoverable. `timestamptz` removes the
+question rather than relying on a setting staying put.
+
+### The convention is now in the schema
+
+A block at the top of `schema.prisma` states both kinds and ends with the rule
+for whoever adds the next column: *if it is a moment, give it
+`@db.Timestamptz(3)`; if it is a day, leave it plain and say so in the field's
+own comment.*
+
+### Migration — **not yet applied**
+
+`prisma/migrations/20260808070000_use_timestamptz_for_instants/`. The 53
+`ALTER COLUMN` statements are Prisma's own output; **one line was added by
+hand**, and it is what makes the migration safe to run from any machine:
+
+```sql
+SET LOCAL timezone = 'UTC';
+```
+
+Without an explicit zone, `SET DATA TYPE TIMESTAMPTZ` interprets each existing
+value as being in the session's zone — so running it from a connection set to
+`Europe/Bucharest` would shift all 53 columns three hours into the past. `SET
+LOCAL` scopes it to the migration's own transaction.
+
+```bash
+cd backend
+npx prisma migrate dev
+```
+
+`prisma validate` passes, `prisma generate` has run, `npm run typecheck` passes
+and the full suite is green (2282 / 2282) against the amended schema. **No
+application code changed** — Prisma returns a JS `Date` either way, so nothing
+that reads a timestamp had to move.
+
+### What this does not change
+
+- **API payloads.** Still ISO-8601 UTC through `toIsoTimestamp`.
+- **Any stored instant.** The values are identical before and after.
+- **The nine calendar dates.** Still plain `timestamp`, still read in UTC.
+- **How the frontend should render.** See
+  [CLAUDE.md § Frontend](../CLAUDE.md#dates-and-times) and
+  [Feature 031 § Frontend](031-reporting.md#frontend).

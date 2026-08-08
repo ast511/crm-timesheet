@@ -49,10 +49,18 @@ import { WorkingDaysService } from './working-days.service';
  *
  * `WorkingDaysService` is a provider of this module rather than of
  * `WorkScheduleModule`, on the same principle Feature 016 stated: that module
- * configures, and the feature with a reason to count does the counting. It is
- * not exported yet — the Timesheets feature will very likely want it, and
- * exporting it before there is a second caller would be guessing at what that
- * caller needs.
+ * configures, and the feature with a reason to count does the counting.
+ *
+ * **It is exported as of Feature 031.** This module said it would not be exported
+ * "before there is a second caller", because that would be guessing at what the
+ * caller needs. Reporting is that caller, and it turned out to need something the
+ * guess would have missed: not the counting at all, but the two *facts underneath*
+ * it. `isWorkingDay` folds "this weekday is not worked" and "the company was
+ * closed" into one boolean, which is right for counting a leave span and useless
+ * for a report that prints `L` on one and `S` on the other. So the calculator
+ * gained `isWorkingWeekday` and `isPublicHoliday`, with `isWorkingDay` now
+ * visibly derived from them — and reporting reads holidays through here rather
+ * than importing `PublicHolidayModule` and expanding the spans a third time.
  *
  * `LeaveRequestsService` is exported because the notifications feature will have
  * to know when a request changes state, and reporting will read across
@@ -72,6 +80,6 @@ import { WorkingDaysService } from './working-days.service';
   ],
   controllers: [MyLeaveRequestsController, LeaveRequestsController],
   providers: [LeaveRequestsService, WorkingDaysService],
-  exports: [LeaveRequestsService],
+  exports: [LeaveRequestsService, WorkingDaysService],
 })
 export class LeaveRequestsModule {}

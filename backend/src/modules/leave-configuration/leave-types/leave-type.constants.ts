@@ -24,6 +24,37 @@ export const LEAVE_TYPE_CODE_PATTERN = /^[A-Z0-9]+([-_][A-Z0-9]+)*$/;
 /** `Annual Leave`, `Medical Leave` — a label a person reads, not a paragraph. */
 export const LEAVE_TYPE_LABEL_MAX_LENGTH = 100;
 
+/**
+ * `reportMarker` — the glyph a report grid prints for a day of this leave.
+ *
+ * Three characters, and the bound is the feature rather than a limit on it. The
+ * collective attendance sheet and the leave calendar (Feature 031) are grids of
+ * employees by days: a cell is a few millimetres wide, so a day of absence has
+ * room for a letter. `MEDICAL` in that cell would either overflow or be
+ * truncated by whichever renderer got to it first, and the three renderers would
+ * truncate it differently.
+ *
+ * It matches the `varchar(3)` column exactly, so the same rule is enforced on
+ * both sides rather than only at the edge — the call `LEAVE_TYPE_COLOR_PATTERN`
+ * already makes for `color`.
+ */
+export const LEAVE_TYPE_REPORT_MARKER_MAX_LENGTH = 3;
+
+/**
+ * A marker is one to three upper-case letters or digits, and nothing else.
+ *
+ * Input is upper-cased before this runs, so the pattern rejects punctuation,
+ * whitespace and accented characters rather than lower-case letters. The
+ * narrowness is deliberate: this string is drawn into a PDF cell and an Excel
+ * cell as-is, and a marker carrying a space or a diacritic renders differently
+ * in each of the three outputs the same data model feeds.
+ *
+ * It is deliberately **not** {@link LEAVE_TYPE_CODE_PATTERN}: that pattern
+ * admits `-` and `_` as separators between alphanumeric groups, which is right
+ * for a natural key somebody quotes in a URL and wrong for a single glyph.
+ */
+export const LEAVE_TYPE_REPORT_MARKER_PATTERN = /^[A-Z0-9]{1,3}$/;
+
 export const LEAVE_TYPE_DESCRIPTION_MAX_LENGTH = 500;
 
 /** Bound on `?search=`, so a huge term cannot be pushed into a `LIKE` scan. */
