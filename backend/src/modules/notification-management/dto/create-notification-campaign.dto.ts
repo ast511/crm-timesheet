@@ -32,10 +32,10 @@ import {
  * gone out when nothing had.
  *
  * **There is no `sentAt` and no `createdByEmployeeId` either.** The first is the
- * engine's; the second is who is calling, taken from the `x-user-id` /
- * `x-employee-id` headers through `@CurrentUser()`. Putting the author in the
- * body would make "who wrote this" a value a client chooses per request, which
- * is precisely what it stops being once authentication exists. The global
+ * engine's; the second is who is calling, taken from `@CurrentUser()`. Putting
+ * the author in the body would make "who wrote this" a value a client chooses
+ * per request, which is exactly what it stopped being when Feature 032 made the
+ * caller an authenticated account. The global
  * `ValidationPipe` runs with `forbidNonWhitelisted`, so a client that tries any
  * of the four is told rather than having the field silently ignored.
  *

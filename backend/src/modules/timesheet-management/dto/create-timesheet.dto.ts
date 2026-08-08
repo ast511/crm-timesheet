@@ -10,10 +10,10 @@ import {
  * and a period, and the person is the caller.
  *
  * **There is no `employeeId`, and sending one is a `400`.** The timesheet is
- * opened by whoever is calling, named by the `x-employee-id` header through
- * `@CurrentUser()`. Putting the owner in the body would make "whose month is
- * this" a value a client chooses per request — precisely what it stops being once
- * authentication exists — and would make `/me` a lie in the meantime. The global
+ * opened by whoever is calling, from `@CurrentUser()`. Putting the owner in the
+ * body would make "whose month is this" a value a client chooses per request —
+ * exactly what it stopped being when Feature 032 made the caller an
+ * authenticated account — and would make `/me` a lie. The global
  * `ValidationPipe` runs with `forbidNonWhitelisted`, so a client that tries is
  * told rather than having the field silently ignored.
  *

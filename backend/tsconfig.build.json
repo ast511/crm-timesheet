@@ -6,11 +6,18 @@
   // and the output remains `dist/main.js` rather than `dist/src/main.js`.
   // `npm run typecheck` still checks them, because `tsconfig.json` has no such
   // exclusion.
+  //
+  // `**/*.testing.ts` joins `**/*spec.ts` for the same reason, added by Feature
+  // 032: `auth/testing/authentication.testing.ts` is scaffolding shared by the
+  // routing specs of every module, and shipping a stub authenticator inside
+  // `dist/` would be shipping a class whose entire purpose is to let a token be
+  // whatever a caller says it is.
   "exclude": [
     "node_modules",
     "test",
     "dist",
     "**/*spec.ts",
+    "**/*.testing.ts",
     "prisma.config.ts",
     "prisma"
   ]

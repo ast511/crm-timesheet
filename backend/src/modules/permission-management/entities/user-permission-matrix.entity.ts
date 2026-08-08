@@ -111,11 +111,12 @@ export interface PermissionMatrixResourceEntity {
  * buttons to draw, and would tempt a client into branching on `source`, which is
  * an administrator's concern rather than a renderer's.
  *
- * It is **soft gating and nothing more**. Hiding a button is a courtesy to the
- * person using the screen, not a control: this API enforces no permission today,
- * because authentication does not exist and a guard over a forgeable
- * `x-user-id` would read as protection while providing none. See the module
- * documentation.
+ * It is **soft gating and nothing more**, and it stays that way once real
+ * enforcement arrives. Hiding a button is a courtesy to the person using the
+ * screen; a client that skipped this call and drew every button would simply
+ * meet a `403` on the request. The reason no permission is enforced *today* is
+ * that the authorization enforcement feature has not landed — Feature 032
+ * supplied the identity it needs. See the module documentation.
  */
 export interface EffectivePermissionsEntity {
   userId: string;

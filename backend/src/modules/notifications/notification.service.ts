@@ -7,10 +7,7 @@ import {
 } from '@nestjs/common';
 
 import { AdministrativeRole } from '../../common/constants/role.constants';
-import {
-  CURRENT_USER_ROLE_HEADER,
-  CurrentUser,
-} from '../../common/decorators/current-user.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
 import { buildPaginatedResult } from '../../common/utils/pagination.util';
 import {
@@ -550,7 +547,7 @@ export class NotificationService {
   private administrativeAudience(user: CurrentUser): NotificationAudience {
     if (!user.administrativeAccess) {
       throw new ForbiddenException(
-        `The administrative notification workspace is available to administrative roles only; ${CURRENT_USER_ROLE_HEADER} names ${user.role}`,
+        `The administrative notification workspace is available to administrative roles only; this account holds ${user.role}`,
       );
     }
 

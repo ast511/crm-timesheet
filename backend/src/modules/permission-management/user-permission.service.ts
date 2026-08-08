@@ -4,10 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import {
-  CURRENT_USER_HEADER,
-  CurrentUser,
-} from '../../common/decorators/current-user.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SortOrder } from '../../common/enums/sort-order.enum';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
 import {
@@ -448,7 +445,7 @@ export class UserPermissionService {
   private async assertCallerExists(caller: CurrentUser): Promise<void> {
     if ((await this.users.findRole(caller.userId)) === null) {
       throw new BadRequestException([
-        `${CURRENT_USER_HEADER} names user ${caller.userId}, who does not exist`,
+        `The authenticated caller's account ${caller.userId} does not exist`,
       ]);
     }
   }

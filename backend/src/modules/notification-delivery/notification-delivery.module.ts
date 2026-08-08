@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module';
 import { EmailModule } from '../email/email.module';
 import { EmployeeModule } from '../employees/employee.module';
 import { NotificationManagementModule } from '../notification-management/notification-management.module';
@@ -42,6 +43,16 @@ import { WebsocketUserRegistryService } from './websocket/websocket-user-registr
  * | `EmailModule` | `EmailService.sendMany` — no `SMTP_*` variable is read here and Nodemailer is not imported |
  * | `EmployeeModule` | who a campaign's audience resolves to, and how to reach them |
  * | `WorkScheduleModule` | the timesheet approval addresses an administrative event is emailed to |
+ * | `AuthModule` | `AuthService.authenticate`, so a WebSocket handshake is verified by the same code an HTTP request is |
+ *
+ * `AuthModule` arrived with Feature 032 and is the narrowest of the six: one
+ * method, for the one place in this application that has to authenticate
+ * something other than an HTTP request. A browser cannot put a header on a
+ * WebSocket upgrade, so the token comes through the handshake's `auth` payload —
+ * but what the token *means*, and whether the account behind it is still active,
+ * is answered by the same method `JwtAuthGuard` calls. Writing a second answer
+ * for the socket is what would eventually leave a deactivated employee receiving
+ * notifications on a connection nobody thought to re-check.
  *
  * `WorkScheduleModule` arrived with Feature 030 and is the narrowest of the five:
  * one method, `findEmails`, for the one audience that is not a list of employees.
@@ -77,6 +88,7 @@ import { WebsocketUserRegistryService } from './websocket/websocket-user-registr
     EmailModule,
     EmployeeModule,
     WorkScheduleModule,
+    AuthModule,
   ],
   controllers: [NotificationDeliveryController],
   providers: [

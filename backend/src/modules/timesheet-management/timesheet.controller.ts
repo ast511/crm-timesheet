@@ -47,10 +47,10 @@ import { TimesheetService } from './timesheet.service';
  * `@Get('me')` would swallow `/timesheets/me` and answer "timesheet `me` was not
  * found". The owner routes are therefore all declared first, together.
  *
- * Who is calling comes from the `x-user-id`, `x-user-role` and `x-employee-id`
- * headers, through `@CurrentUser()`. **That is a placeholder for
- * authentication**, kept to a single decorator so the day auth lands nothing in
- * this file changes. It is passed to the service on every route, because unlike
+ * Who is calling comes from `@CurrentUser()` — three headers when this was
+ * written, the account behind a validated access token since Feature 032, and
+ * not a line of this file changed for that, which is what the seam was for. It
+ * is passed to the service on every route, because unlike
  * the notification campaigns *every* timesheet operation depends on who is
  * asking: an owner fills and submits, an administrator approves and rejects, and
  * neither may do the other's. Those checks are in the service as domain rules —

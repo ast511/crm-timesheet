@@ -42,7 +42,26 @@ describe('ReportingModule wiring', () => {
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({
       imports: [
-        ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }),
+        ConfigModule.forRoot({
+          isGlobal: true,
+          ignoreEnvFile: true,
+          // The signing keys, because Feature 032 put `AuthModule` in this graph
+          // — `TimesheetManagementModule` reaches the delivery engine, whose
+          // WebSocket gateway authenticates its handshake through `AuthService`
+          // — and `TokenService` reads them in its constructor rather than on
+          // first use, so an unconfigured deployment fails at startup instead of
+          // at the first login. Which means it also fails here, and *that* is
+          // this spec doing its job: `ignoreEnvFile` plus no `load` is the exact
+          // shape of a container started without them.
+          load: [
+            () => ({
+              JWT_ACCESS_SECRET: 'wiring-access-secret-0123456789abcdef',
+              JWT_REFRESH_SECRET: 'wiring-refresh-secret-0123456789abcdef',
+              JWT_ACCESS_TTL: 900,
+              JWT_REFRESH_TTL: 604_800,
+            }),
+          ],
+        }),
         ScheduleModule.forRoot(),
         // `@Global` makes `PrismaService` injectable everywhere *once the module
         // is in the graph*, and `AppModule` is what normally puts it there. It

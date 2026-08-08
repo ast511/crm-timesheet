@@ -53,12 +53,14 @@ const CASE_INSENSITIVE = { mode: 'insensitive' } as const;
  *
  * **Nothing here enforces anything either.** {@link resolveEffective} computes a
  * permission set; it blocks no request, guards no route and is imported by no
- * interceptor. Enforcement is a later feature and can only be written once
- * authentication exists: today any caller may claim any `x-user-id` and
- * `x-user-role`, so a guard built on this would be checking a forgeable
- * identity, and half an access check reads as protection while providing none.
- * `GET /permissions/me/effective` exists so a client can *hide* what it should
- * not offer, which is a courtesy rather than a control.
+ * interceptor. That was written when it could not be otherwise — an access check
+ * over a forgeable header reads as protection while providing none — and
+ * Feature 032 removed the obstacle: the caller is now an account behind a
+ * validated access token rather than a claim. Enforcement is the authorization
+ * enforcement feature, which calls this method from a guard.
+ * `GET /permissions/me/effective` still exists
+ * so a client can *hide* what it should not offer, which is a courtesy rather
+ * than a control, and remains one after the guard lands.
  *
  * There is no repository, for the reason `ReminderService` has none: the queries
  * here share no predicate, so a layer between this and Prisma would be a file
@@ -136,12 +138,12 @@ export class PermissionService {
   /**
    * What the caller may do, as a flat list of keys.
    *
-   * The role comes from the claimed `x-user-role` header rather than from a
-   * lookup, which is the honest shape of this endpoint today: the header *is* the
-   * caller's identity until authentication exists, and querying `users` to
-   * confirm it would be checking one unverified claim against another. When auth
-   * lands, `@CurrentUser()` starts reading a token and this method does not
-   * change.
+   * The role comes from `@CurrentUser()` rather than from a lookup of its own,
+   * and that was true before Feature 032 and is true after it — which is the
+   * point. It used to be a claim in a header, because querying `users` to
+   * confirm one unverified claim against another would have bought nothing; it
+   * is now read from `users` by `AuthService` on this very request, so it is
+   * both authoritative and already in hand. This method did not change.
    */
   async findEffectiveForCaller(
     user: CurrentUser,

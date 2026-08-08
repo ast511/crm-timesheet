@@ -476,6 +476,13 @@ model User {
   /// Changes this account made to other people's permissions.
   permissionChangesMade PermissionAuditLog[] @relation("PermissionAuditActor")
 
+  /// The refresh tokens issued to this account — its live and spent sessions.
+  ///
+  /// Added by Feature 032, and the only place authentication touches this model:
+  /// `email`, `passwordHash`, `role` and `isActive` were already here and are
+  /// what logging in reads. See [RefreshToken].
+  refreshTokens RefreshToken[]
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -2420,4 +2427,114 @@ model TimesheetEntry {
   @@index([projectId])
   @@index([leaveRequestId])
   @@map("timesheet_entries")
+}
+
+/// One issued refresh token, so that a session can be ended.
+///
+/// **This table exists because an access token cannot be revoked.** A JWT is
+/// verified from its signature alone — no row is read, nothing is looked up —
+/// which is exactly what makes it cheap and exactly what makes it final: once
+/// signed, it is valid until it expires, and there is no place to write "this one
+/// no longer counts". The answer is not to make access tokens stateful, which
+/// would throw away the property they were chosen for; it is to keep them short
+/// and to put the revocable half of the session here. Logging out, a stolen
+/// token, a deactivated account — every one of them is enforced on this side.
+///
+/// One row per *issued* token rather than one per session, because rotation is
+/// what makes a stolen refresh token detectable: each refresh invalidates the
+/// token presented and stores its successor, so the rows of one login form a
+/// chain. See [RefreshToken.replacedById].
+model RefreshToken {
+  id String @id @default(cuid())
+
+  /// `Cascade`, and the fifth in this schema. A refresh token is a credential
+  /// for an account and means nothing once that account is gone: nobody can
+  /// present it, no refresh will ever match it, and keeping it would make an
+  /// account undeletable for the sake of a session that can no longer exist. The
+  /// same argument `user_permission_overrides.user_id` makes, and the opposite of
+  /// the one `permission_audit_logs.changed_by_user_id` makes — this is not a
+  /// record of something somebody *did*, it is a key they were handed.
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the token, hex-encoded — never the token itself.
+  ///
+  /// A refresh token is a bearer credential: whoever holds the string can mint
+  /// access tokens with it until it expires. Storing the raw value would mean a
+  /// database dump, a backup on a laptop or a careless `SELECT *` in a support
+  /// session handed out working sessions for every logged-in employee. Storing a
+  /// hash makes the table useless to a reader: the server hashes what is
+  /// presented and compares, and cannot reverse what it holds.
+  ///
+  /// SHA-256 rather than bcrypt, which is the deliberate half. bcrypt salts every
+  /// call, so two hashes of one token differ and the only way to find a row would
+  /// be to bcrypt-compare the presented token against *every* stored row —
+  /// linear in the number of live sessions, on the hot path of every refresh. The
+  /// reason bcrypt is right for a password and wrong here is what the two inputs
+  /// are: a password is short, human-chosen and guessable, so hashing it must be
+  /// slow; this is 32 bytes from a CSPRNG, which no amount of hardware
+  /// enumerates, so a fast digest gives up nothing.
+  ///
+  /// `@unique` rather than a plain index. It is the lookup — a refresh presents a
+  /// token and this is the only thing it can be found by — and it is also the
+  /// guarantee that one token names at most one row, without which reuse
+  /// detection would have to choose between two rows describing one credential.
+  tokenHash String @unique @map("token_hash")
+
+  /// When this token stopped being usable, or null while it still is.
+  ///
+  /// Set on three occasions, and they are the three ways a session ends: it was
+  /// rotated (a refresh consumed it), the caller logged out, or the whole family
+  /// was revoked because a consumed token came back — see
+  /// [RefreshToken.replacedById].
+  ///
+  /// A timestamp rather than a boolean, because *when* is the question asked
+  /// afterwards. "This account's tokens were all revoked at 03:14" is an incident;
+  /// `revoked = true` is a flag that says nothing about it.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  /// The token this one was rotated into, or null if it was never used.
+  ///
+  /// **This column is the reuse detector.** Rotation means a refresh token is
+  /// good exactly once: presenting it returns a new one and marks this row spent.
+  /// So a request that presents a token which already has a successor is not a
+  /// client retrying — the legitimate holder moved on to the successor — it is a
+  /// second party holding a copy of a token that was captured before it was used.
+  /// The application cannot tell which of the two is the thief, so it revokes the
+  /// whole family and both are made to log in again, which is the only safe
+  /// answer.
+  ///
+  /// Deliberately *not* a Prisma relation. A self-relation would require a
+  /// back-reference field and an index for a link that is only ever read forwards,
+  /// by an incident investigation, and a foreign key would make deleting an
+  /// expired row depend on its successor being deleted first — turning routine
+  /// cleanup into an ordering problem for the sake of a pointer.
+  replacedById String? @map("replaced_by_id")
+
+  /// When the token expires regardless of anything else — `JWT_REFRESH_TTL` after
+  /// it was issued.
+  ///
+  /// An instant, so `@db.Timestamptz(3)`. Checked in the application rather than
+  /// enforced by the database, because "expired" and "revoked" must be
+  /// distinguishable while investigating, and a row that deleted itself would be
+  /// indistinguishable from one that never existed.
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  /// The client the token was issued to, as it described itself.
+  ///
+  /// Both are context for the moment somebody asks "what were these sessions?" —
+  /// after a reuse detection, or when a person reports a login they do not
+  /// recognise. Neither is trusted for anything: a `User-Agent` is whatever the
+  /// caller typed, and an address behind a proxy is the proxy's. Nullable because
+  /// a client need not send either, and an absent value must not be recorded as
+  /// the string "unknown".
+  userAgent String? @map("user_agent")
+  ipAddress String? @map("ip_address")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  /// Every live token of one account — what logout, reuse detection and
+  /// deactivation all revoke, and what the expiry sweep counts.
+  @@index([userId])
+  @@map("refresh_tokens")
 }

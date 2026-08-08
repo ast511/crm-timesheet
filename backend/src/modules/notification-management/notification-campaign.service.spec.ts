@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -501,10 +502,15 @@ describe('NotificationCampaignService', () => {
       expect(createdData().createdByEmployeeId).toBe('emp-author');
     });
 
-    it('refuses an account with no employee record, naming the header', async () => {
+    /**
+     * A `403` since Feature 032, where this was a `400` naming `x-employee-id`.
+     * A campaign records who wrote it, and an account with no employment record
+     * is authenticated perfectly well and simply cannot be that author.
+     */
+    it('refuses an account with no employee record', async () => {
       await expect(
-        messagesFrom(service.create(accountWithoutEmployee, CREATE_BODY)),
-      ).resolves.toEqual([expect.stringContaining('x-employee-id')]);
+        service.create(accountWithoutEmployee, CREATE_BODY),
+      ).rejects.toThrow(ForbiddenException);
 
       expect(prisma.notificationCampaign.create).not.toHaveBeenCalled();
     });

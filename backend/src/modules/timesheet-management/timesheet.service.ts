@@ -1,10 +1,10 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
 } from '@nestjs/common';
 
-import { CURRENT_EMPLOYEE_HEADER } from '../../common/decorators/current-employee-id.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SortOrder } from '../../common/enums/sort-order.enum';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
@@ -1188,16 +1188,19 @@ export class TimesheetService {
  * no employee has no month to account for, and it has no hire date for the
  * fill-in engine to bound anything by.
  *
- * The message names `x-employee-id`, because that is the header a caller has to
- * add today. When authentication lands it becomes a claim on the token and this
- * function is the only place that changes — the same call
- * `NotificationCampaignService.requireAuthor` makes.
+ * Feature 032 is the change this function said it was waiting for. The employee
+ * id is now read from the caller's account rather than sent as a header, so the
+ * refusal stopped being "you left something out" — nothing was left out — and
+ * became "your account cannot do this": a `403` where this threw a `400`. The
+ * same move `NotificationCampaignService.requireAuthor` and the
+ * `@CurrentEmployeeId()` decorator made, so the one condition still has one
+ * answer wherever it is asked.
  */
 function requireEmployee(user: CurrentUser): string {
   if (user.employeeId === null) {
-    throw new BadRequestException([
-      `${CURRENT_EMPLOYEE_HEADER} header is required to work with a timesheet: the account making the request has no employee record`,
-    ]);
+    throw new ForbiddenException(
+      'A timesheet belongs to an employment record, and your account has none',
+    );
   }
 
   return user.employeeId;

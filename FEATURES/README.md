@@ -64,3 +64,5 @@ behaviour, record that in the new document and link back to the old one.
 | 029 | [Permission Management](029-permission-management.md) |
 | 030 | [Timesheet Management](030-timesheet-management.md) |
 | 031 | [Reporting](031-reporting.md) |
+| 032 | [Authentication](032-authentication.md) |
+| 033 | [Error Code Standardization](033-error-code-standardization.md) |

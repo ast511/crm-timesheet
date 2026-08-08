@@ -1,29 +1,15 @@
 import {
-  BadRequestException,
   createParamDecorator,
   ExecutionContext,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { Request } from 'express';
-import { IncomingHttpHeaders } from 'http';
 
 import { UserRole } from '../../generated/prisma/enums';
-import { RELATION_ID_MAX_LENGTH } from '../constants/relation.constants';
-import { isAdministrativeRole } from '../constants/role.constants';
-import { CURRENT_EMPLOYEE_HEADER } from './current-employee-id.decorator';
+import { ERROR_CODES } from '../constants/error-codes.constants';
+import { codedError } from '../errors/coded-error';
 
 /**
- * The headers that name the account making the request.
- *
- * Exported so tests, the routing spec and the feature documentation quote one
- * literal each rather than several copies of a string that has to agree.
- */
-export const CURRENT_USER_HEADER = 'x-user-id';
-
-export const CURRENT_USER_ROLE_HEADER = 'x-user-role';
-
-/**
- * Who is calling — the whole of what this application knows about the caller
- * until authentication exists.
+ * Who is calling — the whole of what this application knows about the caller.
  *
  * Four fields, and each is here because something needs it rather than because
  * a user object usually has it:
@@ -33,14 +19,16 @@ export const CURRENT_USER_ROLE_HEADER = 'x-user-role';
  *   person logs in with and not every account has an employment record.
  * - `employeeId` is the same person's employment record, when they have one. It
  *   is `null` for an account with no employee — a super-admin created to
- *   administer the system is the obvious case — and this feature reads it
- *   nowhere. It is carried because the seam should describe the caller once,
- *   and because the features that follow this one work in employees.
+ *   administer the system is the obvious case.
  * - `role` is what a `ROLE` notification is matched against, directly: the value
  *   stored in `notifications.recipient_role` is the value stored in
  *   `users.role`, with no translation between them.
  * - `administrativeAccess` is derived from `role` rather than sent, so a caller
- *   cannot claim it independently of the role they claimed.
+ *   cannot claim it independently of the role they hold.
+ *
+ * **The interface has not changed since Feature 026.** Where the values come
+ * from has — see {@link resolveCurrentUser} — and that is the whole of Feature
+ * 032's effect on everything outside the auth module.
  */
 export interface CurrentUser {
   readonly userId: string;
@@ -51,180 +39,99 @@ export interface CurrentUser {
 }
 
 /**
- * The caller, assembled from headers.
+ * The caller, taken from the validated access token.
  *
- * **This is a placeholder for authentication**, and the second one — Feature 023
- * introduced `@CurrentEmployeeId()` for the same reason and reads the same
- * `x-employee-id` header, which this reuses rather than inventing a third
- * spelling of. Four things about how it is done are the point:
+ * **This is the seam Features 023 and 026 were built around, now delivering what
+ * they promised.** Feature 026 recorded the contract in this file:
  *
- * 1. **It is one seam, in one file.** Every notification route reads the caller
- *    through this decorator and nothing else. When authentication arrives, the
- *    body of {@link resolveCurrentUser} becomes `request.user` and no
- *    controller, service, repository, DTO or test signature moves.
- * 2. **Nothing is hardcoded and nothing is defaulted.** There is no fallback
- *    user, no "assume admin in development", no id baked into a service. A
- *    request that does not say who is calling is a `400` naming the header it
- *    left out, which is the only answer that stays correct once the header is
- *    replaced by a token.
- * 3. **`administrativeAccess` is computed here, from the claimed role.** Sending
- *    it as a header of its own would let a caller claim `USER` and administrative
- *    access at once, and would give the application two sources for one fact.
- * 4. **It authenticates nothing and authorises nothing.** Any caller may claim
- *    any account and any role. That is not a weakness to be patched here — half
- *    an access check reads as protection while providing none — it is the honest
- *    shape of an API whose auth feature has not been written. The headers are a
- *    stand-in for claims, not credentials.
+ * > It is one seam, in one file. Every notification route reads the caller
+ * > through this decorator and nothing else. When authentication arrives, the
+ * > body of `resolveCurrentUser` becomes `request.user` and no controller,
+ * > service, repository, DTO or test signature moves.
  *
- * What the service *does* enforce on top of this is the workspace rule: a caller
- * whose claimed role is not administrative cannot read the administrative
- * workspace. That is not authorization arriving early — it is what the
- * `ADMINISTRATIVE_USERS` recipient type *means*, and without it every employee
- * would receive the back-office broadcasts.
+ * That is exactly what happened. The body below is `request.user`, the interface
+ * above is unchanged to the field, and not one controller, service, repository,
+ * DTO or entity in the thirty-one features that came before was edited to make
+ * it true. Three properties of the original design are what made that possible,
+ * and they are worth naming because they are what a placeholder has to have to
+ * be worth writing:
+ *
+ * 1. **Nothing was defaulted.** There was no fallback user, no "assume admin in
+ *    development", no id baked into a service — so there is no such assumption
+ *    to find and unpick now, and no route that silently kept working with an
+ *    identity nobody supplied.
+ * 2. **`administrativeAccess` was always derived here**, never sent. It is
+ *    derived from the same role, in the same place, for the same reason; the only
+ *    difference is that the role is now a fact from `users.role` instead of a
+ *    claim from a header.
+ * 3. **The shape was the caller, not the request.** `employeeId` was carried from
+ *    the beginning although Feature 026 read it nowhere, so the modules that
+ *    needed it later found it already there — and so does the token.
+ *
+ * What changed underneath: `x-user-id`, `x-user-role` and `x-employee-id` are no
+ * longer read anywhere in this application. Identity comes from
+ * `Authorization: Bearer <access token>`, is verified by `JwtAuthGuard`, and is
+ * resolved from the database on every request rather than from the token's
+ * claims — so a role change or a deactivation takes effect immediately instead
+ * of when the token happens to expire. See `AuthService.authenticate`.
+ *
+ * What has *not* changed: this authorises nothing. An authenticated caller is
+ * known to be who they say; whether they may touch a given resource is Feature
+ * 033. The one check that already existed — the administrative workspace — was
+ * never authorization arriving early, it is what `ADMINISTRATIVE_USERS` means,
+ * and it stays where it was.
  */
 export const CurrentUser = createParamDecorator(
   (_data: unknown, context: ExecutionContext): CurrentUser =>
-    resolveCurrentUser(context.switchToHttp().getRequest<Request>()),
+    resolveCurrentUser(
+      context.switchToHttp().getRequest<AuthenticatedRequest>(),
+    ),
 );
 
 /**
- * Anything that carries request headers.
+ * A request that authentication has already run on.
  *
- * Widened from `express.Request` in Feature 028, because a WebSocket handshake
- * is not an Express request and yet identifies its caller with exactly the same
- * three headers. Stating the *only* property this function reads is what lets
- * the notification gateway reuse the rules below instead of writing a second,
- * drifting copy of them — and an `express.Request` still satisfies it
- * structurally, so no existing caller changed.
+ * `user` is optional in the type and present in practice: `JwtAuthGuard` is
+ * registered globally and assigns it before any handler runs, so the only
+ * requests reaching a `@CurrentUser()` parameter without one are on routes the
+ * guard was told to skip. Declaring it optional is what makes
+ * {@link resolveCurrentUser} state that case out loud rather than hand a handler
+ * an `undefined` typed as a `CurrentUser`.
+ *
+ * It replaces Feature 028's `HeaderBearingRequest`, which existed so the
+ * notification gateway could reuse the header rules over a WebSocket handshake.
+ * The gateway now authenticates the handshake's token through `AuthService` and
+ * produces this same `CurrentUser`, so the two sides still share one definition
+ * of the caller — one layer further in.
  */
-export interface HeaderBearingRequest {
-  readonly headers: IncomingHttpHeaders;
+export interface AuthenticatedRequest {
+  user?: CurrentUser;
 }
 
 /**
  * The decorator's body, as a plain function.
  *
  * Separated so it can be unit-tested directly: a param decorator runs inside
- * Nest's pipeline, so calling one in a test exercises nothing. The routing spec
- * still drives it through a real request; this is what lets the header rules
- * themselves be checked without booting an application.
+ * Nest's pipeline, so calling one in a test exercises nothing. Each module's
+ * routing spec still drives it through a real request.
  */
-export function resolveCurrentUser(request: HeaderBearingRequest): CurrentUser {
-  const role = readRole(request);
+export function resolveCurrentUser(request: AuthenticatedRequest): CurrentUser {
+  const { user } = request;
 
-  return {
-    userId: readRequiredId(request, CURRENT_USER_HEADER),
-    employeeId: readOptionalId(request, CURRENT_EMPLOYEE_HEADER),
-    role,
-    administrativeAccess: isAdministrativeRole(role),
-  };
-}
-
-/**
- * An id header that must be there.
- *
- * Validated for *shape* only — present, non-empty, and no longer than a foreign
- * key may be. Whether the account exists is a question for the database, and
- * this feature deliberately does not ask it: a notification list scoped to an id
- * nobody holds is empty, which is the honest answer, and querying `users` on
- * every request to produce a nicer error would be a round trip bought for a
- * placeholder.
- */
-function readRequiredId(request: HeaderBearingRequest, header: string): string {
-  const value = request.headers[header];
-
-  // Express repeats a header sent twice as an array. One identity was asked
-  // for, so two answers are a malformed request rather than a value to pick
-  // from — taking the first would let a caller smuggle a second claim past
-  // anything that logged only one.
-  if (typeof value !== 'string') {
-    throw new BadRequestException([missingHeaderMessage(header)]);
+  // Reachable only by asking for the caller on a route that does not require
+  // one — a handler marked `@Public()` with a `@CurrentUser()` parameter. That
+  // is a wiring mistake rather than something a client did, and a `401` is the
+  // honest answer to it: the request genuinely carried no identity, and
+  // inventing an anonymous user here is precisely the fallback whose absence
+  // made this seam replaceable in the first place.
+  if (user === undefined) {
+    throw new UnauthorizedException(
+      codedError(
+        ERROR_CODES.AUTH_UNAUTHENTICATED,
+        'This route does not authenticate the caller, so there is no current user to read',
+      ),
+    );
   }
 
-  return assertIdShape(value.trim(), header);
-}
-
-/**
- * An id header that may legitimately be absent.
- *
- * Only `x-employee-id` is read this way: not every account has an employment
- * record — a super-admin created to administer the system is the obvious case —
- * and no notification route reads one. A header that *is* sent still gets the
- * same treatment, because a blank or oversized value is a mistake worth naming
- * whether or not the field was compulsory.
- */
-function readOptionalId(
-  request: HeaderBearingRequest,
-  header: string,
-): string | null {
-  const value = request.headers[header];
-
-  if (value === undefined) {
-    return null;
-  }
-
-  if (typeof value !== 'string') {
-    throw new BadRequestException([missingHeaderMessage(header)]);
-  }
-
-  return assertIdShape(value.trim(), header);
-}
-
-/** The bounds both readers apply, so they cannot drift apart. */
-function assertIdShape(id: string, header: string): string {
-  if (id.length === 0) {
-    throw new BadRequestException([missingHeaderMessage(header)]);
-  }
-
-  if (id.length > RELATION_ID_MAX_LENGTH) {
-    throw new BadRequestException([
-      `${header} must be at most ${String(RELATION_ID_MAX_LENGTH)} characters`,
-    ]);
-  }
-
-  return id;
-}
-
-/**
- * The claimed role, which must be one the schema knows.
- *
- * Checked against the enum rather than accepted as text, because the value
- * decides which notifications the caller is shown: an unrecognised role would
- * otherwise reach the repository and quietly match the broadcasts of a workspace
- * nobody meant to open.
- */
-function readRole(request: HeaderBearingRequest): UserRole {
-  const value = request.headers[CURRENT_USER_ROLE_HEADER];
-
-  if (typeof value !== 'string') {
-    throw new BadRequestException([
-      missingHeaderMessage(CURRENT_USER_ROLE_HEADER),
-    ]);
-  }
-
-  const role = value.trim().toUpperCase();
-
-  if (!isUserRole(role)) {
-    throw new BadRequestException([
-      `${CURRENT_USER_ROLE_HEADER} must be one of: ${Object.values(UserRole).join(', ')}`,
-    ]);
-  }
-
-  return role;
-}
-
-/** Whether a string is one of the enum's members. */
-function isUserRole(value: string): value is UserRole {
-  return (Object.values(UserRole) as string[]).includes(value);
-}
-
-/**
- * The message every absent-header path reports, so an empty header and a missing
- * one cannot drift into saying different things about the same mistake.
- *
- * An array at each call site, the same shape the `ValidationPipe` produces, so a
- * client handles it with the code it already has for field errors.
- */
-function missingHeaderMessage(header: string): string {
-  return `${header} header is required until authentication is implemented`;
+  return user;
 }

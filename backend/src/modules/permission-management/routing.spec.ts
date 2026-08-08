@@ -2,11 +2,8 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
-import {
-  CURRENT_USER_HEADER,
-  CURRENT_USER_ROLE_HEADER,
-} from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../generated/prisma/enums';
+import { TestAuthentication } from '../auth/testing/authentication.testing';
 import { PermissionController } from './permission.controller';
 import { PermissionService } from './permission.service';
 import { UserPermissionController } from './user-permission.controller';
@@ -51,11 +48,11 @@ describe('permission-management routing', () => {
     findHistory: jest.fn().mockResolvedValue(page),
   };
 
-  /** The headers a caller has to send until authentication exists. */
-  const as = (userId = 'usr-admin', role: UserRole = UserRole.ADMIN) => ({
-    [CURRENT_USER_HEADER]: userId,
-    [CURRENT_USER_ROLE_HEADER]: role,
-  });
+  /** The access token a caller has to present, since Feature 032. */
+  const auth = new TestAuthentication();
+
+  const as = (userId = 'usr-admin', role: UserRole = UserRole.ADMIN) =>
+    auth.as({ userId, role });
 
   beforeAll(async () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -63,6 +60,7 @@ describe('permission-management routing', () => {
       providers: [
         { provide: PermissionService, useValue: permissions },
         { provide: UserPermissionService, useValue: userPermissions },
+        ...auth.providers,
       ],
     }).compile();
 
@@ -87,21 +85,28 @@ describe('permission-management routing', () => {
 
   describe('/permissions', () => {
     it('lists the catalog', async () => {
-      await request(app.getHttpServer()).get('/permissions').expect(200);
+      await request(app.getHttpServer())
+        .get('/permissions')
+        .set(as())
+        .expect(200);
 
       expect(permissions.findAll).toHaveBeenCalled();
     });
 
-    it('requires no caller headers to read the catalog', async () => {
-      // The catalog is vocabulary; it says nothing about anybody.
+    it('reads no caller to list the catalog, and is still authenticated', async () => {
+      // The catalog is vocabulary; it says nothing about anybody. Which is a
+      // statement about whose data it is, not about who may read it — since
+      // Feature 032 every route needs a token unless it is `@Public()`.
       await request(app.getHttpServer())
         .get('/permissions?resource=TIMESHEET&limit=100')
+        .set(as())
         .expect(200);
     });
 
     it('lists the presets without colliding with the catalog route', async () => {
       await request(app.getHttpServer())
         .get('/permissions/presets')
+        .set(as())
         .expect(200);
 
       expect(permissions.findPresets).toHaveBeenCalled();
@@ -111,6 +116,7 @@ describe('permission-management routing', () => {
     it('filters the presets by target role', async () => {
       await request(app.getHttpServer())
         .get('/permissions/presets?targetRole=HR')
+        .set(as())
         .expect(200);
 
       expect(permissions.findPresets).toHaveBeenCalledWith(
@@ -122,6 +128,7 @@ describe('permission-management routing', () => {
       // Six fixed cards in two groups; there is nothing to choose.
       await request(app.getHttpServer())
         .get('/permissions/presets?sortBy=name')
+        .set(as())
         .expect(400);
     });
 
@@ -136,10 +143,10 @@ describe('permission-management routing', () => {
       );
     });
 
-    it('refuses me/effective when the request does not say who is calling', async () => {
+    it('refuses me/effective when the request presents no access token', async () => {
       await request(app.getHttpServer())
         .get('/permissions/me/effective')
-        .expect(400);
+        .expect(401);
 
       expect(permissions.findEffectiveForCaller).not.toHaveBeenCalled();
     });
@@ -161,12 +168,16 @@ describe('permission-management routing', () => {
     });
 
     it('has no GET /:id: a permission is addressed by its key', async () => {
-      await request(app.getHttpServer()).get('/permissions/prm-1').expect(404);
+      await request(app.getHttpServer())
+        .get('/permissions/prm-1')
+        .set(as())
+        .expect(404);
     });
 
     it('rejects a query parameter it does not offer', async () => {
       await request(app.getHttpServer())
         .get('/permissions?role=HR')
+        .set(as())
         .expect(400);
     });
   });
@@ -175,6 +186,7 @@ describe('permission-management routing', () => {
     it('reads one user matrix', async () => {
       await request(app.getHttpServer())
         .get('/users/usr-1/permissions')
+        .set(as())
         .expect(200);
 
       expect(userPermissions.findMatrix).toHaveBeenCalledWith('usr-1');
@@ -210,11 +222,11 @@ describe('permission-management routing', () => {
       );
     });
 
-    it('refuses a PUT that does not say who is calling', async () => {
+    it('refuses a PUT that presents no access token', async () => {
       await request(app.getHttpServer())
         .put('/users/usr-1/permissions')
         .send({ permissionKeys: [] })
-        .expect(400);
+        .expect(401);
 
       expect(userPermissions.replace).not.toHaveBeenCalled();
     });
@@ -258,6 +270,7 @@ describe('permission-management routing', () => {
     it('reads the history without colliding with the matrix route', async () => {
       await request(app.getHttpServer())
         .get('/users/usr-1/permissions/history?page=2&action=PRESET_APPLIED')
+        .set(as())
         .expect(200);
 
       expect(userPermissions.findHistory).toHaveBeenCalledWith(
@@ -270,12 +283,14 @@ describe('permission-management routing', () => {
     it('rejects a free-text search on the history: there is no text to match', async () => {
       await request(app.getHttpServer())
         .get('/users/usr-1/permissions/history?search=granted')
+        .set(as())
         .expect(400);
     });
 
     it('takes the id as a plain string, since ids are cuids', async () => {
       await request(app.getHttpServer())
         .get('/users/not-a-uuid/permissions')
+        .set(as())
         .expect(200);
 
       expect(userPermissions.findMatrix).toHaveBeenCalledWith('not-a-uuid');
@@ -290,9 +305,13 @@ describe('permission-management routing', () => {
   });
 
   it('does not collide the two collections', async () => {
-    await request(app.getHttpServer()).get('/permissions').expect(200);
+    await request(app.getHttpServer())
+      .get('/permissions')
+      .set(as())
+      .expect(200);
     await request(app.getHttpServer())
       .get('/users/usr-1/permissions')
+      .set(as())
       .expect(200);
 
     expect(permissions.findAll).toHaveBeenCalledTimes(1);

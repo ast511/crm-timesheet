@@ -30,18 +30,26 @@ import { UserPermissionService } from './user-permission.service';
  *
  * ```text
  *   permission-management   who may do what          (this module)
- *   authentication          who the caller actually is    (not written)
- *   permission enforcement  refusing the request           (not written)
+ *   authentication          who the caller actually is    (Feature 032 — done)
+ *   permission enforcement  refusing the request              (not written)
  * ```
  *
- * Enforcement cannot be written before authentication, because there is nothing
- * yet to enforce *against*. `@CurrentUser()` reads `x-user-id` and
- * `x-user-role` from headers, which any caller may set to anything; a
- * `@RequirePermission()` guard on top of that would resolve the permissions of
- * whoever the request claimed to be and refuse or admit accordingly — a check
- * that reads as protection while providing none, and one that the first
- * penetration test would find in a minute. Worse, it would make every subsequent
- * feature *feel* protected, so the missing half would stop being obvious.
+ * Enforcement could not be written before authentication, because there was
+ * nothing to enforce *against*: `@CurrentUser()` read `x-user-id` and
+ * `x-user-role` from headers any caller could set to anything, so a
+ * `@RequirePermission()` guard on top of that would have resolved the
+ * permissions of whoever the request *claimed* to be and refused or admitted
+ * accordingly — a check that reads as protection while providing none, and one
+ * the first penetration test would find in a minute. Worse, it would have made
+ * every subsequent feature *feel* protected, so the missing half would have
+ * stopped being obvious.
+ *
+ * **Feature 032 supplied the missing half.** `@CurrentUser()` now returns an
+ * account read from `users` on this request, behind a validated access token,
+ * so the guard this module was waiting for has a real identity to resolve
+ * against. The authorization enforcement feature adds it, reading the method
+ * below. Nothing here changed to make that possible, which was the point of
+ * putting the identity behind one seam.
  *
  * What ships instead is `GET /permissions/me/effective`, which a frontend uses to
  * hide the buttons it should not offer. That is a courtesy to the person using

@@ -24,11 +24,12 @@ import { PermissionService } from './permission.service';
  * for how roles and permissions would be added.
  *
  * **No route here enforces anything.** `me/effective` reports a permission set;
- * it blocks nothing, and nothing else in this application consults it. Until
- * authentication exists any caller may claim any `x-user-id` and `x-user-role`,
- * so a guard built on top of it would be checking a forgeable identity — half an
- * access check, which reads as protection while providing none. Enforcement is a
- * later feature; see the module documentation for the guard it will bring.
+ * it blocks nothing, and nothing else in this application consults it. That was
+ * written when a guard could only have checked a forgeable identity — half an
+ * access check, which reads as protection while providing none. Feature 032
+ * fixed the identity; every route below now requires a valid access token, and
+ * *which* caller may do *what* is the authorization enforcement feature. See
+ * the module documentation for the guard it will bring.
  *
  * The two static segments — `presets` and `me/effective` — cannot collide with
  * anything, because this controller deliberately has **no `GET /:id`**: a
@@ -79,9 +80,9 @@ export class PermissionController {
    * else* do" is `GET /users/:id/permissions`, and it answers with the matrix
    * because that is an administrator's question rather than a renderer's.
    *
-   * A super-admin caller gets every key and `readOnly: true`. The role is taken
-   * from the claimed `x-user-role` header, which is the honest shape of this
-   * endpoint until authentication exists.
+   * A super-admin caller gets every key and `readOnly: true`. The role comes
+   * from `@CurrentUser()` — a claim in a header when this was written, an
+   * account read from `users` since Feature 032, through the same parameter.
    */
   @Get('me/effective')
   findMyEffective(

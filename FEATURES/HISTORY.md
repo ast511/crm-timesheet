@@ -35,6 +35,8 @@ Append new features to the end of this table.
 | 029 | [Permission Management](029-permission-management.md) | Completed | 2026-08-06 |
 | 030 | [Timesheet Management](030-timesheet-management.md) | Completed | 2026-08-06 |
 | 031 | [Reporting](031-reporting.md) | Completed | 2026-08-07 |
+| 032 | [Authentication](032-authentication.md) | Completed | 2026-08-08 |
+| 033 | [Error Code Standardization](033-error-code-standardization.md) | Completed | 2026-08-09 |
 
 ## Amendments
 

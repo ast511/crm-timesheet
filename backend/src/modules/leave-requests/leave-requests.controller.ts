@@ -69,9 +69,10 @@ export class LeaveRequestsController {
    * transaction. Folding it into a generic update would have made "did this
    * write touch the ledger" a question about which fields the body carried.
    *
-   * The decider is taken from the `x-employee-id` header — the same placeholder
-   * for authentication the `/me` routes use — so a client cannot sign somebody
-   * else's name to a decision by putting an id in the body.
+   * The decider is taken from `@CurrentEmployeeId()` — the same seam the `/me`
+   * routes use, and since Feature 032 the employment record of the
+   * authenticated account — so a client cannot sign somebody else's name to a
+   * decision by putting an id in the body.
    */
   @Patch(':id/status')
   updateStatus(

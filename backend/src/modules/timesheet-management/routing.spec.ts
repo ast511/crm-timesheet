@@ -2,12 +2,8 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
-import { CURRENT_EMPLOYEE_HEADER } from '../../common/decorators/current-employee-id.decorator';
-import {
-  CURRENT_USER_HEADER,
-  CURRENT_USER_ROLE_HEADER,
-} from '../../common/decorators/current-user.decorator';
 import { TimesheetEntryType, UserRole } from '../../generated/prisma/enums';
+import { TestAuthentication } from '../auth/testing/authentication.testing';
 import { TimesheetController } from './timesheet.controller';
 import { TimesheetService } from './timesheet.service';
 
@@ -43,15 +39,13 @@ describe('timesheet routing', () => {
     remove: jest.fn().mockResolvedValue(undefined),
   };
 
-  /** The headers a caller has to send until authentication exists. */
+  /** The access token a caller has to present, since Feature 032. */
+  const auth = new TestAuthentication();
+
   const as = (
     role: UserRole = UserRole.USER,
     employeeId: string | null = 'emp-1',
-  ) => ({
-    [CURRENT_USER_HEADER]: 'usr-1',
-    [CURRENT_USER_ROLE_HEADER]: role,
-    ...(employeeId === null ? {} : { [CURRENT_EMPLOYEE_HEADER]: employeeId }),
-  });
+  ) => auth.as({ userId: 'usr-1', role, employeeId });
 
   const ENTRY = {
     date: '2026-09-01',
@@ -63,7 +57,10 @@ describe('timesheet routing', () => {
   beforeAll(async () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [TimesheetController],
-      providers: [{ provide: TimesheetService, useValue: timesheets }],
+      providers: [
+        { provide: TimesheetService, useValue: timesheets },
+        ...auth.providers,
+      ],
     }).compile();
 
     app = moduleRef.createNestApplication();
@@ -211,15 +208,15 @@ describe('timesheet routing', () => {
       );
     });
 
-    it('refuses a request that does not say who is calling', async () => {
+    it('refuses a request that presents no access token', async () => {
       await request(app.getHttpServer())
         .get('/timesheets/me?month=9&year=2026')
-        .expect(400);
+        .expect(401);
 
       expect(timesheets.findOwn).not.toHaveBeenCalled();
     });
 
-    // The header is optional at the seam — not every account has an employee
+    // `employeeId` is optional at the seam — not every account has an employee
     // record — so the service is what reports that a timesheet needs an owner.
     it('carries a null employeeId through for the service to refuse', async () => {
       await request(app.getHttpServer())

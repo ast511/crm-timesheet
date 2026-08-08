@@ -16,10 +16,10 @@ import { IsTimesheetRejectionReason } from './timesheet-management-field.decorat
  * same argument Feature 023 makes for refusing `decisionReason` on an approved
  * leave request.
  *
- * `reviewedByEmployeeId` and `reviewedAt` are absent too. The reviewer comes from
- * the `x-employee-id` header through `@CurrentUser()`, so a client cannot sign
- * somebody else's name to a decision, and the moment comes from the server rather
- * than from a clock this application does not run.
+ * `reviewedByEmployeeId` and `reviewedAt` are absent too. The reviewer comes
+ * from `@CurrentUser()` — the authenticated account's employment record — so a
+ * client cannot sign somebody else's name to a decision, and the moment comes
+ * from the server rather than from a clock this application does not run.
  */
 export class RejectTimesheetDto {
   /**

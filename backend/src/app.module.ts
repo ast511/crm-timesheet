@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { validateEnvironment } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { DepartmentModule } from './modules/departments/department.module';
 import { EmailModule } from './modules/email/email.module';
 import { EmployeeLeaveBalancesModule } from './modules/employee-leave-balances/employee-leave-balances.module';
@@ -48,6 +51,17 @@ import { PrismaModule } from './prisma/prisma.module';
     // `NOTIFICATION_SCHEDULER_ENABLED`, checked inside each of them.
     ScheduleModule.forRoot(),
     HealthModule,
+    // Who is calling, proved rather than claimed. Infrastructure rather than a
+    // resource, and listed above the business modules for the same reason
+    // `PrismaModule` is: everything below depends on it and it depends on none
+    // of them. It replaces the `x-user-id` / `x-user-role` / `x-employee-id`
+    // placeholder that Features 023 and 026 installed behind `@CurrentUser()`,
+    // and it did so without editing a single one of the modules that read it.
+    // It establishes identity only — what an authenticated caller is *allowed*
+    // to do per resource is the authorization enforcement feature, which will
+    // add a second global guard over the permission set
+    // `PermissionManagementModule` already resolves.
+    AuthModule,
     // Infrastructure rather than a resource: the only component that sends
     // email. It owns no table and depends on no business module, so it sits
     // with the shared modules above rather than in the list below. The
@@ -129,6 +143,23 @@ import { PrismaModule } from './prisma/prisma.module';
     ReportingModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Authentication, applied to every route in the application.
+    //
+    // An `APP_GUARD` rather than a `@UseGuards()` on each controller, and the
+    // difference is the whole security posture: this way the default is
+    // "protected", and a route added next year is protected because nobody did
+    // anything. The alternative defaults to "open", and the day somebody forgets
+    // the decorator there is nothing to notice — the endpoint works, the tests
+    // pass, and the hole is found by whoever finds it first.
+    //
+    // It is declared here rather than beside the `ValidationPipe` and the
+    // response interceptor in `configureApp`, because unlike those three it has
+    // dependencies — `Reflector` and `AuthService` — and only the injector can
+    // supply them. `@Public()` is the exemption; `login`, `refresh`, `GET /` and
+    // `GET /health` are the four routes that carry it.
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+  ],
 })
 export class AppModule {}

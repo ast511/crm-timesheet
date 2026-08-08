@@ -1,11 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 
-import { CURRENT_EMPLOYEE_HEADER } from '../../common/decorators/current-employee-id.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SortOrder } from '../../common/enums/sort-order.enum';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
@@ -505,7 +505,7 @@ export class NotificationCampaignService {
 
     if (status === null) {
       throw new BadRequestException([
-        `${CURRENT_EMPLOYEE_HEADER} names employee ${authorId}, who does not exist`,
+        `The authenticated caller's employment record ${authorId} does not exist`,
       ]);
     }
   }
@@ -560,15 +560,21 @@ function notFoundMessage(id: string): string {
  * announcement the company sent with nobody accountable for its wording is worse
  * than an administrator being asked to identify themselves.
  *
- * The message names `x-employee-id`, because that is the header a caller has to
- * add today. When authentication lands it becomes a claim on the token and this
- * function is the only place that changes.
+ * Feature 032 is the change this function said it was waiting for, and it landed
+ * exactly here: the employee id is no longer a header a caller adds but a fact
+ * read from their account, so the refusal is no longer "you left something out"
+ * — the caller left nothing out — but "your account cannot do this". A
+ * `403` rather than the `400` this threw while the id was a header, which is the
+ * one response code Feature 032 changed anywhere in the application. It changed
+ * because the question changed, and it changed in the two other places that ask
+ * it — `TimesheetService.requireEmployee` and the `@CurrentEmployeeId()`
+ * decorator — so that one condition still has one answer.
  */
 function requireAuthor(user: CurrentUser): string {
   if (user.employeeId === null) {
-    throw new BadRequestException([
-      `${CURRENT_EMPLOYEE_HEADER} header is required to compose a campaign: the account making the request has no employee record`,
-    ]);
+    throw new ForbiddenException(
+      'Composing a campaign records who wrote it, and your account has no employee record',
+    );
   }
 
   return user.employeeId;

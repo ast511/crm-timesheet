@@ -8,16 +8,11 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { IncomingHttpHeaders } from 'http';
 import { Namespace, Socket } from 'socket.io';
 
-import {
-  CURRENT_USER_HEADER,
-  CURRENT_USER_ROLE_HEADER,
-  CurrentUser,
-  resolveCurrentUser,
-} from '../../../common/decorators/current-user.decorator';
-import { CURRENT_EMPLOYEE_HEADER } from '../../../common/decorators/current-employee-id.decorator';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { AuthService } from '../../auth/auth.service';
+import { readAccessToken } from '../../auth/jwt-auth.guard';
 import { NotificationWorkspace } from '../../../generated/prisma/enums';
 import {
   CLIENT_EVENTS,
@@ -37,20 +32,16 @@ import {
 } from './websocket.constants';
 
 /**
- * The three identity headers, also accepted in the Socket.IO handshake `auth`
- * payload.
+ * Where a handshake carries its access token, in the `auth` payload.
  *
- * A browser cannot set headers on a WebSocket upgrade — the API simply has no
- * way to — so `io(url, { auth: { 'x-user-id': … } })` is how a real client will
- * identify itself, while a Node or Postman client can use either. The names are
- * the *same* three, so the placeholder has one spelling rather than a second
- * vocabulary that would have to be replaced twice when authentication lands.
+ * **A browser cannot set headers on a WebSocket upgrade** — the API simply has
+ * no way to — so `io(url, { auth: { token } })` is how a real client
+ * authenticates, and `Authorization: Bearer …` is the fallback a Node or
+ * Postman client may use instead. Feature 028 accepted the three identity
+ * headers in this same payload for the same reason; Feature 032 replaced the
+ * three with one token, and the shape of the accommodation is unchanged.
  */
-const IDENTITY_KEYS = [
-  CURRENT_USER_HEADER,
-  CURRENT_USER_ROLE_HEADER,
-  CURRENT_EMPLOYEE_HEADER,
-] as const;
+const HANDSHAKE_TOKEN_KEY = 'token';
 
 /**
  * The real-time half of the notification delivery engine.
@@ -69,13 +60,17 @@ const IDENTITY_KEYS = [
  *
  * Four decisions worth naming:
  *
- * 1. **The caller comes from `resolveCurrentUser`, unchanged.** Feature 026's
- *    placeholder is reused rather than re-implemented for sockets: the same three
- *    headers, the same trimming, the same bounds, the same refusal of a role the
- *    schema does not know, and `administrativeAccess` derived rather than
- *    claimed. A second copy of those rules would be the one that eventually
- *    accepted a role the HTTP side refuses. Nothing is hardcoded and no user is
- *    assumed anywhere — a handshake that does not say who is calling is refused.
+ * 1. **The caller comes from `AuthService.authenticate`, unchanged.** Feature 028
+ *    reused Feature 026's header placeholder here rather than re-implementing it;
+ *    Feature 032 replaced that placeholder with a token and this call moved with
+ *    it, to the very method `JwtAuthGuard` calls on every HTTP request. So a
+ *    socket and a request agree about what a token means, about whether its
+ *    signature is good, and about whether the account behind it is still active —
+ *    and they agree because there is one implementation, not two that were
+ *    written to match. A second copy is the one that would still be honouring a
+ *    deactivated account next week, and on a connection that lives for hours that
+ *    matters more here than anywhere else. Nothing is hardcoded and no user is
+ *    assumed — a handshake that does not present a valid token is refused.
  * 2. **A connection without an employment record is refused.** Every room here is
  *    keyed by employee, because that is the vocabulary campaigns and reminders
  *    address people in. An account with no `employees` row — a super-admin
@@ -92,11 +87,23 @@ const IDENTITY_KEYS = [
  *    should see it — and an administrator reading their personal inbox does not
  *    receive back-office announcements they are not looking at.
  *
- * Authentication and authorization are **not** implemented here, exactly as they
- * are not on the HTTP side. Any caller may claim any account and any role. The
- * one check that exists — the administrative workspace — is not authorization
- * arriving early: it is what `ADMINISTRATIVE_USERS` *means*, and Feature 026
- * makes the same check on the same workspace over HTTP.
+ * **Authentication happens once, at the handshake**, and that is the honest
+ * shape of a persistent connection rather than a shortcut. A socket presents its
+ * credential when it opens; there is no per-message header to re-check, and the
+ * global `JwtAuthGuard` deliberately passes non-HTTP contexts through for that
+ * reason. What it costs is a window: a connection authenticated at 09:00 with a
+ * fifteen-minute access token keeps receiving notifications after that token
+ * would have expired, and after the account behind it was deactivated, until
+ * something disconnects it. It is the socket-shaped version of the trade-off
+ * `RefreshToken` in `schema.prisma` describes, and it is wider — hours rather
+ * than minutes. Closing it needs the server to drop the sockets of a deactivated
+ * account, which is recorded as a follow-up in FEATURES/032 rather than guessed
+ * at here.
+ *
+ * *Authorization* is still not implemented, exactly as it is not on the HTTP
+ * side. The one check that exists — the administrative workspace — is not
+ * authorization arriving early: it is what `ADMINISTRATIVE_USERS` *means*, and
+ * Feature 026 makes the same check on the same workspace over HTTP.
  */
 @WebSocketGateway({ namespace: NOTIFICATION_NAMESPACE })
 export class NotificationGateway
@@ -116,29 +123,33 @@ export class NotificationGateway
   @WebSocketServer()
   private readonly server?: Namespace;
 
-  constructor(private readonly registry: WebsocketUserRegistryService) {}
+  constructor(
+    private readonly registry: WebsocketUserRegistryService,
+    private readonly authService: AuthService,
+  ) {}
 
   /**
    * Accepts a connection, or refuses it.
    *
-   * The order is the escalation a client can act on: who are you (a `400`-shaped
-   * message on the error channel if the handshake does not say), then do you have
-   * an employment record, and only then are rooms joined and the connection
-   * recorded.
+   * The order is the escalation a client can act on: who are you (a `401`-shaped
+   * message on the error channel if the handshake presents no valid token), then
+   * do you have an employment record, and only then are rooms joined and the
+   * connection recorded.
    *
    * Rooms are joined *after* the registry write, so a displaced socket is already
    * out of the index before the new one starts receiving — the alternative leaves
    * a window in which one account is in its own room twice.
+   *
+   * **Asynchronous since Feature 032**, because authenticating a token reads the
+   * account from the database. Socket.IO does not wait for this handler, so a
+   * client that emits immediately on `connect` can have a message arrive before
+   * its socket is registered. That message is refused with the acknowledgement
+   * `switchWorkspace` already returns for an unregistered socket — "reconnect
+   * before switching workspace" — rather than silently mishandled, which is why
+   * the ordering is acceptable rather than merely unavoidable.
    */
-  handleConnection(client: Socket): void {
-    // TESTING purpose only for postman
-    // console.log('HEADERS');
-    // console.dir(client.handshake.headers, { depth: null });
-
-    // console.log('AUTH');
-    // console.dir(client.handshake.auth, { depth: null });
-
-    const user = this.resolveClient(client);
+  async handleConnection(client: Socket): Promise<void> {
+    const user = await this.resolveClient(client);
 
     if (user === null) {
       return;
@@ -221,7 +232,7 @@ export class NotificationGateway
     ) {
       return refusal(
         connection.workspace,
-        `The administrative workspace is available to administrative roles only; ${CURRENT_USER_ROLE_HEADER} names ${connection.role}`,
+        `The administrative workspace is available to administrative roles only; this account holds ${connection.role}`,
       );
     }
 
@@ -294,16 +305,16 @@ export class NotificationGateway
    * Who is on the other end, or `null` after the connection has been refused.
    *
    * Refusing is an `exception` event followed by a disconnect, rather than a
-   * silent close: a client whose headers are wrong would otherwise see a
-   * connection that opens and immediately drops, with nothing to read.
+   * silent close: a client whose token is missing or expired would otherwise see
+   * a connection that opens and immediately drops, with nothing to read.
    */
-  private resolveClient(
+  private async resolveClient(
     client: Socket,
-  ): (CurrentUser & { employeeId: string }) | null {
+  ): Promise<(CurrentUser & { employeeId: string }) | null> {
     let user: CurrentUser;
 
     try {
-      user = resolveCurrentUser({ headers: readIdentity(client) });
+      user = await this.authService.authenticate(readHandshakeToken(client));
     } catch (error) {
       this.refuse(client, describeRefusal(error));
 
@@ -313,7 +324,7 @@ export class NotificationGateway
     if (user.employeeId === null) {
       this.refuse(
         client,
-        `${CURRENT_EMPLOYEE_HEADER} is required: real-time notifications are addressed to an employee, and this account has no employee record`,
+        'Real-time notifications are addressed to an employee, and this account has no employee record',
       );
 
       return null;
@@ -345,25 +356,33 @@ export class NotificationGateway
 }
 
 /**
- * The identity a handshake claims, as headers.
+ * The access token a handshake presents.
  *
- * `auth` wins **as a whole** rather than key by key: a client that sends both
- * would otherwise be able to claim one account in its headers and another in its
- * auth payload, and merging them would decide which silently. Whichever channel
- * names an identity is the one that is read, and `resolveCurrentUser` then
- * applies exactly the rules it applies to an HTTP request.
+ * The `auth` payload wins over the header, because it is the channel a browser
+ * can actually use — see {@link HANDSHAKE_TOKEN_KEY}. It wins outright rather
+ * than being merged with anything: a client that sends both would otherwise be
+ * presenting two credentials, and choosing between them silently is how one gets
+ * verified while the other gets logged.
+ *
+ * The header path reuses `readAccessToken`, the exact function `JwtAuthGuard`
+ * uses, so `Authorization: Bearer …` is parsed identically on both sides —
+ * including the refusal of a header sent twice, which arrives here as an array
+ * for the same reason it does over HTTP.
+ *
+ * A non-string in `auth.token` — a number, an object, an array — is passed
+ * through as an empty string rather than coerced, so it fails verification like
+ * any other bad token instead of becoming `"[object Object]"` on its way to a
+ * signature check.
  */
-function readIdentity(client: Socket): IncomingHttpHeaders {
+function readHandshakeToken(client: Socket): string {
   const auth = client.handshake.auth as Record<string, unknown>;
-  const claimed = IDENTITY_KEYS.filter((key) => auth[key] !== undefined);
+  const claimed = auth[HANDSHAKE_TOKEN_KEY];
 
-  if (claimed.length === 0) {
-    return client.handshake.headers;
+  if (claimed !== undefined) {
+    return typeof claimed === 'string' ? claimed.trim() : '';
   }
 
-  return Object.fromEntries(
-    claimed.map((key) => [key, auth[key]]),
-  ) as IncomingHttpHeaders;
+  return readAccessToken(client.handshake);
 }
 
 /**

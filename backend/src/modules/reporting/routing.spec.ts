@@ -7,11 +7,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
-import {
-  CURRENT_USER_HEADER,
-  CURRENT_USER_ROLE_HEADER,
-  CurrentUser,
-} from '../../common/decorators/current-user.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AllExceptionsFilter } from '../../common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from '../../common/interceptors/response.interceptor';
 import {
@@ -20,6 +16,7 @@ import {
   API_VERSION_PREFIX,
 } from '../../config/api.constants';
 import { UserRole } from '../../generated/prisma/enums';
+import { TestAuthentication } from '../auth/testing/authentication.testing';
 import { ReportingController } from './reporting.controller';
 import { assertReportingAccess, ReportingService } from './reporting.service';
 
@@ -53,18 +50,20 @@ describe('reporting routing', () => {
     export: jest.fn().mockResolvedValue(EXPORTED),
   };
 
-  /** The headers a caller has to send until authentication exists. */
-  const as = (role: UserRole = UserRole.ADMIN) => ({
-    [CURRENT_USER_HEADER]: 'usr-1',
-    [CURRENT_USER_ROLE_HEADER]: role,
-  });
+  /** The access token a caller has to present, since Feature 032. */
+  const auth = new TestAuthentication();
+
+  const as = (role: UserRole = UserRole.ADMIN) => auth.as({ role });
 
   const BODY = { month: 9, year: 2026 };
 
   beforeAll(async () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [ReportingController],
-      providers: [{ provide: ReportingService, useValue: reporting }],
+      providers: [
+        { provide: ReportingService, useValue: reporting },
+        ...auth.providers,
+      ],
     }).compile();
 
     app = moduleRef.createNestApplication();
@@ -109,8 +108,8 @@ describe('reporting routing', () => {
         });
     });
 
-    it('refuses a request that does not say who is calling', async () => {
-      await request(app.getHttpServer()).get('/api/v1/reports').expect(400);
+    it('refuses a request that presents no access token', async () => {
+      await request(app.getHttpServer()).get('/api/v1/reports').expect(401);
     });
   });
 

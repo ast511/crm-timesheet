@@ -6,9 +6,26 @@ import {
 
 const DATABASE_URL = 'postgresql://user:s3cret@localhost:5432/db?schema=public';
 
+/**
+ * The two signing keys, which Feature 032 made mandatory.
+ *
+ * They join `DATABASE_URL` in the baseline every case starts from, because
+ * "the environment is otherwise valid" is what each of these tests is varying
+ * one thing against — and an application that cannot sign a token has no
+ * legitimate degraded state to start in. Long enough to clear the 32-character
+ * floor, and visibly not secrets.
+ */
+const JWT_ACCESS_SECRET = 'test-access-secret-0123456789abcdef';
+const JWT_REFRESH_SECRET = 'test-refresh-secret-0123456789abcdef';
+
 describe('validateEnvironment', () => {
   const validateWith = (overrides: Record<string, unknown> = {}) =>
-    validateEnvironment({ DATABASE_URL, ...overrides });
+    validateEnvironment({
+      DATABASE_URL,
+      JWT_ACCESS_SECRET,
+      JWT_REFRESH_SECRET,
+      ...overrides,
+    });
 
   it('coerces PORT to a number', () => {
     expect(validateWith({ PORT: '4000' }).PORT).toBe(4000);
@@ -176,6 +193,90 @@ describe('validateEnvironment', () => {
       expect(() =>
         validateWith({ NOTIFICATION_SCHEDULER_ENABLED: 'sometimes' }),
       ).toThrow(/NOTIFICATION_SCHEDULER_ENABLED/);
+    });
+  });
+
+  /**
+   * The signing configuration (Feature 032).
+   *
+   * The two secrets are the only variables besides `DATABASE_URL` the
+   * application refuses to start without, and the reasoning is recorded on the
+   * contract itself: there is no degraded state for an API that cannot sign a
+   * token, and both alternatives — invent one at boot, or ship a default — are
+   * worse than not starting.
+   */
+  describe('the signing configuration', () => {
+    it('requires both secrets', () => {
+      expect(() =>
+        validateEnvironment({ DATABASE_URL, JWT_REFRESH_SECRET }),
+      ).toThrow(/JWT_ACCESS_SECRET/);
+
+      expect(() =>
+        validateEnvironment({ DATABASE_URL, JWT_ACCESS_SECRET }),
+      ).toThrow(/JWT_REFRESH_SECRET/);
+    });
+
+    /**
+     * HS256 is HMAC-SHA-256, so a key shorter than the digest is the weakest
+     * link — and a weak secret produces tokens that verify perfectly and forge
+     * just as easily, so nothing downstream would ever notice.
+     */
+    it('rejects a secret shorter than the digest it keys', () => {
+      expect(() => validateWith({ JWT_ACCESS_SECRET: 'short' })).toThrow(
+        /JWT_ACCESS_SECRET/,
+      );
+    });
+
+    /**
+     * One secret for both kinds of token would mean a refresh token verifies as
+     * an access token: the long-lived credential a client stores would work
+     * directly against every protected route.
+     */
+    it('rejects one secret used for both kinds of token', () => {
+      expect(() =>
+        validateWith({ JWT_REFRESH_SECRET: JWT_ACCESS_SECRET }),
+      ).toThrow(/JWT_REFRESH_SECRET must not be the same value/);
+    });
+
+    it('defaults the two lifetimes to 15 minutes and 7 days', () => {
+      const config = validateWith();
+
+      expect(config.JWT_ACCESS_TTL).toBe(900);
+      expect(config.JWT_REFRESH_TTL).toBe(604_800);
+    });
+
+    it('coerces the lifetimes out of their string form', () => {
+      const config = validateWith({
+        JWT_ACCESS_TTL: '300',
+        JWT_REFRESH_TTL: '86400',
+      });
+
+      expect(config.JWT_ACCESS_TTL).toBe(300);
+      expect(config.JWT_REFRESH_TTL).toBe(86_400);
+    });
+
+    /**
+     * The access token is the one that cannot be revoked, so its lifetime is the
+     * window in which a deactivated account keeps working. An hour is the
+     * longest that is defensible.
+     */
+    it('refuses an access lifetime longer than an hour', () => {
+      expect(() => validateWith({ JWT_ACCESS_TTL: '7200' })).toThrow(
+        /JWT_ACCESS_TTL/,
+      );
+    });
+
+    it('refuses a refresh lifetime beyond ninety days', () => {
+      expect(() => validateWith({ JWT_REFRESH_TTL: '99999999' })).toThrow(
+        /JWT_REFRESH_TTL/,
+      );
+    });
+
+    /** A thrown error becomes a startup log, and never carries a key. */
+    it('never puts a secret in the message it refuses with', () => {
+      expect(() => validateWith({ JWT_ACCESS_SECRET: 'short' })).not.toThrow(
+        /short/,
+      );
     });
   });
 });

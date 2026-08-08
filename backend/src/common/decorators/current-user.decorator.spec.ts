@@ -1,39 +1,45 @@
-import { BadRequestException } from '@nestjs/common';
-import { Request } from 'express';
+import { UnauthorizedException } from '@nestjs/common';
 
 import { UserRole } from '../../generated/prisma/enums';
 import {
   ADMINISTRATIVE_ROLES,
   isAdministrativeRole,
 } from '../constants/role.constants';
-import { CURRENT_EMPLOYEE_HEADER } from './current-employee-id.decorator';
 import {
-  CURRENT_USER_HEADER,
-  CURRENT_USER_ROLE_HEADER,
+  AuthenticatedRequest,
+  CurrentUser,
   resolveCurrentUser,
 } from './current-user.decorator';
 
 /**
  * The decorator itself runs inside Nest's pipeline, so it is exercised through
- * real requests in the notifications routing spec. What is tested here is its
- * body — the header rules — which is why they were extracted into a plain
- * function in the first place.
+ * real requests in each module's routing spec. What is tested here is its body.
+ *
+ * **This file is the acceptance test of Feature 032's seam replacement, and what
+ * it no longer contains is the point.** It used to check header rules — trimming,
+ * length bounds, a role the enum does not know, a header sent twice — because
+ * the caller was assembled from three headers a client could write. There is
+ * nothing left to validate: the caller is now assembled by `AuthService` from
+ * the `users` row itself, so a role that is not a `UserRole` is unrepresentable
+ * rather than rejected, and an over-long id cannot arrive because no id arrives.
+ * Those rules did not move; the mistakes they guarded against stopped existing.
+ *
+ * What remains is the contract that did not change, and that is what the rest of
+ * the application depends on: the four fields, and `administrativeAccess` being
+ * derived rather than claimed.
  */
-const requestWith = (headers: Record<string, string | string[]>): Request =>
-  ({ headers }) as unknown as Request;
+const requestWith = (user?: CurrentUser): AuthenticatedRequest => ({ user });
 
-const VALID = {
-  [CURRENT_USER_HEADER]: 'usr-1',
-  [CURRENT_USER_ROLE_HEADER]: 'HR',
+const CALLER: CurrentUser = {
+  userId: 'usr-1',
+  employeeId: 'emp-1',
+  role: UserRole.HR,
+  administrativeAccess: true,
 };
 
 describe('resolveCurrentUser', () => {
-  it('reads the account, the role and the employee record', () => {
-    expect(
-      resolveCurrentUser(
-        requestWith({ ...VALID, [CURRENT_EMPLOYEE_HEADER]: 'emp-1' }),
-      ),
-    ).toEqual({
+  it('returns the caller the guard resolved, unchanged', () => {
+    expect(resolveCurrentUser(requestWith(CALLER))).toEqual({
       userId: 'usr-1',
       employeeId: 'emp-1',
       role: UserRole.HR,
@@ -41,135 +47,31 @@ describe('resolveCurrentUser', () => {
     });
   });
 
-  it('trims each header', () => {
-    const user = resolveCurrentUser(
-      requestWith({
-        [CURRENT_USER_HEADER]: '  usr-1  ',
-        [CURRENT_USER_ROLE_HEADER]: '  hr  ',
-        [CURRENT_EMPLOYEE_HEADER]: '  emp-1  ',
-      }),
+  it('carries a null employee for an account with no employment record', () => {
+    expect(
+      resolveCurrentUser(requestWith({ ...CALLER, employeeId: null }))
+        .employeeId,
+    ).toBeNull();
+  });
+
+  /**
+   * Reachable only by putting `@CurrentUser()` on a `@Public()` handler, which
+   * is a wiring mistake rather than something a client can do. It refuses rather
+   * than inventing an anonymous caller — the absence of exactly that kind of
+   * fallback is what made this seam replaceable in the first place.
+   */
+  it('refuses to invent a caller when the route did not authenticate one', () => {
+    expect(() => resolveCurrentUser(requestWith())).toThrow(
+      UnauthorizedException,
     );
-
-    expect(user.userId).toBe('usr-1');
-    expect(user.employeeId).toBe('emp-1');
-    expect(user.role).toBe(UserRole.HR);
-  });
-
-  describe('the account header', () => {
-    it('is required, and the message names it', () => {
-      expect(() =>
-        resolveCurrentUser(
-          requestWith({ [CURRENT_USER_ROLE_HEADER]: 'ADMIN' }),
-        ),
-      ).toThrow(BadRequestException);
-    });
-
-    it('rejects a blank value', () => {
-      expect(() =>
-        resolveCurrentUser(
-          requestWith({ ...VALID, [CURRENT_USER_HEADER]: '  ' }),
-        ),
-      ).toThrow(BadRequestException);
-    });
-
-    it('rejects a value longer than a foreign key may be', () => {
-      expect(() =>
-        resolveCurrentUser(
-          requestWith({ ...VALID, [CURRENT_USER_HEADER]: 'x'.repeat(51) }),
-        ),
-      ).toThrow(BadRequestException);
-    });
-
-    it('rejects the header sent twice rather than picking one', () => {
-      expect(() =>
-        resolveCurrentUser(
-          requestWith({ ...VALID, [CURRENT_USER_HEADER]: ['usr-1', 'usr-2'] }),
-        ),
-      ).toThrow(BadRequestException);
-    });
-  });
-
-  describe('the employee header', () => {
-    it('is optional — not every account has an employment record', () => {
-      expect(resolveCurrentUser(requestWith(VALID)).employeeId).toBeNull();
-    });
-
-    it('is still validated when it is sent', () => {
-      expect(() =>
-        resolveCurrentUser(
-          requestWith({ ...VALID, [CURRENT_EMPLOYEE_HEADER]: '   ' }),
-        ),
-      ).toThrow(BadRequestException);
-    });
-  });
-
-  describe('the role header', () => {
-    it('is required', () => {
-      expect(() =>
-        resolveCurrentUser(requestWith({ [CURRENT_USER_HEADER]: 'usr-1' })),
-      ).toThrow(BadRequestException);
-    });
-
-    it('rejects a role the schema does not know, naming the legal ones', () => {
-      // The messages live in `response.message` rather than in `.message`: the
-      // exception carries an array, the same shape the ValidationPipe produces.
-      let messages: unknown;
-
-      try {
-        resolveCurrentUser(
-          requestWith({ ...VALID, [CURRENT_USER_ROLE_HEADER]: 'MANAGER' }),
-        );
-      } catch (error) {
-        ({ message: messages } = (
-          error as BadRequestException
-        ).getResponse() as { message: string[] });
-      }
-
-      expect(messages).toEqual([
-        expect.stringContaining('SUPERADMIN, ADMIN, HR, USER'),
-      ]);
-    });
-
-    it('accepts any case, since a header is not a payload field', () => {
-      expect(
-        resolveCurrentUser(
-          requestWith({ ...VALID, [CURRENT_USER_ROLE_HEADER]: 'superadmin' }),
-        ).role,
-      ).toBe(UserRole.SUPERADMIN);
-    });
-  });
-
-  describe('administrativeAccess', () => {
-    it.each([...ADMINISTRATIVE_ROLES])('is true for %s', (role) => {
-      expect(
-        resolveCurrentUser(
-          requestWith({ ...VALID, [CURRENT_USER_ROLE_HEADER]: role }),
-        ).administrativeAccess,
-      ).toBe(true);
-    });
-
-    it('is false for an ordinary employee', () => {
-      expect(
-        resolveCurrentUser(
-          requestWith({ ...VALID, [CURRENT_USER_ROLE_HEADER]: UserRole.USER }),
-        ).administrativeAccess,
-      ).toBe(false);
-    });
-
-    it('is derived from the role rather than read from a header of its own', () => {
-      const user = resolveCurrentUser(
-        requestWith({
-          ...VALID,
-          [CURRENT_USER_ROLE_HEADER]: UserRole.USER,
-          'x-administrative-access': 'true',
-        }),
-      );
-
-      expect(user.administrativeAccess).toBe(false);
-    });
   });
 });
 
+/**
+ * `administrativeAccess` is derived in `toCurrentUser`, where the role is read,
+ * rather than here — so this is where the *rule* is asserted, and the auth
+ * module's spec asserts that the rule is applied to a real row.
+ */
 describe('isAdministrativeRole', () => {
   it('accepts the three administrative roles and nothing else', () => {
     const administrative = Object.values(UserRole).filter(isAdministrativeRole);

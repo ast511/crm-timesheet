@@ -419,7 +419,15 @@ describe('UserPermissionService', () => {
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
-    it('refuses a caller who does not exist, naming the header', async () => {
+    /**
+     * Since Feature 032 the caller's id comes from a validated token rather than
+     * a header, so this is a data inconsistency — an account deleted between the
+     * token being issued and the audit row being written — rather than something
+     * a client typed. It is still checked here rather than left to the
+     * `RESTRICT`ed foreign key, which would surface as a `500` at the end of a
+     * transaction that had already computed the diff.
+     */
+    it('refuses a caller whose account no longer exists', async () => {
       users.findRole.mockImplementation((id: string) =>
         Promise.resolve(id === 'usr-admin' ? null : UserRole.USER),
       );
@@ -428,7 +436,9 @@ describe('UserPermissionService', () => {
         service.replace('usr-1', CALLER, { permissionKeys: [] }),
       ).rejects.toMatchObject({
         response: {
-          message: ['x-user-id names user usr-admin, who does not exist'],
+          message: [
+            "The authenticated caller's account usr-admin does not exist",
+          ],
         },
       });
     });

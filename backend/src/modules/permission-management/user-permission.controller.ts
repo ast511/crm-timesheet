@@ -39,13 +39,14 @@ import { UserPermissionService } from './user-permission.service';
  * baseline in order to compose one, and the day a baseline changed, every open
  * tab would be diffing against a stale copy.
  *
- * **Nothing here is gated.** These routes should eventually be reachable only by
- * a caller holding `PERMISSIONS.EDIT`, and today they are reachable by anybody,
- * because `x-user-id` and `x-user-role` are claims rather than credentials until
- * authentication exists. Shipping a guard over them would be shipping the
- * appearance of a control. What *is* enforced is the one rule that is about the
- * resource rather than the caller: a super-admin's permissions cannot be written,
- * on any of the three, and that is a `409`.
+ * **Nothing here is gated by permission.** These routes should be reachable only
+ * by a caller holding `PERMISSIONS.EDIT`, and they are not yet — that is Feature
+ * 033. What changed with Feature 032 is that they are no longer reachable by
+ * *anybody*: a valid access token is required, so the caller recorded in
+ * `permission_audit_logs.changed_by_user_id` is now a person rather than a
+ * claim. What *is* enforced here is the one rule about the resource rather than
+ * the caller: a super-admin's permissions cannot be written, on any of the
+ * three, and that is a `409`.
  *
  * Every method is a one-line delegation on purpose, and `id` is taken as a plain
  * string: ids are cuids, so `ParseUUIDPipe` would reject valid ones.

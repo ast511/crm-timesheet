@@ -294,12 +294,21 @@ describe('TimesheetService', () => {
       expect(problems[0]).toContain('only the current month and past months');
     });
 
+    /**
+     * A `403` since Feature 032, where this was a `400` naming `x-employee-id`.
+     * The condition is unchanged — a super-admin created to administer the
+     * system has no employment record — but the caller no longer *sends* an
+     * employee id, so the refusal is about what their account is rather than
+     * about what their request left out.
+     */
     it('refuses an account with no employment record', async () => {
-      const problems = await messagesFrom(
+      await expect(
         service.openOwn(accountWithoutEmployee, { month: MONTH, year: YEAR }),
-      );
+      ).rejects.toThrow(ForbiddenException);
 
-      expect(problems[0]).toContain('x-employee-id');
+      await expect(
+        service.openOwn(accountWithoutEmployee, { month: MONTH, year: YEAR }),
+      ).rejects.toThrow(/employment record/);
     });
   });
 

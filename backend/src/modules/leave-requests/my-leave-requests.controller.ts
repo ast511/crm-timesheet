@@ -29,11 +29,12 @@ import { LeaveRequestsService } from './leave-requests.service';
  * one, and would make the endpoint indistinguishable from the HR list it sits
  * beside. `/me` is the one scope that cannot be aimed at somebody else.
  *
- * Who "me" is comes from the `x-employee-id` header, through
- * `@CurrentEmployeeId()`. **That is a placeholder for authentication**, kept to
- * a single decorator so the day auth lands, nothing in this file changes — see
- * the decorator for the whole argument. Any caller may claim any employee id
- * today, and pretending otherwise would be worse than saying so.
+ * Who "me" is comes from `@CurrentEmployeeId()`. That was a placeholder reading
+ * an `x-employee-id` header any caller could set, kept to a single decorator so
+ * that the day authentication landed, nothing in this file would change.
+ * Feature 032 landed it, and nothing in this file changed — see the decorator,
+ * which quotes the promise back. The employee is now the employment record of
+ * the account behind a validated access token.
  *
  * The payloads carry no `employee` object, for the reason the URL carries no id:
  * a response must never repeat what the caller already stated. The HR

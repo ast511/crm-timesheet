@@ -32,11 +32,11 @@ import {
  * genuinely was not. The administrative workspace is a different inbox, not a
  * wider view of this one, and it has its own controller.
  *
- * Who "me" is comes from the `x-user-id` and `x-user-role` headers, through
- * `@CurrentUser()`. **That is a placeholder for authentication**, kept to a
- * single decorator so the day auth lands, nothing in this file changes — see the
- * decorator for the whole argument. Any caller may claim any account and any
- * role today, and pretending otherwise would be worse than saying so.
+ * Who "me" is comes from `@CurrentUser()`. That read two headers any caller
+ * could set, kept to a single decorator so that the day authentication landed,
+ * nothing in this file would change. Feature 032 landed it, and nothing in this
+ * file changed — see the decorator, which quotes the promise back. The account
+ * and the role now come from `users`, behind a validated access token.
  *
  * **The by-id routes are here rather than duplicated per workspace.** An id
  * identifies a notification, not an inbox, so `GET /notifications/:id`,

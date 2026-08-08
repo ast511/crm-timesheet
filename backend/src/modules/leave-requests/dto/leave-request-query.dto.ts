@@ -83,8 +83,8 @@ export class LeaveRequestFilterQueryDto extends SortQueryDto {
  * apply a fallback of its own. The three inherited filters have no initialiser —
  * for them, absent means "do not filter", which is not a value they could carry.
  *
- * **There is no `employeeId`.** The scope is the caller, named by the
- * `x-employee-id` header; offering it as a filter as well would be two ways to
+ * **There is no `employeeId`.** The scope is the caller, from
+ * `@CurrentEmployeeId()`; offering it as a filter as well would be two ways to
  * ask one question, and the second would let anybody read anybody's leave by
  * typing an id.
  *

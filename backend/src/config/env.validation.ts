@@ -11,6 +11,7 @@ import {
   Matches,
   Max,
   Min,
+  MinLength,
   Validate,
   ValidateIf,
   ValidationArguments,
@@ -43,6 +44,80 @@ const POSTGRES_URL_PATTERN = /^postgres(ql)?:\/\//;
  * asked for — rather than a deliberately tight setting.
  */
 const MIN_TIMEOUT_MS = 1000;
+
+/**
+ * Shortest a JWT signing secret may be, in characters.
+ *
+ * HS256 is HMAC-SHA-256, whose security is the entropy of its key: a secret
+ * shorter than the digest it produces is the weakest link in the chain, and
+ * RFC 7518 §3.2 says so outright. 32 is that floor expressed in the unit an
+ * operator actually types, and the value it is measuring is one that should
+ * come from `openssl rand -base64 48` rather than from a keyboard — which is
+ * why the check is a length rather than a complexity rule.
+ *
+ * Enforced here, at startup, because there is no later moment to enforce it in:
+ * a weak secret produces tokens that verify perfectly and forge just as easily,
+ * so nothing downstream would ever notice.
+ */
+const MIN_JWT_SECRET_LENGTH = 32;
+
+/**
+ * Bounds on the access-token lifetime, in seconds.
+ *
+ * The lower bound is a minute because an access token shorter than that would
+ * expire during an ordinary page of work and turn every deployment into a
+ * refresh loop. The upper bound is an hour because this token is the one that
+ * cannot be revoked — see `RefreshToken` in `schema.prisma` — so its lifetime is
+ * the window in which a deactivated account keeps working, and an hour is the
+ * longest that window is defensible.
+ */
+const MIN_ACCESS_TTL_SECONDS = 60;
+const MAX_ACCESS_TTL_SECONDS = 3600;
+
+/**
+ * Bounds on the refresh-token lifetime, in seconds.
+ *
+ * An hour at the bottom, so a refresh token always outlives the access token it
+ * renews; ninety days at the top, because a credential that survives a quarter
+ * is a credential nobody remembers issuing.
+ */
+const MIN_REFRESH_TTL_SECONDS = 3600;
+const MAX_REFRESH_TTL_SECONDS = 7_776_000;
+
+/** Fifteen minutes — see {@link EnvironmentVariables.JWT_ACCESS_TTL}. */
+const DEFAULT_ACCESS_TTL_SECONDS = 900;
+
+/** Seven days — see {@link EnvironmentVariables.JWT_REFRESH_TTL}. */
+const DEFAULT_REFRESH_TTL_SECONDS = 604_800;
+
+/**
+ * Rejects a secret that is the *other* secret.
+ *
+ * Two keys are declared and they have to be two keys. Signing access and refresh
+ * tokens with one secret would mean a refresh token verifies as an access token
+ * and the other way round, so a stolen refresh token — the long-lived one, the
+ * one a client stores — would be usable directly against every protected route,
+ * and the whole point of separating them would be lost to a copy-paste in a
+ * `.env`. The token-type claim `TokenService` writes catches the same mistake at
+ * verification time; this catches it at startup, where it can still be fixed.
+ */
+@ValidatorConstraint({ name: 'isDistinctSecret', async: false })
+class IsDistinctSecretConstraint implements ValidatorConstraintInterface {
+  validate(
+    value: unknown,
+    { object, constraints }: ValidationArguments,
+  ): boolean {
+    const [other] = constraints as [keyof EnvironmentVariables];
+
+    return value !== (object as EnvironmentVariables)[other];
+  }
+
+  defaultMessage({ property, constraints }: ValidationArguments): string {
+    const [other] = constraints as [string];
+
+    return `${property} must not be the same value as ${other}`;
+  }
+}
 
 /**
  * `@IsEmail()`, except that a variable set to nothing is treated as not set.
@@ -114,6 +189,70 @@ export class EnvironmentVariables {
   @IsOptional()
   @Validate(IsOriginListConstraint)
   readonly CORS_ORIGINS?: string;
+
+  // ---------------------------------------------------------------------------
+  // Authentication — read by the auth module (Feature 032) and by nothing else.
+  //
+  // The two secrets are **required**, and they are the first variables in this
+  // contract other than DATABASE_URL that the application refuses to start
+  // without. That is deliberate and it is not symmetry with SMTP: a deployment
+  // with no mail server is a legitimate state that degrades to "nothing is
+  // sent", while a deployment with no signing secret has no legitimate degraded
+  // state at all. The two candidates are both unacceptable — invent a secret at
+  // boot, and every restart silently logs the whole company out while tokens
+  // signed by the previous process are rejected as forgeries; ship a default,
+  // and it is published in this repository, which means anyone can mint a
+  // super-admin token against any deployment that did not override it. Refusing
+  // to boot is the only answer that cannot be misread.
+  //
+  // The two lifetimes are optional with the defaults declared below, because a
+  // sensible value exists and an operator has no reason to think about them.
+  // ---------------------------------------------------------------------------
+
+  /** Signs access tokens (HS256). Rotating it invalidates every access token. */
+  @IsString()
+  @MinLength(MIN_JWT_SECRET_LENGTH)
+  readonly JWT_ACCESS_SECRET!: string;
+
+  /**
+   * Signs refresh tokens (HS256), and must differ from the access secret.
+   *
+   * Rotating it logs everybody out — which is what makes it the lever to pull
+   * after a suspected compromise, alongside emptying `refresh_tokens`.
+   */
+  @IsString()
+  @MinLength(MIN_JWT_SECRET_LENGTH)
+  @Validate(IsDistinctSecretConstraint, ['JWT_ACCESS_SECRET'])
+  readonly JWT_REFRESH_SECRET!: string;
+
+  /**
+   * How long an access token is valid, in seconds. Defaults to 15 minutes.
+   *
+   * This is the revocation window and nothing else: an account deactivated, a
+   * role downgraded or a session logged out is still honoured by an access token
+   * already in flight until it expires. Fifteen minutes is the usual compromise
+   * — short enough that the window is an inconvenience rather than a hole, long
+   * enough that a client is not refreshing on every screen.
+   */
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_ACCESS_TTL_SECONDS)
+  @Max(MAX_ACCESS_TTL_SECONDS)
+  readonly JWT_ACCESS_TTL: number = DEFAULT_ACCESS_TTL_SECONDS;
+
+  /**
+   * How long a refresh token is valid, in seconds. Defaults to 7 days.
+   *
+   * The real answer to "how long may somebody stay signed in", since rotation
+   * means each refresh issues a fresh one: a person who uses the application
+   * every day is never asked to log in again, and one who disappears for a week
+   * is.
+   */
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_REFRESH_TTL_SECONDS)
+  @Max(MAX_REFRESH_TTL_SECONDS)
+  readonly JWT_REFRESH_TTL: number = DEFAULT_REFRESH_TTL_SECONDS;
 
   // ---------------------------------------------------------------------------
   // SMTP — read by the email module (Feature 025) and by nothing else.

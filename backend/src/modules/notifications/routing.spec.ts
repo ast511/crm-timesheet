@@ -2,12 +2,8 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
-import { CURRENT_EMPLOYEE_HEADER } from '../../common/decorators/current-employee-id.decorator';
-import {
-  CURRENT_USER_HEADER,
-  CURRENT_USER_ROLE_HEADER,
-} from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../generated/prisma/enums';
+import { TestAuthentication } from '../auth/testing/authentication.testing';
 import { AdministrativeNotificationController } from './administrative-notification.controller';
 import { NotificationController } from './notification.controller';
 import { NotificationService } from './notification.service';
@@ -46,11 +42,17 @@ describe('notifications routing', () => {
     removeAllAdministrative: jest.fn().mockResolvedValue({ affected: 4 }),
   };
 
-  /** The headers a caller has to send until authentication exists. */
-  const as = (role: UserRole, userId = 'usr-1') => ({
-    [CURRENT_USER_HEADER]: userId,
-    [CURRENT_USER_ROLE_HEADER]: role,
-  });
+  /**
+   * The access token a caller has to present, since Feature 032.
+   *
+   * `employeeId` defaults to `null` here rather than to the helper's `emp-1`,
+   * because the personal inbox is addressed to an *account* and most of this
+   * module's assertions were written against a caller with no employment record.
+   */
+  const auth = new TestAuthentication();
+
+  const as = (role: UserRole, userId = 'usr-1') =>
+    auth.as({ userId, role, employeeId: null });
 
   const get = (url: string, role: UserRole = UserRole.USER) =>
     request(app.getHttpServer()).get(url).set(as(role));
@@ -61,7 +63,10 @@ describe('notifications routing', () => {
         NotificationController,
         AdministrativeNotificationController,
       ],
-      providers: [{ provide: NotificationService, useValue: service }],
+      providers: [
+        { provide: NotificationService, useValue: service },
+        ...auth.providers,
+      ],
     }).compile();
 
     app = moduleRef.createNestApplication();
@@ -194,7 +199,7 @@ describe('notifications routing', () => {
     });
   });
 
-  describe('the caller headers', () => {
+  describe('the authenticated caller', () => {
     it('passes the account and the role through', async () => {
       await get('/notifications/ntf-1', UserRole.HR).expect(200);
 
@@ -209,10 +214,10 @@ describe('notifications routing', () => {
       );
     });
 
-    it('carries the employee record when one is sent', async () => {
+    it('carries the employee record of an account that has one', async () => {
       await request(app.getHttpServer())
         .get('/notifications')
-        .set({ ...as(UserRole.USER), [CURRENT_EMPLOYEE_HEADER]: 'emp-1' })
+        .set(auth.as({ role: UserRole.USER, employeeId: 'emp-1' }))
         .expect(200);
 
       expect(service.findPersonal).toHaveBeenCalledWith(
@@ -221,26 +226,31 @@ describe('notifications routing', () => {
       );
     });
 
-    it('rejects a request without the account header, naming it', async () => {
+    it('rejects a request with no access token, naming what to send', async () => {
       const response = await request(app.getHttpServer())
         .get('/notifications')
-        .set({ [CURRENT_USER_ROLE_HEADER]: UserRole.USER })
-        .expect(400);
+        .expect(401);
 
-      expect(JSON.stringify(response.body)).toContain(CURRENT_USER_HEADER);
+      expect(JSON.stringify(response.body)).toContain('Bearer');
       expect(service.findPersonal).not.toHaveBeenCalled();
     });
 
-    it('rejects a request without the role header', async () => {
+    it('rejects a token this spec never issued', async () => {
       await request(app.getHttpServer())
         .get('/notifications')
-        .set({ [CURRENT_USER_HEADER]: 'usr-1' })
-        .expect(400);
+        .set({ authorization: 'Bearer not-a-token-we-minted' })
+        .expect(401);
 
       expect(service.findPersonal).not.toHaveBeenCalled();
     });
 
-    it('derives administrativeAccess rather than trusting a header', async () => {
+    /**
+     * The claim `x-administrative-access` was never trusted as a header, and now
+     * there is no header to trust: the value is derived from the role of the
+     * account the token names. Sending one changes nothing, which is the whole
+     * assertion.
+     */
+    it('derives administrativeAccess rather than trusting the client', async () => {
       await request(app.getHttpServer())
         .get('/notifications')
         .set({ ...as(UserRole.USER), 'x-administrative-access': 'true' })
@@ -252,9 +262,17 @@ describe('notifications routing', () => {
       );
     });
 
-    it('is not required on the temporary create route, which has nobody to check', async () => {
+    /**
+     * The create route reads no `@CurrentUser()` — it addresses a notification
+     * rather than acting as somebody — but it is still authenticated, because
+     * Feature 032 made that the default for every route and this one has no
+     * claim to be `@Public()`. "Nobody to check" is about *whose* notification
+     * it is, not about whether a stranger may post one.
+     */
+    it('still requires a token although it reads no caller', async () => {
       await request(app.getHttpServer())
         .post('/notifications')
+        .set(as(UserRole.ADMIN))
         .send({
           workspace: 'PERSONAL',
           recipientType: 'ALL_USERS',
@@ -302,6 +320,7 @@ describe('notifications routing', () => {
     it('rejects a create without a title', async () => {
       await request(app.getHttpServer())
         .post('/notifications')
+        .set(as(UserRole.ADMIN))
         .send({
           workspace: 'PERSONAL',
           recipientType: 'ALL_USERS',
@@ -315,6 +334,7 @@ describe('notifications routing', () => {
     it('rejects a create that tries to set isRead', async () => {
       await request(app.getHttpServer())
         .post('/notifications')
+        .set(as(UserRole.ADMIN))
         .send({
           workspace: 'PERSONAL',
           recipientType: 'ALL_USERS',

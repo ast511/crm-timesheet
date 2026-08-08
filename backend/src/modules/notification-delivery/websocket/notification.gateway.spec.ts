@@ -1,14 +1,13 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { Socket } from 'socket.io';
 
-import {
-  CURRENT_USER_HEADER,
-  CURRENT_USER_ROLE_HEADER,
-} from '../../../common/decorators/current-user.decorator';
-import { CURRENT_EMPLOYEE_HEADER } from '../../../common/decorators/current-employee-id.decorator';
+import { isAdministrativeRole } from '../../../common/constants/role.constants';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import {
   NotificationWorkspace,
   UserRole,
 } from '../../../generated/prisma/enums';
+import { AuthService } from '../../auth/auth.service';
 import { NotificationGateway } from './notification.gateway';
 import { ERROR_EVENT, SERVER_EVENTS } from './websocket-events';
 import { WebsocketUserRegistryService } from './websocket-user-registry.service';
@@ -26,11 +25,38 @@ interface FakeSocket {
   disconnect: jest.Mock;
 }
 
-const HEADERS = {
-  [CURRENT_USER_HEADER]: 'usr-1',
-  [CURRENT_USER_ROLE_HEADER]: UserRole.USER,
-  [CURRENT_EMPLOYEE_HEADER]: 'emp-1',
+/**
+ * The tokens this spec hands out, and who each one stands for.
+ *
+ * Since Feature 032 a handshake presents an access token rather than three
+ * identity headers, and `AuthService` is what turns one into a caller. Stubbing
+ * that method is the whole of the change here: what the gateway does with the
+ * caller — the rooms, the displacement, the workspace rules — is unchanged, and
+ * so are the assertions about it.
+ */
+const CALLERS: Record<string, CurrentUser> = {
+  'token-user-1': {
+    userId: 'usr-1',
+    employeeId: 'emp-1',
+    role: UserRole.USER,
+    administrativeAccess: false,
+  },
+  'token-hr-9': {
+    userId: 'usr-9',
+    employeeId: 'emp-9',
+    role: UserRole.HR,
+    administrativeAccess: true,
+  },
+  'token-no-employee': {
+    userId: 'usr-2',
+    employeeId: null,
+    role: UserRole.SUPERADMIN,
+    administrativeAccess: true,
+  },
 };
+
+/** `Authorization: Bearer …`, the fallback a non-browser client may use. */
+const HEADERS = { authorization: 'Bearer token-user-1' };
 
 const socketOf = (
   id: string,
@@ -47,6 +73,21 @@ const socketOf = (
 
 const asSocket = (socket: FakeSocket): Socket => socket as unknown as Socket;
 
+/**
+ * A caller with a chosen role, reachable by a token minted for this test.
+ *
+ * `administrativeAccess` is derived from the role rather than passed, exactly as
+ * `toCurrentUser` derives it, so no test can construct an ordinary employee
+ * holding administrative access.
+ */
+const tokenFor = (user: CurrentUser): string => {
+  const token = `token-${user.userId}-${user.role}`;
+
+  CALLERS[token] = user;
+
+  return token;
+};
+
 describe('NotificationGateway', () => {
   let gateway: NotificationGateway;
   let registry: WebsocketUserRegistryService;
@@ -56,7 +97,17 @@ describe('NotificationGateway', () => {
 
   beforeEach(() => {
     registry = new WebsocketUserRegistryService();
-    gateway = new NotificationGateway(registry);
+    gateway = new NotificationGateway(registry, {
+      authenticate: (token: string) => {
+        const user = CALLERS[token];
+
+        if (user === undefined) {
+          throw new UnauthorizedException('Invalid or expired access token');
+        }
+
+        return Promise.resolve(user);
+      },
+    } as unknown as AuthService);
 
     emit = jest.fn();
     to = jest.fn(() => ({ emit }));
@@ -67,10 +118,10 @@ describe('NotificationGateway', () => {
   });
 
   describe('handleConnection', () => {
-    it('joins the caller to their own room and to the personal workspace', () => {
+    it('joins the caller to their own room and to the personal workspace', async () => {
       const client = socketOf('sock-1');
 
-      gateway.handleConnection(asSocket(client));
+      await gateway.handleConnection(asSocket(client));
 
       expect(client.join).toHaveBeenCalledWith([
         'user:emp-1',
@@ -79,68 +130,64 @@ describe('NotificationGateway', () => {
       expect(registry.findByUserId('usr-1')?.socketId).toBe('sock-1');
     });
 
-    // The three header rules are Feature 026's, reused rather than re-implemented.
+    /**
+     * The header rules this block used to enumerate are gone with the headers.
+     * What is left is the one question a handshake can now get wrong: does it
+     * present a token this server signed. `AuthService` answers it, and it
+     * answers it identically for an HTTP request — which is the whole reason the
+     * gateway calls that method rather than parsing anything itself.
+     */
     it.each([
-      ['no headers at all', {}],
-      ['no user id', { [CURRENT_USER_ROLE_HEADER]: UserRole.ADMIN }],
-      ['no role', { [CURRENT_USER_HEADER]: 'usr-1' }],
+      ['no credential at all', {}, {}],
+      ['a token nobody issued', { authorization: 'Bearer forged' }, {}],
+      ['a bare token with no scheme', { authorization: 'token-user-1' }, {}],
       [
-        'a role the schema does not know',
-        { ...HEADERS, [CURRENT_USER_ROLE_HEADER]: 'OVERLORD' },
+        'a token in the auth payload that nobody issued',
+        {},
+        { token: 'forged' },
       ],
-    ])('refuses a handshake with %s', (_case, headers) => {
-      const client = socketOf('sock-1', headers);
+      ['a non-string token in the auth payload', {}, { token: 42 }],
+    ])('refuses a handshake with %s', async (_case, headers, auth) => {
+      const client = socketOf('sock-1', headers, auth);
 
-      gateway.handleConnection(asSocket(client));
+      await gateway.handleConnection(asSocket(client));
 
       expect(client.disconnect).toHaveBeenCalledWith(true);
       expect(client.join).not.toHaveBeenCalled();
       expect(registry.size).toBe(0);
     });
 
-    it('tells a refused client which header it left out, on the error channel', () => {
-      const client = socketOf('sock-1', {
-        [CURRENT_USER_ROLE_HEADER]: UserRole.USER,
-        [CURRENT_EMPLOYEE_HEADER]: 'emp-1',
-      });
+    it('tells a refused client why, on the error channel', async () => {
+      const client = socketOf('sock-1', {});
 
-      gateway.handleConnection(asSocket(client));
+      await gateway.handleConnection(asSocket(client));
 
       expect(client.emit).toHaveBeenCalledWith(ERROR_EVENT, {
-        message: expect.stringContaining(CURRENT_USER_HEADER) as string,
+        message: expect.stringContaining('access token') as string,
       });
     });
 
     // Every room here is keyed by employee, so an account with no employment
     // record has nothing this engine would ever send it.
-    it('refuses an account with no employee record, naming the header', () => {
+    it('refuses an authenticated account with no employee record', async () => {
       const client = socketOf('sock-1', {
-        [CURRENT_USER_HEADER]: 'usr-1',
-        [CURRENT_USER_ROLE_HEADER]: UserRole.SUPERADMIN,
+        authorization: 'Bearer token-no-employee',
       });
 
-      gateway.handleConnection(asSocket(client));
+      await gateway.handleConnection(asSocket(client));
 
       expect(client.emit).toHaveBeenCalledWith(ERROR_EVENT, {
-        message: expect.stringContaining(CURRENT_EMPLOYEE_HEADER) as string,
+        message: expect.stringContaining('no employee record') as string,
       });
       expect(client.disconnect).toHaveBeenCalledWith(true);
     });
 
-    // A browser cannot set headers on a WebSocket upgrade, so the same three
-    // names are accepted in the handshake `auth` payload.
-    it('reads the identity from the auth payload when it carries one', () => {
-      const client = socketOf(
-        'sock-1',
-        {},
-        {
-          [CURRENT_USER_HEADER]: 'usr-9',
-          [CURRENT_USER_ROLE_HEADER]: UserRole.HR,
-          [CURRENT_EMPLOYEE_HEADER]: 'emp-9',
-        },
-      );
+    // A browser cannot set headers on a WebSocket upgrade, so the token is also
+    // accepted in the handshake `auth` payload.
+    it('reads the token from the auth payload when it carries one', async () => {
+      const client = socketOf('sock-1', {}, { token: 'token-hr-9' });
 
-      gateway.handleConnection(asSocket(client));
+      await gateway.handleConnection(asSocket(client));
 
       expect(client.join).toHaveBeenCalledWith([
         'user:emp-9',
@@ -149,47 +196,45 @@ describe('NotificationGateway', () => {
       expect(registry.findByUserId('usr-9')?.administrativeAccess).toBe(true);
     });
 
-    // Whichever channel names an identity is the one that is read, whole: merging
-    // them key by key would let a client claim one account in its headers and
-    // another in its auth payload.
-    it('lets the auth payload replace the headers rather than merge with them', () => {
-      const client = socketOf('sock-1', HEADERS, {
-        [CURRENT_USER_HEADER]: 'usr-9',
-      });
+    // Whichever channel carries a credential is the one that is read, outright:
+    // a client presenting two would otherwise have one verified and the other
+    // logged.
+    it('lets the auth payload replace the header rather than merge with it', async () => {
+      const client = socketOf('sock-1', HEADERS, { token: 'forged' });
 
-      gateway.handleConnection(asSocket(client));
+      await gateway.handleConnection(asSocket(client));
 
       expect(client.disconnect).toHaveBeenCalledWith(true);
       expect(registry.size).toBe(0);
     });
 
-    it('disconnects the socket the same account already held', () => {
+    it('disconnects the socket the same account already held', async () => {
       const first = socketOf('sock-1');
       const second = socketOf('sock-2');
       const stale = { disconnect: jest.fn() };
 
-      gateway.handleConnection(asSocket(first));
+      await gateway.handleConnection(asSocket(first));
       sockets.set('sock-1', stale);
-      gateway.handleConnection(asSocket(second));
+      await gateway.handleConnection(asSocket(second));
 
       expect(stale.disconnect).toHaveBeenCalledWith(true);
       expect(registry.findByUserId('usr-1')?.socketId).toBe('sock-2');
     });
 
-    it('survives a displaced socket the server no longer knows about', () => {
-      gateway.handleConnection(asSocket(socketOf('sock-1')));
+    it('survives a displaced socket the server no longer knows about', async () => {
+      await gateway.handleConnection(asSocket(socketOf('sock-1')));
 
-      expect(() =>
+      await expect(
         gateway.handleConnection(asSocket(socketOf('sock-2'))),
-      ).not.toThrow();
+      ).resolves.toBeUndefined();
     });
   });
 
   describe('handleDisconnect', () => {
-    it('forgets the connection', () => {
+    it('forgets the connection', async () => {
       const client = socketOf('sock-1');
 
-      gateway.handleConnection(asSocket(client));
+      await gateway.handleConnection(asSocket(client));
       gateway.handleDisconnect(asSocket(client));
 
       expect(registry.size).toBe(0);
@@ -203,20 +248,24 @@ describe('NotificationGateway', () => {
   });
 
   describe('switchWorkspace', () => {
-    const connectAs = (role: UserRole): FakeSocket => {
+    const connectAs = async (role: UserRole): Promise<FakeSocket> => {
       const client = socketOf('sock-1', {
-        ...HEADERS,
-        [CURRENT_USER_ROLE_HEADER]: role,
+        authorization: `Bearer ${tokenFor({
+          userId: 'usr-1',
+          employeeId: 'emp-1',
+          role,
+          administrativeAccess: isAdministrativeRole(role),
+        })}`,
       });
 
-      gateway.handleConnection(asSocket(client));
+      await gateway.handleConnection(asSocket(client));
       client.join.mockClear();
 
       return client;
     };
 
-    it('moves an administrator to the administrative workspace without reconnecting', () => {
-      const client = connectAs(UserRole.ADMIN);
+    it('moves an administrator to the administrative workspace without reconnecting', async () => {
+      const client = await connectAs(UserRole.ADMIN);
 
       const ack = gateway.switchWorkspace(asSocket(client), {
         workspace: NotificationWorkspace.ADMINISTRATIVE,
@@ -235,8 +284,8 @@ describe('NotificationGateway', () => {
       );
     });
 
-    it('keeps the caller in their own room while the workspace changes', () => {
-      const client = connectAs(UserRole.HR);
+    it('keeps the caller in their own room while the workspace changes', async () => {
+      const client = await connectAs(UserRole.HR);
 
       gateway.switchWorkspace(asSocket(client), {
         workspace: NotificationWorkspace.ADMINISTRATIVE,
@@ -245,8 +294,8 @@ describe('NotificationGateway', () => {
       expect(client.leave).not.toHaveBeenCalledWith('user:emp-1');
     });
 
-    it('refuses the administrative workspace to an ordinary employee, and leaves them where they were', () => {
-      const client = connectAs(UserRole.USER);
+    it('refuses the administrative workspace to an ordinary employee, and leaves them where they were', async () => {
+      const client = await connectAs(UserRole.USER);
 
       const ack = gateway.switchWorkspace(asSocket(client), {
         workspace: NotificationWorkspace.ADMINISTRATIVE,
@@ -254,15 +303,15 @@ describe('NotificationGateway', () => {
 
       expect(ack.success).toBe(false);
       expect(ack.workspace).toBe(NotificationWorkspace.PERSONAL);
-      expect(ack.message).toContain(CURRENT_USER_ROLE_HEADER);
+      expect(ack.message).toContain(UserRole.USER);
       expect(client.leave).not.toHaveBeenCalled();
       expect(registry.findBySocketId('sock-1')?.workspace).toBe(
         NotificationWorkspace.PERSONAL,
       );
     });
 
-    it('lets an administrator switch back to their personal inbox', () => {
-      const client = connectAs(UserRole.SUPERADMIN);
+    it('lets an administrator switch back to their personal inbox', async () => {
+      const client = await connectAs(UserRole.SUPERADMIN);
 
       gateway.switchWorkspace(asSocket(client), {
         workspace: NotificationWorkspace.ADMINISTRATIVE,
@@ -276,8 +325,8 @@ describe('NotificationGateway', () => {
       expect(client.join).toHaveBeenLastCalledWith('workspace:PERSONAL');
     });
 
-    it('does nothing when the workspace is already the current one', () => {
-      const client = connectAs(UserRole.USER);
+    it('does nothing when the workspace is already the current one', async () => {
+      const client = await connectAs(UserRole.USER);
 
       const ack = gateway.switchWorkspace(asSocket(client), {
         workspace: NotificationWorkspace.PERSONAL,
@@ -294,8 +343,8 @@ describe('NotificationGateway', () => {
       ['a payload with no workspace', {}],
     ])(
       'refuses %s with an acknowledgement rather than an exception',
-      (_case, payload) => {
-        const client = connectAs(UserRole.ADMIN);
+      async (_case, payload) => {
+        const client = await connectAs(UserRole.ADMIN);
 
         const ack = gateway.switchWorkspace(
           asSocket(client),
@@ -318,8 +367,8 @@ describe('NotificationGateway', () => {
   });
 
   describe('emitToUser', () => {
-    it('sends to the room of the employee holding that account', () => {
-      gateway.handleConnection(asSocket(socketOf('sock-1')));
+    it('sends to the room of the employee holding that account', async () => {
+      await gateway.handleConnection(asSocket(socketOf('sock-1')));
 
       gateway.emitToUser('usr-1', SERVER_EVENTS.UNREAD_COUNT, { count: 3 });
 

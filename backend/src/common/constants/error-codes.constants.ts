@@ -1,0 +1,190 @@
+/**
+ * Every error code this API can return, in one place.
+ *
+ * ## What a code is for
+ *
+ * The `message` on an error envelope is English, written for whoever is reading
+ * a log or a stack trace. It is **not** what a user should be shown, and it is
+ * not what a frontend should branch on: it is prose, it is free to be reworded,
+ * and translating it would mean matching on sentences.
+ *
+ * A code is the other half. It says *what happened* in a form a program can act
+ * on, and it lets the frontend decide *how to say it* — in Romanian, in English,
+ * or in whatever language the company adds next. The backend never emits
+ * localized text and holds no translations; see `FEATURES/033`.
+ *
+ * ## Codes are a contract; messages are not
+ *
+ * **Renaming a code is a breaking change.** A frontend has a translation keyed by
+ * it, so a rename is a string that silently stops resolving and a screen that
+ * shows a key instead of a sentence. Rewording the English message beside it
+ * costs nothing and needs no coordination — which is exactly the split this file
+ * exists to create.
+ *
+ * Adding a code is not breaking, as long as the frontend falls back sensibly for
+ * one it does not know. Removing one is.
+ *
+ * ## Conventions
+ *
+ * - `SCREAMING_SNAKE_CASE`, namespaced by area with a leading `AUTH_`,
+ *   `TIMESHEET_`, `LEAVE_` … prefix, so a reader can tell at a glance which
+ *   part of the application a code came from and a translation file can be
+ *   grouped the same way.
+ * - Each code carries a comment saying what it means and, when it has any, what
+ *   `params` accompany it — because a translation string interpolating
+ *   `{{month}}` needs to know that `month` will be there.
+ * - Referenced by symbol, never typed as a literal at a throw site. That is what
+ *   {@link ErrorCode} enforces: `codedError` takes this type, so a typo is a
+ *   compile error rather than a code the frontend has no translation for.
+ *
+ * ## What is here, and what is not
+ *
+ * Feature 033 seeded this with the generic codes and the auth ones, because
+ * authentication is where the errors a *user* actually sees begin — a wrong
+ * password, an expired session — and because it was the module that had just
+ * been written. The other modules still throw uncoded exceptions and still
+ * produce a valid envelope without an `errorCode`; they gain codes gradually, as
+ * each is touched. See `FEATURES/033` for that approach and why it was chosen
+ * over one sweeping change across thirty tested modules.
+ */
+
+/**
+ * Structured values accompanying a code, for a translation to interpolate.
+ *
+ * Deliberately flat and primitive. A translation string substitutes scalars —
+ * `"Luna {{month}}/{{year}} este deja blocată"` — and nothing renders a nested
+ * object, so allowing one would invite a payload that is really a second
+ * response body travelling inside an error.
+ */
+export type ErrorParams = Record<string, string | number | boolean>;
+
+export const ERROR_CODES = {
+  // ---------------------------------------------------------------------------
+  // Generic. Neither is thrown by hand: the filter applies them when an
+  // exception carries no code of its own, so a frontend always has *something*
+  // stable to key on.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Any failure the application did not anticipate — a `500`.
+   *
+   * The message is the fixed `Internal server error`, never the real reason, so
+   * this code is all a client gets and all it needs: the only sensible response
+   * is "something went wrong, try again", and the details are in the log.
+   */
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+
+  /**
+   * A request the `ValidationPipe` rejected, or a domain error deliberately
+   * shaped like one.
+   *
+   * One code for the whole failure rather than one per constraint. The
+   * per-field `message` array survives untouched beside it, so a form can still
+   * put each sentence under its input; this code is what a heading like
+   * "Verificați câmpurile marcate" is keyed on. Per-constraint codes are a
+   * possible later refinement — see `FEATURES/033`.
+   *
+   * No params: the detail is the message array.
+   */
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+
+  // ---------------------------------------------------------------------------
+  // Authentication (Feature 032).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * `POST /auth/login` refused the credentials.
+   *
+   * **One code for all three causes** — no such address, wrong password, and a
+   * deactivated account — because Feature 032 answers all three with one status
+   * and one message, and equalises their timing. Splitting them here would undo
+   * that from the one place nobody would think to look: a distinct code for a
+   * deactivated account would confirm both that the address exists and that the
+   * password was right, which in a company's internal system also answers "does
+   * this person work here".
+   *
+   * {@link AUTH_INACTIVE_USER} exists for the paths where the caller has
+   * *already* proved they hold a credential for that account, and it is
+   * deliberately unreachable from login.
+   *
+   * No params.
+   */
+  AUTH_INVALID_CREDENTIALS: 'AUTH_INVALID_CREDENTIALS',
+
+  /**
+   * The account behind an otherwise valid token has `is_active = false`.
+   *
+   * Reached on refresh and on any authenticated request — never on login. The
+   * distinction is what makes it safe to be specific: a caller presenting a
+   * valid token for this account is either its owner or somebody who already
+   * stole a credential from it, and neither learns anything new. What it buys is
+   * the difference between "sign in again", which would fail forever, and
+   * "your account has been deactivated, speak to HR".
+   *
+   * No params. Which account it is, is not the client's business to be told.
+   */
+  AUTH_INACTIVE_USER: 'AUTH_INACTIVE_USER',
+
+  /**
+   * A refresh token that cannot be exchanged: malformed, unsigned by us,
+   * expired, revoked by a logout, or matching no stored row.
+   *
+   * One code for all of them, matching the single message Feature 032 answers
+   * with. The client behaviour is identical in every case — discard the session
+   * and show the login screen — so distinguishing them would publish which
+   * without changing anything.
+   *
+   * No params.
+   */
+  AUTH_REFRESH_TOKEN_INVALID: 'AUTH_REFRESH_TOKEN_INVALID',
+
+  /**
+   * A refresh token that had already been rotated was presented again.
+   *
+   * The one authentication failure that is deliberately *not* generic. Rotation
+   * makes a refresh token single-use, so a spent one coming back means two
+   * parties hold one credential; every live session of the account has just been
+   * revoked and the caller cannot recover by refreshing. It is a different
+   * message to the user from an ordinary expiry — "your session was ended for
+   * security reasons" — which is the whole reason it has its own code.
+   *
+   * No params.
+   */
+  AUTH_REFRESH_TOKEN_REUSED: 'AUTH_REFRESH_TOKEN_REUSED',
+
+  /**
+   * A protected route was called with no access token, or with one that is
+   * malformed, expired, forged, or names an account that no longer exists.
+   *
+   * The frontend's cue to attempt a refresh and, failing that, to send the
+   * person to the login screen. It is the most frequently emitted code in the
+   * application by some distance, because it is what an expired access token
+   * produces on every ordinary request.
+   *
+   * No params.
+   */
+  AUTH_UNAUTHENTICATED: 'AUTH_UNAUTHENTICATED',
+
+  /**
+   * The caller is authenticated, but the route is about their own employment
+   * record and their account has none.
+   *
+   * A super-admin created to administer the system is the case this exists for.
+   * It is a `403` rather than a `401` — nothing is wrong with the credential —
+   * and the user-facing sentence is about the account rather than the session,
+   * which is why it cannot share {@link AUTH_UNAUTHENTICATED}.
+   *
+   * No params.
+   */
+  AUTH_NO_EMPLOYEE_RECORD: 'AUTH_NO_EMPLOYEE_RECORD',
+} as const;
+
+/**
+ * Any code in the catalog, as a type.
+ *
+ * Derived from the object rather than declared beside it, so the two cannot
+ * drift: adding a code above adds it here, and `codedError` accepts nothing
+ * else. That is what makes "referenced by symbol, never typed as a string" a
+ * property the compiler holds rather than a convention a review has to catch.
+ */
+export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

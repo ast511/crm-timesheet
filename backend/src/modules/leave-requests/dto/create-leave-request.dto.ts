@@ -14,11 +14,11 @@ import {
  * Body of `POST /api/v1/me/leave-requests`.
  *
  * **There is no `employeeId` field, and sending one is a `400`.** The request is
- * filed by whoever is calling, and the caller is named by the
- * `x-employee-id` header — see `@CurrentEmployeeId()`. Putting the requester in
- * the body would make "whose leave is this" a value a client chooses per
- * request, which is precisely what it will stop being once authentication
- * exists, and would make `/me` a lie in the meantime. The global
+ * filed by whoever is calling, and the caller comes from `@CurrentEmployeeId()`
+ * — the employment record of the authenticated account since Feature 032.
+ * Putting the requester in the body would make "whose leave is this" a value a
+ * client chooses per request, which is exactly what it stopped being, and would
+ * make `/me` a lie. The global
  * `ValidationPipe` runs with `forbidNonWhitelisted`, so a client that tries is
  * told rather than having the field silently ignored.
  *

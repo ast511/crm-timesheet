@@ -25,9 +25,9 @@ import { IsLeaveDecisionReason } from './leave-request-field.decorators';
  *
  * **`processedById` and `processedAt` are absent, and sending either is a
  * `400`.** They are the record of who decided and when; a client stating them
- * would be signing somebody else's name. The service takes the decider from the
- * `x-employee-id` header and the moment from the transaction that writes the
- * decision.
+ * would be signing somebody else's name. The service takes the decider from
+ * `@CurrentEmployeeId()` — the authenticated caller's employment record — and
+ * the moment from the transaction that writes the decision.
  */
 export class UpdateLeaveRequestStatusDto {
   /**

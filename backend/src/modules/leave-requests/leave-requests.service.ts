@@ -5,7 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { CURRENT_EMPLOYEE_HEADER } from '../../common/decorators/current-employee-id.decorator';
 import { SortOrder } from '../../common/enums/sort-order.enum';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
 import {
@@ -175,13 +174,14 @@ export interface ApprovedLeaveDay extends LeaveSpan, HalfDay {
  *    `WorkScheduleService` and `PublicHolidayService` (the last two through
  *    `WorkingDaysService`). Only `leave_requests` and its replacements are
  *    queried directly here.
- * 6. **Nothing here authenticates or authorises.** The `/me` endpoints trust the
- *    `x-employee-id` header and the HR endpoints check nothing at all, which is
- *    the honest shape of an API whose auth feature has not been written — half
- *    an access check reads as protection while providing none. What the `/me`
- *    methods *do* enforce is ownership: a request belonging to somebody else is
- *    a `404`, not a `403`, so the endpoint cannot be used to discover that a
- *    request exists.
+ * 6. **Nothing here authorises.** Feature 032 made the caller real — the `/me`
+ *    endpoints act on the authenticated account's employment record rather than
+ *    on a header anybody could set — but no route checks a *permission*, and the
+ *    HR endpoints check nothing about the caller at all. That is the
+ *    authorization enforcement feature; half an access check reads as
+ *    protection while providing none. What the `/me` methods *do* enforce is
+ *    ownership: a request belonging to somebody else is a `404`, not a `403`,
+ *    so the endpoint cannot be used to discover that a request exists.
  */
 @Injectable()
 export class LeaveRequestsService {
@@ -200,9 +200,10 @@ export class LeaveRequestsService {
   /**
    * One page of the caller's own requests.
    *
-   * The employee is confirmed first, so an unknown `x-employee-id` is a `404`
-   * naming them rather than an empty page that looks like "you have taken no
-   * leave" — the same thing a scoped URL buys over the filter it replaces.
+   * The employee is confirmed first, so a caller whose employment record has
+   * been deleted gets a `404` naming them rather than an empty page that looks
+   * like "you have taken no leave" — the same thing a scoped URL buys over the
+   * filter it replaces.
    *
    * The rows and the total are read in a single `$transaction` so both see the
    * same snapshot: run separately, a concurrent insert between them would
@@ -525,7 +526,7 @@ export class LeaveRequestsService {
    *   is, which is the same argument for not storing the count in the first
    *   place.
    *
-   * The decider comes from the `x-employee-id` header rather than the body, so a
+   * The decider comes from `@CurrentEmployeeId()` rather than the body, so a
    * client cannot sign somebody else's name to a decision, and `processedAt`
    * comes from this transaction rather than from the client's clock.
    */
@@ -981,8 +982,8 @@ export class LeaveRequestsService {
   /**
    * Confirms the caller is somebody, or reports them missing.
    *
-   * A `404`, because on a `/me` route the caller *is* the resource: an unknown
-   * `x-employee-id` means the collection being addressed does not exist, which
+   * A `404`, because on a `/me` route the caller *is* the resource: a missing
+   * employment record means the collection being addressed does not exist, which
    * is not the same as it being empty.
    */
   private async assertEmployeeExists(employeeId: string): Promise<void> {
@@ -1006,7 +1007,7 @@ export class LeaveRequestsService {
 
     if (status === null) {
       throw new BadRequestException([
-        `${CURRENT_EMPLOYEE_HEADER} names employee ${processedById}, who does not exist`,
+        `The authenticated caller's employment record ${processedById} does not exist`,
       ]);
     }
   }
