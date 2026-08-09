@@ -88,6 +88,26 @@ export const ERROR_CODES = {
    */
   VALIDATION_ERROR: 'VALIDATION_ERROR',
 
+  /**
+   * The caller sent more requests than the rate limiter allows — a `429`.
+   *
+   * Generic on purpose, and it is the third code the filter never sees thrown by
+   * a domain service: `ApiThrottlerGuard` raises it before a handler runs. One
+   * code covers both tiers — the generous per-client baseline every route has and
+   * the strict allowance on `POST /auth/login` and `POST /auth/refresh` — because
+   * a client's response is the same either way: stop, wait, try again. Telling
+   * the two apart would publish which limit was hit and therefore what the other
+   * one is, to precisely the caller who is probing for it.
+   *
+   * The response carries a `Retry-After` header giving the wait in seconds, and
+   * a client should respect it rather than retrying immediately: a retry loop
+   * against a limiter extends the block instead of shortening it.
+   *
+   * No params. The numbers are deployment configuration and would tell an
+   * attacker how much room they have left.
+   */
+  RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
+
   // ---------------------------------------------------------------------------
   // Authentication (Feature 032).
   // ---------------------------------------------------------------------------

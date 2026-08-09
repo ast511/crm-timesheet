@@ -23,11 +23,27 @@ import { EMAIL_MAX_LENGTH } from '../constants/email.constants';
 export function IsEmailAddress() {
   return applyDecorators(
     Transform(({ value }: { value: unknown }) =>
-      typeof value === 'string' ? value.trim().toLowerCase() : value,
+      typeof value === 'string' ? normalizeEmailAddress(value) : value,
     ),
     IsString(),
     IsNotEmpty(),
     IsEmail(),
     MaxLength(EMAIL_MAX_LENGTH),
   );
+}
+
+/**
+ * The folding {@link IsEmailAddress} applies, as a function.
+ *
+ * Extracted so that a caller which cannot go through the `ValidationPipe` folds
+ * an address *identically* rather than approximately. There is exactly one such
+ * caller: the rate limiter's client key (Feature 034), which runs in a guard —
+ * before any DTO exists — and keys `POST /auth/login` on the submitted address.
+ * A second spelling of `trim().toLowerCase()` there would be a limiter that
+ * counted `Maria@company.com` and `maria@company.com` as two accounts while
+ * `AuthService` looked up one row, which is a bypass rather than an
+ * inconsistency.
+ */
+export function normalizeEmailAddress(value: string): string {
+  return value.trim().toLowerCase();
 }

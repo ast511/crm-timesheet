@@ -279,4 +279,120 @@ describe('validateEnvironment', () => {
       );
     });
   });
+
+  /**
+   * Rate limiting (Feature 034).
+   *
+   * All five are optional, so an environment that says nothing about them still
+   * boots — and boots *limited*, with the declared defaults, rather than
+   * unlimited. That is the half worth asserting: an absent variable must not be
+   * read as "no limit".
+   */
+  describe('rate limiting', () => {
+    it('applies both tiers when the environment says nothing', () => {
+      const config = validateWith();
+
+      expect(config.RATE_LIMIT_DEFAULT_LIMIT).toBe(300);
+      expect(config.RATE_LIMIT_DEFAULT_TTL).toBe(60);
+      expect(config.RATE_LIMIT_AUTH_LIMIT).toBe(10);
+      expect(config.RATE_LIMIT_AUTH_TTL).toBe(300);
+    });
+
+    /** The strict tier is only strict if it is smaller. */
+    it('defaults the authentication tier well below the baseline', () => {
+      const config = validateWith();
+
+      expect(config.RATE_LIMIT_AUTH_LIMIT).toBeLessThan(
+        config.RATE_LIMIT_DEFAULT_LIMIT,
+      );
+    });
+
+    it('coerces the limits and windows out of their string form', () => {
+      const config = validateWith({
+        RATE_LIMIT_DEFAULT_LIMIT: '120',
+        RATE_LIMIT_DEFAULT_TTL: '30',
+        RATE_LIMIT_AUTH_LIMIT: '5',
+        RATE_LIMIT_AUTH_TTL: '600',
+      });
+
+      expect(config.RATE_LIMIT_DEFAULT_LIMIT).toBe(120);
+      expect(config.RATE_LIMIT_DEFAULT_TTL).toBe(30);
+      expect(config.RATE_LIMIT_AUTH_LIMIT).toBe(5);
+      expect(config.RATE_LIMIT_AUTH_TTL).toBe(600);
+    });
+
+    /**
+     * A limit of zero would refuse every request including the health check,
+     * and a hundred thousand is somebody switching the feature off without
+     * saying so. Both are refused at startup, where they can still be discussed.
+     */
+    it.each(['0', '-1', '2.5', 'abc', '1000000'])(
+      'refuses a baseline limit of %p',
+      (limit) => {
+        expect(() => validateWith({ RATE_LIMIT_DEFAULT_LIMIT: limit })).toThrow(
+          /RATE_LIMIT_DEFAULT_LIMIT/,
+        );
+      },
+    );
+
+    it.each(['0', '-1', 'abc', '100000000'])(
+      'refuses an authentication window of %p',
+      (ttl) => {
+        expect(() => validateWith({ RATE_LIMIT_AUTH_TTL: ttl })).toThrow(
+          /RATE_LIMIT_AUTH_TTL/,
+        );
+      },
+    );
+
+    /**
+     * A window longer than a day stops being a rate limit and becomes a quota —
+     * and the in-memory store behind it loses every counter on restart, which is
+     * the wrong place to keep a day of history.
+     */
+    it('refuses a window beyond a day', () => {
+      expect(() => validateWith({ RATE_LIMIT_DEFAULT_TTL: '90000' })).toThrow(
+        /RATE_LIMIT_DEFAULT_TTL/,
+      );
+    });
+  });
+
+  /**
+   * `TRUST_PROXY` (Feature 034).
+   *
+   * The variable that decides what `request.ip` resolves to, and therefore who
+   * the rate limiter counts a request against. Express accepts a great deal here
+   * and complains about very little, so a typo would otherwise become a backend
+   * that resolves addresses in a way nobody intended — and a limiter that does
+   * not work. The parsing itself is asserted in `trust-proxy.config.spec.ts`.
+   */
+  describe('the proxy configuration', () => {
+    it('trusts no proxy when the environment says nothing', () => {
+      expect(validateWith().TRUST_PROXY).toBeUndefined();
+    });
+
+    it.each([
+      'false',
+      'true',
+      '0',
+      '1',
+      '2',
+      'loopback',
+      '10.0.0.1',
+      '10.0.0.0/8',
+      '::1',
+      'loopback,10.0.0.0/8',
+      '',
+    ])('accepts TRUST_PROXY set to %p', (trustProxy) => {
+      expect(() => validateWith({ TRUST_PROXY: trustProxy })).not.toThrow();
+    });
+
+    it.each(['yes', 'on', 'localhost', 'http://proxy', 'my-proxy.internal'])(
+      'rejects TRUST_PROXY set to %p',
+      (trustProxy) => {
+        expect(() => validateWith({ TRUST_PROXY: trustProxy })).toThrow(
+          /TRUST_PROXY/,
+        );
+      },
+    );
+  });
 });

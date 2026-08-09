@@ -14,6 +14,7 @@ import {
   API_VERSION_PREFIX,
 } from './api.constants';
 import { buildCorsOptions } from './cors.config';
+import { applyTrustProxy } from './trust-proxy.config';
 
 /**
  * Applies every global concern to a Nest application instance.
@@ -53,6 +54,14 @@ export function configureApp(app: INestApplication): void {
   // function, next to the ValidationPipe whose errors the filter formats.
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.useGlobalFilters(new AllExceptionsFilter());
+
+  // How far to believe `X-Forwarded-For`, which decides what `request.ip`
+  // resolves to — and therefore who the rate limiter counts a request against
+  // and whose address is recorded beside an issued refresh token. Applied here
+  // rather than in `main.ts` so a spec booting through this function resolves
+  // addresses exactly as the server does; the deployment failure modes, both of
+  // which are serious, are on `parseTrustProxy`.
+  applyTrustProxy(app, app.get(ConfigService));
 
   app.enableCors(buildCorsOptions(app.get(ConfigService)));
 

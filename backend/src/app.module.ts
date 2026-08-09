@@ -23,6 +23,8 @@ import { PositionModule } from './modules/positions/position.module';
 import { ProjectMemberModule } from './modules/project-members/project-member.module';
 import { ProjectModule } from './modules/projects/project.module';
 import { PublicHolidayModule } from './modules/public-holidays/public-holiday.module';
+import { RateLimitingModule } from './modules/rate-limiting/rate-limiting.module';
+import { ApiThrottlerGuard } from './modules/rate-limiting/rate-limiting.guard';
 import { ReportingModule } from './modules/reporting/reporting.module';
 import { TimesheetManagementModule } from './modules/timesheet-management/timesheet-management.module';
 import { UserModule } from './modules/users/user.module';
@@ -62,6 +64,14 @@ import { PrismaModule } from './prisma/prisma.module';
     // add a second global guard over the permission set
     // `PermissionManagementModule` already resolves.
     AuthModule,
+    // How fast anybody may ask. Cross-cutting plumbing rather than a resource —
+    // it owns no table and exposes no endpoint — and listed beside the other
+    // infrastructure for the reason `AuthModule` is: every route below is
+    // limited by it and it depends on none of them. It closes the gap Feature
+    // 032 recorded as its highest-priority follow-up, where `/auth/login` and
+    // `/auth/refresh` were unauthenticated, did real work per request, and had
+    // no bound on how often either could be asked.
+    RateLimitingModule,
     // Infrastructure rather than a resource: the only component that sends
     // email. It owns no table and depends on no business module, so it sits
     // with the shared modules above rather than in the list below. The
@@ -145,6 +155,22 @@ import { PrismaModule } from './prisma/prisma.module';
   controllers: [AppController],
   providers: [
     AppService,
+    // Rate limiting, applied to every route in the application.
+    //
+    // **Declared before the authentication guard, and the order is the point.**
+    // Nest runs global guards in the order they are registered here, so this one
+    // counts a request before anybody asks whether its credentials are any good.
+    // Reversed, a flood of invalid logins would be rejected by `JwtAuthGuard`
+    // before it was ever counted — and a flood of invalid logins is precisely
+    // the traffic this was installed to stop. The limit deliberately does not
+    // require a request to succeed.
+    //
+    // It composes with `@Public()` by ignoring it entirely. That decorator
+    // exempts a route from *authentication*, which is a statement about
+    // credentials; it says nothing about how often the route may be called, and
+    // the four routes carrying it are the only ones an unauthenticated attacker
+    // can reach at all. Public does not mean unlimited.
+    { provide: APP_GUARD, useClass: ApiThrottlerGuard },
     // Authentication, applied to every route in the application.
     //
     // An `APP_GUARD` rather than a `@UseGuards()` on each controller, and the

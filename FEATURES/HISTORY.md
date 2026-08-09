@@ -37,6 +37,7 @@ Append new features to the end of this table.
 | 031 | [Reporting](031-reporting.md) | Completed | 2026-08-07 |
 | 032 | [Authentication](032-authentication.md) | Completed | 2026-08-08 |
 | 033 | [Error Code Standardization](033-error-code-standardization.md) | Completed | 2026-08-09 |
+| 034 | [Rate Limiting](034-rate-limiting.md) | Completed | 2026-08-09 |
 
 ## Amendments
 

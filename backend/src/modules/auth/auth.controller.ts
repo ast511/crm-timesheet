@@ -10,6 +10,7 @@ import {
 import { Request } from 'express';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { StrictRateLimit } from '../rate-limiting/decorators/strict-rate-limit.decorator';
 import { AuthService, ClientContext } from './auth.service';
 import { Public } from './decorators/public.decorator';
 import { LoginDto } from './dto/login.dto';
@@ -46,6 +47,7 @@ export class AuthController {
    * `201` would promise one.
    */
   @Public()
+  @StrictRateLimit()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   login(
@@ -63,6 +65,7 @@ export class AuthController {
    * in the body, which `AuthService` verifies, looks up and consumes.
    */
   @Public()
+  @StrictRateLimit()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   refresh(
@@ -114,12 +117,15 @@ export class AuthController {
  * What the request says about the client, for the audit columns on an issued
  * token.
  *
- * `request.ip` is Express's answer and respects `trust proxy`, which this
- * application does not currently set — so behind a reverse proxy it records the
- * proxy. That is recorded as a follow-up rather than papered over by reading
- * `x-forwarded-for` here: an application that trusts that header without being
- * configured to sit behind a proxy is one where any caller can write their own
- * address into the audit trail, which is worse than an honest proxy address.
+ * `request.ip` is Express's answer and respects `trust proxy`, which Feature 034
+ * now configures from `TRUST_PROXY` — so behind a correctly configured reverse
+ * proxy this records the real client rather than the proxy, and with no proxy it
+ * records the socket. `x-forwarded-for` is still not read here, and that has not
+ * changed: an application that trusts that header without being configured to
+ * sit behind a proxy is one where any caller can write their own address into
+ * the audit trail, which is worse than an honest proxy address. The difference
+ * is that the decision is now a deployment's to make rather than one this file
+ * takes on its behalf.
  */
 function readClientContext(request: Request): ClientContext {
   const userAgent = request.headers['user-agent'];

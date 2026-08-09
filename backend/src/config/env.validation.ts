@@ -23,6 +23,11 @@ import {
 
 import { ToBoolean } from '../common/decorators/to-boolean.decorator';
 import { ANY_ORIGIN, parseOrigins } from './cors.config';
+import {
+  isTrustProxyEntry,
+  parseTrustProxyList,
+  TRUST_PROXY_PRESETS,
+} from './trust-proxy.config';
 
 /** Port the backend binds to when `PORT` is not set. */
 export const DEFAULT_PORT = 3000;
@@ -89,6 +94,82 @@ const DEFAULT_ACCESS_TTL_SECONDS = 900;
 
 /** Seven days — see {@link EnvironmentVariables.JWT_REFRESH_TTL}. */
 const DEFAULT_REFRESH_TTL_SECONDS = 604_800;
+
+/**
+ * Bounds on any rate-limit allowance, in requests per window.
+ *
+ * One at the bottom, because a limit of zero would refuse every request to the
+ * API including the health check, and there is no state in which that is what
+ * somebody meant — a deployment that wants an endpoint closed removes it. A
+ * hundred thousand at the top, because a limit that large is not a limit; it is
+ * a value somebody typed to switch the feature off without saying so, and this
+ * refuses it at startup where it can still be discussed.
+ */
+const MIN_RATE_LIMIT = 1;
+const MAX_RATE_LIMIT = 100_000;
+
+/**
+ * Bounds on any rate-limit window, in seconds.
+ *
+ * A second at the bottom is the smallest window that means anything. A day at
+ * the top is where a rate limit stops being one: a window that long is a quota,
+ * it needs a story about when it resets and who it resets for, and the in-memory
+ * store behind this — which loses every counter on restart — is the wrong place
+ * to keep a day of history.
+ */
+const MIN_RATE_LIMIT_TTL_SECONDS = 1;
+const MAX_RATE_LIMIT_TTL_SECONDS = 86_400;
+
+/** See {@link EnvironmentVariables.RATE_LIMIT_DEFAULT_LIMIT}. */
+const DEFAULT_RATE_LIMIT = 300;
+
+/** One minute — see {@link EnvironmentVariables.RATE_LIMIT_DEFAULT_TTL}. */
+const DEFAULT_RATE_LIMIT_TTL_SECONDS = 60;
+
+/** See {@link EnvironmentVariables.RATE_LIMIT_AUTH_LIMIT}. */
+const DEFAULT_AUTH_RATE_LIMIT = 10;
+
+/** Five minutes — see {@link EnvironmentVariables.RATE_LIMIT_AUTH_TTL}. */
+const DEFAULT_AUTH_RATE_LIMIT_TTL_SECONDS = 300;
+
+/**
+ * Rejects a `TRUST_PROXY` value Express would misread.
+ *
+ * Express accepts a great deal here and complains about very little: a value it
+ * does not recognise as a hop count or an address list is treated as a hostname
+ * to resolve, and the practical result of a typo is a backend that quietly
+ * resolves client addresses in a way nobody intended. Since that address is what
+ * the rate limiter counts against, a typo here is a limiter that does not work
+ * — so it is caught at startup, where the four permitted shapes can be named.
+ */
+@ValidatorConstraint({ name: 'isTrustProxy', async: false })
+class IsTrustProxyConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    if (typeof value !== 'string') {
+      return false;
+    }
+
+    const trimmed = value.trim().toLowerCase();
+
+    // Blank, `false` and `true` are the three literals; a blank value means
+    // "not set", the same reading the SMTP block gives a cleared placeholder.
+    if (trimmed === '' || trimmed === 'false' || trimmed === 'true') {
+      return true;
+    }
+
+    if (/^\d+$/.test(trimmed)) {
+      return true;
+    }
+
+    const entries = parseTrustProxyList(value);
+
+    return entries.length > 0 && entries.every(isTrustProxyEntry);
+  }
+
+  defaultMessage({ property }: ValidationArguments): string {
+    return `${property} must be "false", "true", a number of proxy hops such as "1", or a comma-separated list of addresses, subnets or the presets ${TRUST_PROXY_PRESETS.join(' / ')}`;
+  }
+}
 
 /**
  * Rejects a secret that is the *other* secret.
@@ -348,6 +429,93 @@ export class EnvironmentVariables {
   @ToBoolean()
   @IsBoolean()
   readonly NOTIFICATION_SCHEDULER_ENABLED?: boolean;
+
+  // ---------------------------------------------------------------------------
+  // Rate limiting — read by the rate-limiting module (Feature 034) and by
+  // nothing else.
+  //
+  // All four are optional with the defaults declared below, for the reason the
+  // two JWT lifetimes are: a sensible value exists, and an operator has no
+  // reason to think about them until a real deployment tells them otherwise.
+  // What they are *not* is hardcoded — every number here is the starting point
+  // of a tuning exercise that a deployment must be able to do without a code
+  // change, because the right allowance depends on how many people use the
+  // system and from how many addresses, and neither is knowable from here.
+  //
+  // The windows are stated in seconds, matching JWT_ACCESS_TTL and
+  // JWT_REFRESH_TTL above. The throttler measures in milliseconds; the
+  // conversion happens once, in `loadRateLimitConfig`.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Requests one client may make to the whole API per window. Defaults to 300.
+   *
+   * Generous on purpose. This is the baseline every route carries, so it has to
+   * clear the burst a single screen produces — a dashboard opening six lists at
+   * once, a report preview, an autosaving form — while still stopping the
+   * traffic that is obviously not a person. At the default window of a minute it
+   * is five requests a second, sustained, from one address: far above what the
+   * frontend does and far below what a script does.
+   *
+   * It is one bucket per client for the *whole* API rather than per route, which
+   * is what makes it a bound on the request rate at all. See `generateKey` in
+   * `rate-limiting.guard.ts`.
+   */
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_RATE_LIMIT)
+  @Max(MAX_RATE_LIMIT)
+  readonly RATE_LIMIT_DEFAULT_LIMIT: number = DEFAULT_RATE_LIMIT;
+
+  /** The baseline window, in seconds. Defaults to 60. */
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_RATE_LIMIT_TTL_SECONDS)
+  @Max(MAX_RATE_LIMIT_TTL_SECONDS)
+  readonly RATE_LIMIT_DEFAULT_TTL: number = DEFAULT_RATE_LIMIT_TTL_SECONDS;
+
+  /**
+   * Attempts allowed against an authentication route per window. Defaults to 10.
+   *
+   * Thirty times smaller than the baseline, because it is bounding something
+   * thirty times more dangerous: `POST /auth/login` is an unauthenticated bcrypt
+   * per request, and the thing being guessed at is a password. Ten attempts per
+   * five minutes is roughly 2 900 guesses a day against one account from one
+   * address — against any password worth the name, nothing, and against a person
+   * who has genuinely forgotten theirs, four more tries than they will use.
+   */
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_RATE_LIMIT)
+  @Max(MAX_RATE_LIMIT)
+  readonly RATE_LIMIT_AUTH_LIMIT: number = DEFAULT_AUTH_RATE_LIMIT;
+
+  /** The strict window, in seconds. Defaults to 300 (five minutes). */
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_RATE_LIMIT_TTL_SECONDS)
+  @Max(MAX_RATE_LIMIT_TTL_SECONDS)
+  readonly RATE_LIMIT_AUTH_TTL: number = DEFAULT_AUTH_RATE_LIMIT_TTL_SECONDS;
+
+  /**
+   * Whether Express should believe `X-Forwarded-For`, and how far.
+   *
+   * `false` (the default, and what an unset variable means), `true`, a hop count
+   * such as `1`, or a comma-separated list of addresses, subnets and the presets
+   * `loopback` / `linklocal` / `uniquelocal`.
+   *
+   * **This is the variable that decides whether rate limiting works at all**, and
+   * both ways of getting it wrong are serious — a shared bucket that locks the
+   * company out, or a spoofable one that bounds nothing. The full argument, and
+   * why a hop count is the recommendation, is on `parseTrustProxy` in
+   * `trust-proxy.config.ts`.
+   *
+   * Validated here rather than left to Express, which accepts a malformed value
+   * and then quietly resolves addresses in a way nobody intended.
+   */
+  @IsOptional()
+  @Validate(IsTrustProxyConstraint)
+  readonly TRUST_PROXY?: string;
 }
 
 /**

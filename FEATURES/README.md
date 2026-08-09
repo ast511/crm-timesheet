@@ -66,3 +66,4 @@ behaviour, record that in the new document and link back to the old one.
 | 031 | [Reporting](031-reporting.md) |
 | 032 | [Authentication](032-authentication.md) |
 | 033 | [Error Code Standardization](033-error-code-standardization.md) |
+| 034 | [Rate Limiting](034-rate-limiting.md) |
