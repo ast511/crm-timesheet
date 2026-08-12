@@ -4,6 +4,7 @@ import {
   VersioningType,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import helmet from 'helmet';
 
 import { AllExceptionsFilter } from '../common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from '../common/interceptors/response.interceptor';
@@ -14,16 +15,32 @@ import {
   API_VERSION_PREFIX,
 } from './api.constants';
 import { buildCorsOptions } from './cors.config';
+import { buildHelmetOptions } from './helmet.config';
 import { applyTrustProxy } from './trust-proxy.config';
 
 /**
  * Applies every global concern to a Nest application instance.
  *
  * Bootstrap and the e2e suite both call this, so the tests exercise the exact
- * prefix, versioning, validation and CORS rules the server runs with instead
- * of a second copy that can drift.
+ * prefix, versioning, validation, security-header and CORS rules the server
+ * runs with instead of a second copy that can drift.
  */
 export function configureApp(app: INestApplication): void {
+  // Security response headers, and **first**, because ordering is the only
+  // thing that decides which responses carry them. Helmet writes its headers
+  // when the middleware runs, so registering it ahead of everything else means
+  // they are already on the response object by the time anything can answer:
+  // a CORS preflight that ends in `enableCors`, an unmatched route's 404, a
+  // `ValidationPipe` rejection, anything `AllExceptionsFilter` renders. A
+  // header set only on the successful path would be missing from exactly the
+  // responses an attacker is producing.
+  //
+  // It adds headers and nothing else — no body is touched, no status code
+  // changes, and the Feature 033 envelope is byte-for-byte what it was. The
+  // options themselves live in `helmet.config.ts`, next to `cors.config.ts`,
+  // because they are this deployment's decisions rather than this function's.
+  app.use(helmet(buildHelmetOptions(app.get(ConfigService))));
+
   app.setGlobalPrefix(API_PREFIX);
 
   // URI versioning appends `/v1` after the global prefix, so every controller

@@ -6,9 +6,55 @@ import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { API_BASE_PATH } from '../src/config/api.constants';
 import { configureApp } from '../src/config/app.setup';
+import { UserRole } from '../src/generated/prisma/enums';
+import { AuthService } from '../src/modules/auth/auth.service';
+import { TestAuthentication } from '../src/modules/auth/testing/authentication.testing';
 
 const ALLOWED_ORIGIN = 'http://localhost:5173';
 
+/**
+ * Authentication for a suite that is not *about* authentication.
+ *
+ * The same `TestAuthentication` the nineteen module routing specs use, and for
+ * the same reason Feature 032 wrote it: every assertion below was written before
+ * a token was required, every one of them is still worth making, and none of
+ * them should become a test of JWT verification. The real `JwtAuthGuard` runs —
+ * it is registered by `AppModule` as an `APP_GUARD` and nothing here overrides
+ * it — with a stubbed `AuthService` behind it.
+ *
+ * The difference from a routing spec is only in how the stub is installed: those
+ * build a module out of one controller and spread `auth.providers` into it, while
+ * this boots the whole `AppModule` and therefore has to *replace* the real
+ * `AuthService` rather than provide one. Everything else — the guard, the pipe,
+ * the interceptor, the filter, every controller and every DTO — is the
+ * application's own.
+ *
+ * `AuthController` receives the stub too, which is why no `/auth` route is
+ * exercised here. What those routes do is `auth/routing.spec.ts` and
+ * `auth/account-lifecycle.routing.spec.ts`.
+ */
+const auth = new TestAuthentication();
+
+/**
+ * Application endpoints, end to end.
+ *
+ * **Everything here is answered before a handler touches the database**, which
+ * is what lets the suite run with no PostgreSQL at all: a route that does not
+ * exist, a request with no token, a body the `ValidationPipe` rejects, or an
+ * access rule checked at the top of a handler. That constraint is deliberate and
+ * it is also the reason no test below asks for a successful `200` from a
+ * business module — the assertions that need real rows live in each module's own
+ * service spec.
+ *
+ * Two status codes carry most of the meaning, and the distinction is worth
+ * stating once:
+ *
+ * - **`404` means the route does not exist.** An unmatched path never reaches a
+ *   guard, so this is how "there is deliberately no such endpoint" is asserted.
+ * - **`401` means the route exists and is guarded.** It is the proof a route is
+ *   registered *and* protected, which a `404` would disprove and a `200` would
+ *   have said nothing about.
+ */
 describe('Application endpoints (e2e)', () => {
   // Typing the app with `App` keeps `getHttpServer()` strongly typed for supertest.
   let app: INestApplication<App>;
@@ -20,7 +66,10 @@ describe('Application endpoints (e2e)', () => {
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(AuthService)
+      .useValue(auth.stub)
+      .compile();
 
     app = moduleRef.createNestApplication();
     configureApp(app);
@@ -64,11 +113,62 @@ describe('Application endpoints (e2e)', () => {
   });
 
   /**
+   * What Feature 032 made true of the whole API, asserted from the outside.
+   *
+   * Before it, every route below answered an anonymous caller; the day the
+   * global guard was registered, this suite's assertions started failing with
+   * `401` where they expected `400`. That breakage was the feature working, and
+   * this block is it written down: a request with no token is refused by every
+   * business module, with the envelope Feature 033 defined and the code a
+   * frontend keys its translation on.
+   *
+   * The two routes deliberately absent are `GET /` and `GET /health`, which
+   * carry `@Public()` because a container runtime polls them — they are asserted
+   * above, and they answer `200`.
+   */
+  describe('the global guard', () => {
+    it.each([
+      ['departments', `${API_BASE_PATH}/departments`],
+      ['positions', `${API_BASE_PATH}/positions`],
+      ['users', `${API_BASE_PATH}/users`],
+      ['employees', `${API_BASE_PATH}/employees`],
+      ['the work schedule', `${API_BASE_PATH}/work-schedule`],
+      ['leave requests', `${API_BASE_PATH}/leave-requests`],
+      ['one’s own leave requests', `${API_BASE_PATH}/me/leave-requests`],
+    ])('refuses an unauthenticated request to %s', (_module, path) => {
+      return request(app.getHttpServer()).get(path).expect(401);
+    });
+
+    it('refuses a token it never issued', () => {
+      return request(app.getHttpServer())
+        .get(`${API_BASE_PATH}/departments`)
+        .set({ authorization: 'Bearer forged' })
+        .expect(401);
+    });
+
+    it('renders the refusal as the error envelope, with its code', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`${API_BASE_PATH}/departments`)
+        .expect(401);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        statusCode: 401,
+        errorCode: 'AUTH_UNAUTHENTICATED',
+      });
+    });
+  });
+
+  /**
    * Only requests the `ValidationPipe` rejects before the handler runs, so the
    * suite still needs no database. What they prove is the wiring: the module is
    * mounted under the versioned prefix, its DTOs are applied by the global pipe,
    * and a rejection is rendered as the error envelope rather than Nest's
    * default body.
+   *
+   * Every request carries a token because the pipe now runs *behind* the guard.
+   * That ordering is itself asserted, above and below: without the header these
+   * same requests answer `401` and the DTO is never consulted.
    */
   describe('departments', () => {
     const DEPARTMENTS_PATH = `${API_BASE_PATH}/departments`;
@@ -76,6 +176,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a page size above the shared cap', () => {
       return request(app.getHttpServer())
         .get(DEPARTMENTS_PATH)
+        .set(auth.as())
         .query({ limit: 101 })
         .expect(400)
         .expect(({ body }: { body: { success: boolean } }) => {
@@ -86,6 +187,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a column that is not sortable', () => {
       return request(app.getHttpServer())
         .get(DEPARTMENTS_PATH)
+        .set(auth.as())
         .query({ sortBy: 'description' })
         .expect(400);
     });
@@ -93,6 +195,7 @@ describe('Application endpoints (e2e)', () => {
     it('reports every missing field of a creation payload at once', async () => {
       const response = await request(app.getHttpServer())
         .post(DEPARTMENTS_PATH)
+        .set(auth.as())
         .send({})
         .expect(400);
 
@@ -116,6 +219,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a page size above the shared cap', () => {
       return request(app.getHttpServer())
         .get(POSITIONS_PATH)
+        .set(auth.as())
         .query({ limit: 101 })
         .expect(400)
         .expect(({ body }: { body: { success: boolean } }) => {
@@ -126,6 +230,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a column that is not sortable', () => {
       return request(app.getHttpServer())
         .get(POSITIONS_PATH)
+        .set(auth.as())
         .query({ sortBy: 'description' })
         .expect(400);
     });
@@ -133,6 +238,7 @@ describe('Application endpoints (e2e)', () => {
     it('reports every missing field of a creation payload at once', async () => {
       const response = await request(app.getHttpServer())
         .post(POSITIONS_PATH)
+        .set(auth.as())
         .send({})
         .expect(400);
 
@@ -147,16 +253,22 @@ describe('Application endpoints (e2e)', () => {
   /**
    * The users block asserts what is specific to this module rather than
    * repeating the two blocks above: that `passwordHash` is not a field a client
-   * can supply, and that the boolean filter accepts exactly two spellings. Both
-   * are rejected by the `ValidationPipe` before the handler runs, so the suite
-   * still needs no database.
+   * can supply, that the boolean filter accepts exactly two spellings, and —
+   * since Feature 036 — that these routes belong to account administrators
+   * alone. All of it is decided before a row is read, so the suite still needs
+   * no database.
+   *
+   * Every request here authenticates as an `ADMIN`, because `HR` is refused
+   * outright: see the access block at the end.
    */
   describe('users', () => {
     const USERS_PATH = `${API_BASE_PATH}/users`;
+    const asAdmin = () => auth.as({ role: UserRole.ADMIN });
 
     it('rejects a page size above the shared cap', () => {
       return request(app.getHttpServer())
         .get(USERS_PATH)
+        .set(asAdmin())
         .query({ limit: 101 })
         .expect(400)
         .expect(({ body }: { body: { success: boolean } }) => {
@@ -167,6 +279,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a column that is not sortable', () => {
       return request(app.getHttpServer())
         .get(USERS_PATH)
+        .set(asAdmin())
         .query({ sortBy: 'passwordHash' })
         .expect(400);
     });
@@ -174,33 +287,101 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a boolean filter that is neither true nor false', () => {
       return request(app.getHttpServer())
         .get(USERS_PATH)
+        .set(asAdmin())
         .query({ isActive: 'yes' })
         .expect(400);
     });
 
+    /**
+     * **`password` is deliberately absent from this list, and that is Feature
+     * 036.** This assertion used to require it: an administrator chose the
+     * password and the new colleague was told it. `CreateUserDto` has no such
+     * field any more — the account is created without a password at all and its
+     * owner sets their own through the emailed activation link — so a payload
+     * missing one is not incomplete, and reporting it as missing would be the
+     * bug.
+     */
     it('reports every missing field of a creation payload at once', async () => {
       const response = await request(app.getHttpServer())
         .post(USERS_PATH)
+        .set(asAdmin())
         .send({})
         .expect(400);
 
-      const { message } = response.body as { message: string[] };
+      const reported = (response.body as { message: string[] }).message.join(
+        ' ',
+      );
 
-      expect(message.join(' ')).toMatch(/email/);
-      expect(message.join(' ')).toMatch(/password/);
-      expect(message.join(' ')).toMatch(/role/);
+      expect(reported).toMatch(/email/);
+      expect(reported).toMatch(/role/);
+      expect(reported).not.toMatch(/password/);
     });
 
-    it('refuses a password hash supplied by the client', () => {
-      return request(app.getHttpServer())
-        .post(USERS_PATH)
-        .send({
-          email: 'ana.pop@example.com',
-          password: 'correct horse battery',
-          role: 'ADMIN',
-          passwordHash: '$2b$12$abcdefghij',
-        })
-        .expect(400);
+    /**
+     * The other half of the same rule, and the reason the field's absence is
+     * safe: `forbidNonWhitelisted` turns "not a field" into an explicit refusal
+     * naming it. An administrator who tries to set a password — or to write a
+     * hash directly — is told no, rather than having it silently dropped and
+     * walking away believing they know somebody's credential.
+     */
+    it.each(['password', 'passwordHash'])(
+      'refuses %s supplied by the client, by name',
+      async (field) => {
+        const response = await request(app.getHttpServer())
+          .post(USERS_PATH)
+          .set(asAdmin())
+          .send({
+            email: 'ana.pop@example.com',
+            role: 'ADMIN',
+            [field]: 'correct horse battery',
+          })
+          .expect(400);
+
+        const reported = (response.body as { message: string[] }).message.join(
+          ' ',
+        );
+
+        expect(reported).toMatch(new RegExp(field));
+      },
+    );
+
+    /**
+     * Feature 036's access rule, from the outside.
+     *
+     * `assertAccountAdministrator` runs at the top of every handler here, so a
+     * refused caller is turned away before the service is reached — which is
+     * exactly why it can be asserted without a database.
+     *
+     * **HR is the case worth pinning.** An HR administrator is the most
+     * privileged non-account role in the application and is deliberately still
+     * refused: an account list is a list of everybody who can sign in and what
+     * authority each one holds. The rule is a role check rather than a
+     * configurable permission precisely because whoever can set a role can set
+     * their own.
+     */
+    describe('access', () => {
+      it.each([UserRole.HR, UserRole.USER])(
+        'refuses %s with 403, not 401',
+        (role) => {
+          return request(app.getHttpServer())
+            .get(USERS_PATH)
+            .set(auth.as({ role }))
+            .expect(403);
+        },
+      );
+
+      it('names the reason with a stable code', async () => {
+        const response = await request(app.getHttpServer())
+          .get(USERS_PATH)
+          .set(auth.as({ role: UserRole.HR }))
+          .expect(403);
+
+        expect(response.body).toMatchObject({
+          success: false,
+          statusCode: 403,
+          errorCode: 'AUTHORIZATION_ACCOUNT_ADMIN_REQUIRED',
+        });
+      });
     });
   });
 
@@ -218,6 +399,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a page size above the shared cap', () => {
       return request(app.getHttpServer())
         .get(EMPLOYEES_PATH)
+        .set(auth.as())
         .query({ limit: 101 })
         .expect(400)
         .expect(({ body }: { body: { success: boolean } }) => {
@@ -228,6 +410,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a column that is not sortable', () => {
       return request(app.getHttpServer())
         .get(EMPLOYEES_PATH)
+        .set(auth.as())
         .query({ sortBy: 'phone' })
         .expect(400);
     });
@@ -235,6 +418,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a status outside the enum', () => {
       return request(app.getHttpServer())
         .get(EMPLOYEES_PATH)
+        .set(auth.as())
         .query({ status: 'RETIRED' })
         .expect(400);
     });
@@ -242,6 +426,7 @@ describe('Application endpoints (e2e)', () => {
     it('reports every missing field of a creation payload at once', async () => {
       const response = await request(app.getHttpServer())
         .post(EMPLOYEES_PATH)
+        .set(auth.as())
         .send({})
         .expect(400);
 
@@ -252,11 +437,38 @@ describe('Application endpoints (e2e)', () => {
       expect(reported).toMatch(/firstName/);
       expect(reported).toMatch(/lastName/);
       expect(reported).toMatch(/hireDate/);
-      expect(reported).toMatch(/userId/);
       expect(reported).toMatch(/departmentId/);
       expect(reported).toMatch(/positionId/);
       expect(reported).toMatch(/seniority/);
       expect(reported).toMatch(/status/);
+    });
+
+    /**
+     * **`userId` left this list with Feature 036**, which is asserted rather
+     * than merely omitted above.
+     *
+     * It used to be required: an employee named an account that already
+     * existed. Now exactly one of `userId` and `account` must be given — the
+     * second creates the account in the same breath — and "exactly one of two
+     * fields" is a rule about a pair, which no per-field decorator can state.
+     * The `ValidationPipe` therefore says nothing about either, and the service
+     * enforces the pair rule — `employee.service.spec.ts` is where the
+     * "neither" and "both" refusals are exercised, because both need the
+     * service behind them.
+     */
+    it('no longer reports a missing account, which is now a rule about a pair', async () => {
+      const response = await request(app.getHttpServer())
+        .post(EMPLOYEES_PATH)
+        .set(auth.as())
+        .send({})
+        .expect(400);
+
+      const reported = (response.body as { message: string[] }).message.join(
+        ' ',
+      );
+
+      expect(reported).not.toMatch(/userId/);
+      expect(reported).not.toMatch(/account/);
     });
 
     /**
@@ -267,6 +479,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a vacation entitlement, which this resource no longer has', () => {
       return request(app.getHttpServer())
         .patch(`${EMPLOYEES_PATH}/emp-1`)
+        .set(auth.as())
         .send({ maxVacationDays: 21 })
         .expect(400);
     });
@@ -287,6 +500,7 @@ describe('Application endpoints (e2e)', () => {
     it('reports every missing field of a configuration at once', async () => {
       const response = await request(app.getHttpServer())
         .put(WORK_SCHEDULE_PATH)
+        .set(auth.as())
         .send({})
         .expect(400);
 
@@ -307,6 +521,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a working day that is not a weekday', async () => {
       const response = await request(app.getHttpServer())
         .put(WORK_SCHEDULE_PATH)
+        .set(auth.as())
         .send({ workingDays: ['FUNDAY'] })
         .expect(400);
 
@@ -318,6 +533,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a start time that is not HH:mm', () => {
       return request(app.getHttpServer())
         .put(WORK_SCHEDULE_PATH)
+        .set(auth.as())
         .send({ workStartTime: '9am' })
         .expect(400);
     });
@@ -331,6 +547,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a timezone that is not an IANA zone name', async () => {
       const response = await request(app.getHttpServer())
         .put(WORK_SCHEDULE_PATH)
+        .set(auth.as())
         .send({ timezone: 'Europe/Atlantis' })
         .expect(400);
 
@@ -342,6 +559,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects an approval address that is not an address', () => {
       return request(app.getHttpServer())
         .post(`${WORK_SCHEDULE_PATH}/emails`)
+        .set(auth.as())
         .send({ email: 'not-an-email' })
         .expect(400);
     });
@@ -349,6 +567,7 @@ describe('Application endpoints (e2e)', () => {
     it('refuses a schedule id supplied alongside an approval address', () => {
       return request(app.getHttpServer())
         .post(`${WORK_SCHEDULE_PATH}/emails`)
+        .set(auth.as())
         .send({ email: 'hr@example.com', workScheduleId: 'work_schedule' })
         .expect(400);
     });
@@ -357,28 +576,33 @@ describe('Application endpoints (e2e)', () => {
     it('does not route a configuration by id', () => {
       return request(app.getHttpServer())
         .get(`${WORK_SCHEDULE_PATH}/work_schedule`)
+        .set(auth.as())
         .expect(404);
     });
   });
 
   /**
    * The leave-requests block asserts what is specific to Feature 023: two
-   * collections under one prefix that must not swallow each other, a header
-   * standing in for authentication until it exists, and the fields a client is
-   * refused because the server decides them. Everything here is rejected before
-   * a handler runs, so the suite still needs no database — which is also why the
-   * balance, overlap and working-day rules are exercised in the service spec
-   * rather than here.
+   * collections under one prefix that must not swallow each other, and the
+   * fields a client is refused because the server decides them. Everything here
+   * is rejected before a handler runs, so the suite still needs no database.
+   *
+   * **What changed with Feature 032.** These tests were written against an
+   * `x-employee-id` header that stood in for authentication until it existed.
+   * That header is read nowhere now: the requester is the caller, resolved from
+   * the token by `@CurrentEmployeeId()`. So the header is gone from every
+   * request below, and the test that used to assert it was required now asserts
+   * the rule that replaced it — an account with no employment record cannot file
+   * leave, and is told so with `403` rather than a `400` naming a header.
    */
   describe('leave requests', () => {
     const LEAVE_REQUESTS_PATH = `${API_BASE_PATH}/leave-requests`;
     const MY_LEAVE_REQUESTS_PATH = `${API_BASE_PATH}/me/leave-requests`;
-    const EMPLOYEE_HEADER = 'x-employee-id';
 
     it('reports every missing field of a request at once', async () => {
       const response = await request(app.getHttpServer())
         .post(MY_LEAVE_REQUESTS_PATH)
-        .set(EMPLOYEE_HEADER, 'emp-1')
+        .set(auth.as({ employeeId: 'emp-1' }))
         .send({})
         .expect(400);
 
@@ -394,7 +618,7 @@ describe('Application endpoints (e2e)', () => {
     it('refuses a request with no replacement, which is the feature’s rule', () => {
       return request(app.getHttpServer())
         .post(MY_LEAVE_REQUESTS_PATH)
-        .set(EMPLOYEE_HEADER, 'emp-1')
+        .set(auth.as({ employeeId: 'emp-1' }))
         .send({
           leaveTypeId: 'lvt-1',
           startDate: '2026-09-07',
@@ -406,12 +630,13 @@ describe('Application endpoints (e2e)', () => {
 
     /**
      * The requester is the caller, not a field — which is what keeps `/me`
-     * honest and what will stop being settable at all once auth exists.
+     * honest. Feature 032 made it structural: there is no longer any channel
+     * through which a requester could be claimed.
      */
     it('refuses an employee id supplied in the body', () => {
       return request(app.getHttpServer())
         .post(MY_LEAVE_REQUESTS_PATH)
-        .set(EMPLOYEE_HEADER, 'emp-1')
+        .set(auth.as({ employeeId: 'emp-1' }))
         .send({ employeeId: 'emp-2' })
         .expect(400);
     });
@@ -420,7 +645,7 @@ describe('Application endpoints (e2e)', () => {
     it('refuses a status supplied when filing', () => {
       return request(app.getHttpServer())
         .post(MY_LEAVE_REQUESTS_PATH)
-        .set(EMPLOYEE_HEADER, 'emp-1')
+        .set(auth.as({ employeeId: 'emp-1' }))
         .send({ status: 'APPROVED' })
         .expect(400);
     });
@@ -429,17 +654,32 @@ describe('Application endpoints (e2e)', () => {
     it('refuses a working-day count supplied by the client', () => {
       return request(app.getHttpServer())
         .post(MY_LEAVE_REQUESTS_PATH)
-        .set(EMPLOYEE_HEADER, 'emp-1')
+        .set(auth.as({ employeeId: 'emp-1' }))
         .send({ requestedWorkingDays: 5 })
         .expect(400);
     });
 
-    it('requires the employee header on a /me route', async () => {
+    /**
+     * The rule that replaced the `x-employee-id` header.
+     *
+     * A super-admin created to administer the system authenticates perfectly
+     * well and has no employment record, so a `/me` route cannot resolve a
+     * requester for them. That is `403` — nothing is wrong with the credential,
+     * only with what the account *is* — and it is decided by
+     * `@CurrentEmployeeId()` before the handler runs, which is why no database
+     * is needed to assert it.
+     */
+    it('refuses a /me route to an account with no employment record', async () => {
       const response = await request(app.getHttpServer())
         .get(MY_LEAVE_REQUESTS_PATH)
-        .expect(400);
+        .set(auth.as({ employeeId: null }))
+        .expect(403);
 
-      expect(JSON.stringify(response.body)).toContain(EMPLOYEE_HEADER);
+      expect(response.body).toMatchObject({
+        success: false,
+        statusCode: 403,
+        errorCode: 'AUTH_NO_EMPLOYEE_RECORD',
+      });
     });
 
     /**
@@ -456,36 +696,42 @@ describe('Application endpoints (e2e)', () => {
     it('refuses PENDING as a decision', () => {
       return request(app.getHttpServer())
         .patch(`${LEAVE_REQUESTS_PATH}/lvr-1/status`)
-        .set(EMPLOYEE_HEADER, 'emp-9')
+        .set(auth.as({ employeeId: 'emp-9' }))
         .send({ status: 'PENDING' })
         .expect(400);
     });
 
-    it('refuses a decider supplied in the body rather than the header', () => {
+    it('refuses a decider supplied in the body rather than taken from the token', () => {
       return request(app.getHttpServer())
         .patch(`${LEAVE_REQUESTS_PATH}/lvr-1/status`)
-        .set(EMPLOYEE_HEADER, 'emp-9')
+        .set(auth.as({ employeeId: 'emp-9' }))
         .send({ status: 'APPROVED', processedById: 'emp-8' })
         .expect(400);
     });
 
     /** Leave is asked for by the person taking it, and never erased by HR. */
     it('has no POST or DELETE on the HR collection', async () => {
-      await request(app.getHttpServer()).post(LEAVE_REQUESTS_PATH).expect(404);
+      await request(app.getHttpServer())
+        .post(LEAVE_REQUESTS_PATH)
+        .set(auth.as())
+        .expect(404);
       await request(app.getHttpServer())
         .delete(`${LEAVE_REQUESTS_PATH}/lvr-1`)
+        .set(auth.as())
         .expect(404);
     });
 
     it('rejects a page size above the shared cap', () => {
       return request(app.getHttpServer())
         .get(`${LEAVE_REQUESTS_PATH}?limit=1000`)
+        .set(auth.as())
         .expect(400);
     });
 
     it('rejects a column that is not sortable', () => {
       return request(app.getHttpServer())
         .get(`${LEAVE_REQUESTS_PATH}?sortBy=requestedWorkingDays`)
+        .set(auth.as())
         .expect(400);
     });
   });
@@ -509,6 +755,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a test address that is not an address', () => {
       return request(app.getHttpServer())
         .post(`${EMAIL_PATH}/test`)
+        .set(auth.as())
         .send({ email: 'not-an-email' })
         .expect(400);
     });
@@ -516,6 +763,7 @@ describe('Application endpoints (e2e)', () => {
     it('rejects a missing address', async () => {
       const response = await request(app.getHttpServer())
         .post(`${EMAIL_PATH}/test`)
+        .set(auth.as())
         .send({})
         .expect(400);
 
@@ -526,14 +774,15 @@ describe('Application endpoints (e2e)', () => {
 
     /**
      * The message is fixed precisely so this endpoint cannot become a way to
-     * send arbitrary mail from the company's server while there is still no
-     * authentication in front of it.
+     * send arbitrary mail from the company's server. Feature 032 put a token in
+     * front of it as well, so it is now closed twice over.
      */
     it.each([{ subject: 'Anything I like' }, { html: '<p>Click here</p>' }])(
       'refuses an attempt to steer the message with %p',
       (extra) => {
         return request(app.getHttpServer())
           .post(`${EMAIL_PATH}/test`)
+          .set(auth.as())
           .send({ email: 'john@example.com', ...extra })
           .expect(400);
       },
@@ -541,8 +790,14 @@ describe('Application endpoints (e2e)', () => {
 
     /** Sending is reached by injecting the service, never over HTTP. */
     it('exposes no endpoint for sending a caller-supplied message', async () => {
-      await request(app.getHttpServer()).post(EMAIL_PATH).expect(404);
-      await request(app.getHttpServer()).post(`${EMAIL_PATH}/send`).expect(404);
+      await request(app.getHttpServer())
+        .post(EMAIL_PATH)
+        .set(auth.as())
+        .expect(404);
+      await request(app.getHttpServer())
+        .post(`${EMAIL_PATH}/send`)
+        .set(auth.as())
+        .expect(404);
     });
   });
 
@@ -552,19 +807,18 @@ describe('Application endpoints (e2e)', () => {
     /**
      * The engine's whole HTTP surface is one route, and it is documented as
      * existing for development and Postman testing. What can be asserted without
-     * a database is which URLs the application answers on — and the shape of the
-     * `POST` the delivery flow is triggered through.
+     * a database is which URLs the application answers on.
+     *
+     * `401` is the assertion, and it is a stronger one than the message check it
+     * replaced: an unmatched `POST` renders `404 Cannot POST …`, so a refusal
+     * that names the *credential* proves the route is both registered and
+     * guarded. Sending a token instead would reach the handler and the database,
+     * which this suite does not have.
      */
-    it('registers the manual execution route', async () => {
-      const response = await request(app.getHttpServer()).post(
-        `${DELIVERY_PATH}/execute/cmp-does-not-exist`,
-      );
-      const { message } = response.body as { message: string | string[] };
-
-      // A campaign that does not exist is a `404` of its own, which is why the
-      // status alone cannot tell "no such route" from "no such campaign". The
-      // message can: an unmatched route renders `Cannot POST …`.
-      expect(String(message)).not.toMatch(/Cannot POST/);
+    it('registers the manual execution route, behind the guard', () => {
+      return request(app.getHttpServer())
+        .post(`${DELIVERY_PATH}/execute/cmp-does-not-exist`)
+        .expect(401);
     });
 
     /**
@@ -576,13 +830,18 @@ describe('Application endpoints (e2e)', () => {
     it('offers no way to fire a reminder over HTTP', async () => {
       await request(app.getHttpServer())
         .post(`${DELIVERY_PATH}/execute-reminder/rmd-1`)
+        .set(auth.as())
         .expect(404);
     });
 
     it('exposes no collection and no read routes of its own', async () => {
-      await request(app.getHttpServer()).get(DELIVERY_PATH).expect(404);
+      await request(app.getHttpServer())
+        .get(DELIVERY_PATH)
+        .set(auth.as())
+        .expect(404);
       await request(app.getHttpServer())
         .get(`${DELIVERY_PATH}/execute/cmp-1`)
+        .set(auth.as())
         .expect(404);
     });
 
@@ -594,9 +853,11 @@ describe('Application endpoints (e2e)', () => {
     it('leaves the campaign and reminder resources without a send route', async () => {
       await request(app.getHttpServer())
         .post(`${API_BASE_PATH}/notification-campaigns/cmp-1/send`)
+        .set(auth.as())
         .expect(404);
       await request(app.getHttpServer())
         .post(`${API_BASE_PATH}/reminders/rmd-1/execute`)
+        .set(auth.as())
         .expect(404);
     });
   });

@@ -3,6 +3,7 @@ import {
   NodeEnvironment,
   validateEnvironment,
 } from './env.validation';
+import { CspMode } from './helmet.config';
 
 const DATABASE_URL = 'postgresql://user:s3cret@localhost:5432/db?schema=public';
 
@@ -486,6 +487,75 @@ describe('validateEnvironment', () => {
       (trustProxy) => {
         expect(() => validateWith({ TRUST_PROXY: trustProxy })).toThrow(
           /TRUST_PROXY/,
+        );
+      },
+    );
+  });
+
+  /**
+   * The security-header toggles (Feature 037).
+   *
+   * Both defaults are asserted rather than assumed, because both are what keeps
+   * `npm run start:dev` working over plain HTTP — and because the HSTS one is
+   * the single setting in this contract whose consequences survive the
+   * deployment that made the mistake.
+   */
+  describe('the security headers', () => {
+    /**
+     * Left undefined rather than defaulted here, so "unset" and the safe value
+     * are the same thing at the one place that reads them — the arrangement
+     * `NOTIFICATION_SCHEDULER_ENABLED` uses. What each absent variable then
+     * means is asserted in `helmet.config.spec.ts`: no HSTS, strict policy.
+     */
+    it('leaves both toggles unset when the environment says nothing', () => {
+      const config = validateWith();
+
+      expect(config.SECURITY_HSTS_ENABLED).toBeUndefined();
+      expect(config.SECURITY_CSP_MODE).toBeUndefined();
+    });
+
+    it('converts the HSTS flag to a real boolean', () => {
+      expect(
+        validateWith({ SECURITY_HSTS_ENABLED: 'true' }).SECURITY_HSTS_ENABLED,
+      ).toBe(true);
+      expect(
+        validateWith({ SECURITY_HSTS_ENABLED: 'false' }).SECURITY_HSTS_ENABLED,
+      ).toBe(false);
+    });
+
+    /**
+     * A year of enforced HTTPS is not something to turn on with a value that
+     * only looks like a yes, so the near misses are refused at startup rather
+     * than read as either answer.
+     */
+    it.each(['yes', 'on', '1', 'TRUE'])(
+      'rejects SECURITY_HSTS_ENABLED set to %p',
+      (flag) => {
+        expect(() => validateWith({ SECURITY_HSTS_ENABLED: flag })).toThrow(
+          /SECURITY_HSTS_ENABLED/,
+        );
+      },
+    );
+
+    it.each([CspMode.Strict, CspMode.Relaxed])(
+      'accepts SECURITY_CSP_MODE set to %p',
+      (mode) => {
+        expect(
+          validateWith({ SECURITY_CSP_MODE: mode }).SECURITY_CSP_MODE,
+        ).toBe(mode);
+      },
+    );
+
+    /**
+     * Including `off`, which is the value somebody reaches for when a policy
+     * breaks a page. There is no such mode: the answer is `relaxed`, and the
+     * refusal is what says so.
+     */
+    it.each(['off', 'none', 'permissive', 'disabled', 'Strict'])(
+      'rejects SECURITY_CSP_MODE set to %p',
+      (mode) => {
+        expect(() => validateWith({ SECURITY_CSP_MODE: mode })).toThrow(
+          /SECURITY_CSP_MODE/,
         );
       },
     );

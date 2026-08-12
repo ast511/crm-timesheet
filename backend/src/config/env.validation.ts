@@ -23,6 +23,7 @@ import {
 
 import { ToBoolean } from '../common/decorators/to-boolean.decorator';
 import { ANY_ORIGIN, parseOrigins } from './cors.config';
+import { CspMode } from './helmet.config';
 import {
   isTrustProxyEntry,
   parseTrustProxyList,
@@ -617,6 +618,61 @@ export class EnvironmentVariables {
   @IsOptional()
   @Validate(IsTrustProxyConstraint)
   readonly TRUST_PROXY?: string;
+
+  // ---------------------------------------------------------------------------
+  // Security headers — read by `helmet.config.ts` (Feature 037) and by nothing
+  // else.
+  //
+  // Two variables, and both exist for the same reason: the headers Helmet sets
+  // are safe everywhere *except* the two whose consequences outlive the
+  // response. HSTS commits a hostname to HTTPS for a year and cannot be
+  // withdrawn by deleting the header; a Content Security Policy stops a page
+  // from running its own scripts. Every other header in the set is a plain
+  // improvement with nothing to configure, so there is nothing here for it.
+  //
+  // Both are optional, and both are defaulted **in the reading code** rather
+  // than by an initialiser here — the arrangement `NOTIFICATION_SCHEDULER_ENABLED`
+  // uses. The defaults are what makes `npm run start:dev` work unchanged over
+  // plain HTTP, and they belong beside the argument for why they are safe,
+  // which is in `buildHelmetOptions`. What this contract adds is that a
+  // variable which *is* set has to make sense.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Whether to send `Strict-Transport-Security`. Defaults to `false`.
+   *
+   * **Only turn this on in an environment that is already served over HTTPS.**
+   * The header tells a browser to refuse plain HTTP to the host for a year, it
+   * is remembered per host rather than per port, and it is not undone by
+   * removing it again — only by serving `max-age=0` from the HTTPS site that,
+   * by then, may be the thing that is broken. Enabled before a certificate is
+   * in place, it is an outage that persists in every visitor's browser.
+   *
+   * An explicit flag rather than `NODE_ENV === 'production'`, for the reason
+   * `TRUST_PROXY` is one: "production" does not imply TLS terminates anywhere
+   * this backend can see, and a commitment this hard to reverse should be
+   * something somebody typed.
+   */
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  readonly SECURITY_HSTS_ENABLED?: boolean;
+
+  /**
+   * Which Content Security Policy to serve. Defaults to `strict`.
+   *
+   * `strict` allows nothing inline and nothing off-origin, which is correct
+   * while this backend answers with JSON — the policy costs nothing and breaks
+   * nothing, because a CSP governs HTML documents and there are none.
+   *
+   * `relaxed` additionally allows inline scripts and styles from this origin.
+   * That is what Swagger UI and a built SPA need, and it is the switch to
+   * throw on the deployment that starts serving either — not a code change,
+   * and not a reason to take the policy off.
+   */
+  @IsOptional()
+  @IsEnum(CspMode)
+  readonly SECURITY_CSP_MODE?: CspMode;
 }
 
 /**

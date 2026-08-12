@@ -40,6 +40,7 @@ Append new features to the end of this table.
 | 034 | [Rate Limiting](034-rate-limiting.md) | Completed | 2026-08-09 |
 | 035 | [Authorization Enforcement](035-authorization-enforcement.md) | Completed | 2026-08-09 |
 | 036 | [Account Lifecycle](036-account-lifecycle.md) | Completed | 2026-08-09 |
+| 037 | [Security Headers](037-security-headers.md) | Completed | 2026-08-12 |
 
 **The authentication series (032–036) is complete.** Identity is proved rather
 than claimed (032), every failure carries a stable code (033), every route is
@@ -55,6 +56,14 @@ and waiting", "this computes but does not enforce" — because enforcement neede
 real identity first. Feature 029 built the engine, Feature 032 supplied the
 identity, and 035 connects them. Gating the *remaining* routes stays a gradual,
 per-module effort; the mechanism is no longer missing.
+
+Feature 037 turns from who is calling to how the answer travels. Every response
+now carries the standard security headers — the API used to set none, and used
+to name its own framework on the way out. The Content Security Policy it
+configures is honestly a scaffold while this backend answers with JSON; it
+starts protecting something the day HTML and JavaScript are served, and 037
+records exactly which directives have to change when Swagger UI and the React
+frontend arrive.
 
 ## Amendments
 
