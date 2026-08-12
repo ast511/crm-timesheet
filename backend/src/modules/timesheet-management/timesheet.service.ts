@@ -183,8 +183,11 @@ export interface TimesheetStateRow {
  * 4. **Ownership and visibility are domain rules in this service, not a guard.**
  *    A timesheet is filled by the person it is about and reviewed by somebody
  *    else; that is what a timesheet *is*, and it would be true under any
- *    permission system. See the module doc for why no `@RequirePermission` appears
- *    here.
+ *    permission system. Feature 035 put `@RequirePermission('TIMESHEET.APPROVE')`
+ *    in front of `approve` and `reject` and moved none of these rules: the gate
+ *    answers "may this account sign off timesheets", the rules below answer "may
+ *    this timesheet be signed off, by this caller, now". See
+ *    `TimesheetController`.
  * 5. **Nothing is ever silently recomputed.** A dependency that changes under a
  *    draft raises `isStale` and notifies its owner; an approved month is frozen
  *    against its snapshot. No write in this file edits somebody's entries as a

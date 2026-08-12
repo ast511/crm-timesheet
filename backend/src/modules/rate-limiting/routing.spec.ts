@@ -26,6 +26,7 @@ import {
   TRUST_PROXY_KEY,
 } from '../../config/trust-proxy.config';
 import { UserRole } from '../../generated/prisma/enums';
+import { AccountPasswordService } from '../auth/account-password.service';
 import { AuthController } from '../auth/auth.controller';
 import { AuthService } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -152,6 +153,20 @@ async function createApp(options: AppOptions = {}): Promise<INestApplication> {
     controllers: [AuthController, ProbeController],
     providers: [
       { provide: AuthService, useValue: auth },
+      // Feature 036 gave `AuthController` four more routes and a second
+      // collaborator. Stubbed here: this spec is about how *often* a route may
+      // be called, not what it does — though `activate`, `forgot-password` and
+      // `reset-password` all carry `@StrictRateLimit()`, and the tier they are
+      // on is asserted in `account-lifecycle/routing.spec.ts`.
+      {
+        provide: AccountPasswordService,
+        useValue: {
+          activate: jest.fn().mockResolvedValue(undefined),
+          forgotPassword: jest.fn().mockResolvedValue(undefined),
+          resetPassword: jest.fn().mockResolvedValue(undefined),
+          changePassword: jest.fn().mockResolvedValue(undefined),
+        },
+      },
       // The two global guards in the order `app.module.ts` declares them: the
       // limiter first, so a request is counted before its credentials are
       // judged.

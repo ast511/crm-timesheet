@@ -22,6 +22,7 @@ import {
   API_VERSION_PREFIX,
 } from '../../config/api.constants';
 import { UserRole } from '../../generated/prisma/enums';
+import { AccountPasswordService } from './account-password.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
@@ -84,6 +85,14 @@ const REFRESH_TOKEN = 'r'.repeat(64);
 describe('auth routing', () => {
   let app: INestApplication;
 
+  /** The four password routes Feature 036 added, stubbed. See the providers. */
+  const passwords = {
+    activate: jest.fn().mockResolvedValue(undefined),
+    forgotPassword: jest.fn().mockResolvedValue(undefined),
+    resetPassword: jest.fn().mockResolvedValue(undefined),
+    changePassword: jest.fn().mockResolvedValue(undefined),
+  };
+
   const auth = {
     login: jest.fn().mockResolvedValue(SESSION),
     refresh: jest.fn().mockResolvedValue(SESSION),
@@ -112,6 +121,13 @@ describe('auth routing', () => {
       controllers: [AuthController, SeamProbeController],
       providers: [
         { provide: AuthService, useValue: auth },
+        // Feature 036 put four more routes on this controller — activate,
+        // forgot-password, reset-password and change-password — so it now takes
+        // a second collaborator. It is stubbed rather than exercised here: what
+        // those four *do* is `account-password.service.spec.ts` and
+        // `account-lifecycle/routing.spec.ts`, and this file is about the guard,
+        // the header parsing and the identity seam.
+        { provide: AccountPasswordService, useValue: passwords },
         // The guard as the application registers it, so what is exercised here
         // is the wiring the server actually has.
         { provide: APP_GUARD, useClass: JwtAuthGuard },

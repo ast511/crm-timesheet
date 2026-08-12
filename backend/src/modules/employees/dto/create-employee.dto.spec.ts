@@ -3,7 +3,9 @@ import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
 import {
   EmployeeStatus,
   SeniorityLevel,
+  UserRole,
 } from '../../../generated/prisma/enums';
+import { CreateUserDto } from '../../users/dto/create-user.dto';
 import {
   EMPLOYEE_CODE_MAX_LENGTH,
   EMPLOYEE_NAME_MAX_LENGTH,
@@ -119,7 +121,6 @@ describe('CreateEmployeeDto', () => {
     ['a missing first name', 'firstName'],
     ['a missing last name', 'lastName'],
     ['a missing hire date', 'hireDate'],
-    ['a missing user id', 'userId'],
     ['a missing department id', 'departmentId'],
     ['a missing position id', 'positionId'],
     ['a missing seniority', 'seniority'],
@@ -128,6 +129,60 @@ describe('CreateEmployeeDto', () => {
     const { [field as keyof typeof VALID]: _removed, ...body } = VALID;
 
     await expect(validate(body)).rejects.toThrow();
+  });
+
+  /**
+   * The account opt-in, added by Feature 036.
+   *
+   * `userId` became optional here, and that is **not** a loosening: exactly one
+   * of `userId` and `account` must be given, and a body carrying neither or both
+   * is refused by `EmployeeService`. The rule lives there because it is about two
+   * fields at once, which class-validator judges one property at a time — so this
+   * spec deliberately accepts a body with neither and the service spec is where
+   * the pair rule is asserted.
+   */
+  describe('the account opt-in', () => {
+    const ACCOUNT = { email: 'ion.popescu@example.com', role: UserRole.USER };
+
+    it('accepts a nested account instead of a userId', async () => {
+      const { userId: _userId, ...body } = VALID;
+      const dto = await validate({ ...body, account: ACCOUNT });
+
+      expect(dto.account).toBeInstanceOf(CreateUserDto);
+      expect(dto.account?.email).toBe('ion.popescu@example.com');
+    });
+
+    /**
+     * The nested object is validated by `CreateUserDto`'s own rules, which is
+     * the whole point of reusing the class: an account created here and one
+     * created through `POST /users` cannot acquire different validation.
+     *
+     * The `password` case is the one that matters — it is the field 036 removed,
+     * and it must be refused *inside* the nesting too, not only at the top level.
+     */
+    it.each([
+      ['a malformed email', { ...ACCOUNT, email: 'not-an-email' }],
+      ['a missing email', { role: UserRole.USER }],
+      ['a missing role', { email: 'ion.popescu@example.com' }],
+      ['a role outside the enum', { ...ACCOUNT, role: 'ROOT' }],
+      ['a smuggled password', { ...ACCOUNT, password: 'chosen for them' }],
+      ['an unknown property', { ...ACCOUNT, nickname: 'Ionut' }],
+    ])('rejects %s inside the nested account', async (_case, account) => {
+      const { userId: _userId, ...body } = VALID;
+
+      await expect(validate({ ...body, account })).rejects.toThrow();
+    });
+
+    /** Normalisation descends too: the address is folded exactly as elsewhere. */
+    it('lower-cases and trims the nested email', async () => {
+      const { userId: _userId, ...body } = VALID;
+      const dto = await validate({
+        ...body,
+        account: { ...ACCOUNT, email: '  Ion.Popescu@Example.COM  ' },
+      });
+
+      expect(dto.account?.email).toBe('ion.popescu@example.com');
+    });
   });
 
   it.each([

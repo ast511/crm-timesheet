@@ -104,3 +104,59 @@ export const REFRESH_TOKEN_MAX_LENGTH = 1024;
 export const USER_AGENT_MAX_LENGTH = 200;
 
 export const IP_ADDRESS_MAX_LENGTH = 64;
+
+// -----------------------------------------------------------------------------
+// Account lifecycle (Feature 036).
+// -----------------------------------------------------------------------------
+
+/**
+ * How much randomness an activation or reset link carries, in bytes.
+ *
+ * 32 bytes — 256 bits — from `randomBytes`, base64url-encoded into 43 URL-safe
+ * characters. The number is the same one every "unguessable handle" in this
+ * application is measured against, and it is not a matter of taste: this secret
+ * is the *only* thing standing between a stranger and the ability to set
+ * somebody's password, it sits in a mailbox for days, and unlike a password it
+ * is never rate-limited by a human typing it. At 256 bits an attacker enumerating
+ * the space exhausts the universe first.
+ *
+ * base64url rather than hex, because the value goes in a URL: it is a third
+ * shorter for the same entropy and needs no percent-encoding, so the link does
+ * not wrap in a mail client and break in the middle.
+ */
+export const ACCOUNT_TOKEN_BYTES = 32;
+
+/**
+ * What every unusable activation or reset link says.
+ *
+ * One sentence for four situations — unknown, expired, already followed, and
+ * naming an account in the wrong state — for the reason
+ * {@link INVALID_CREDENTIALS_MESSAGE} is one sentence for three. These endpoints
+ * are public, so the caller may be anybody, and "that link expired" tells
+ * somebody holding a half-guessed token that the rest of it was right.
+ *
+ * It names the recovery rather than the cause, which is the part a legitimate
+ * person actually needs: every one of the four is fixed by getting a new link.
+ */
+export const INVALID_ACCOUNT_TOKEN_MESSAGE =
+  'This link is no longer valid; please request a new one';
+
+/**
+ * What `POST /auth/forgot-password` always answers, whether or not the address
+ * names an account.
+ *
+ * **The whole no-enumeration property is this constant plus the decision to
+ * return it unconditionally.** An endpoint that said "no such account" would let
+ * anybody test an address list against the company directory at whatever rate
+ * they could send requests — and in an internal system "is there an account"
+ * is also "does this person work here". The same stance `POST /auth/login`
+ * takes, and it is worth noting that the two are the *only* unauthenticated
+ * endpoints that take an email address.
+ *
+ * The wording is deliberately conditional — "if an account exists" — rather than
+ * a flat "email sent", because a flat claim would be a lie half the time and
+ * would leave somebody who mistyped their address waiting for a message that was
+ * never going to arrive.
+ */
+export const PASSWORD_RESET_REQUESTED_MESSAGE =
+  'If an account exists for that email address, a password reset link has been sent to it';

@@ -1,9 +1,14 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
 import { UserRole } from '../../generated/prisma/enums';
 import { TestAuthentication } from '../auth/testing/authentication.testing';
+import {
+  PermissionRequirement,
+  REQUIRED_PERMISSIONS_KEY,
+} from '../authorization/decorators/require-permission.decorator';
 import { PermissionController } from './permission.controller';
 import { PermissionService } from './permission.service';
 import { UserPermissionController } from './user-permission.controller';
@@ -16,8 +21,14 @@ import { UserPermissionService } from './user-permission.service';
  *
  * 1. **Which routes exist**, and just as importantly which do not. This module
  *    has no `POST /permissions` and no `POST /permissions/presets` — both tables
- *    are seeded vocabulary — and it has no guard on anything. A `404` on the
- *    first two is the claim; the absence of a `403` anywhere is the other.
+ *    are seeded vocabulary — and a `404` on the two is the claim.
+ *
+ *    No `PermissionsGuard` is registered here, so the `@RequirePermission()`
+ *    Feature 035 put on these routes is inert and every request below is judged
+ *    on routing alone. That the guard admits and refuses the right callers is
+ *    asserted once, against the real guard, in `authorization/routing.spec.ts`;
+ *    that these routes still *declare* the right keys is asserted at the bottom
+ *    of this file.
  * 2. **That the sub-resource does not collide with the users module.**
  *    `/users/:id/permissions` is mounted here while `/users/:id` stays in the
  *    users module, and nothing in `UserController` was touched.
@@ -316,5 +327,74 @@ describe('permission-management routing', () => {
 
     expect(permissions.findAll).toHaveBeenCalledTimes(1);
     expect(userPermissions.findMatrix).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * What each route declares, since Feature 035.
+   *
+   * The screen that decides what everybody else may do is the one route set it
+   * would be worst to leave open, so the declarations are asserted rather than
+   * assumed. Three keys and not one, matching the split the catalog was already
+   * drawn around: reading somebody's matrix, changing one cell of it, and
+   * replacing the whole thing are different acts.
+   *
+   * `me/effective` is asserted to declare **nothing**, and that is the most
+   * important line here. Gating it would mean an ordinary employee could not
+   * discover their own permissions — a `403` from the very call whose job is to
+   * tell a client which buttons to draw — so its ungatedness is a decision worth
+   * failing a test over rather than a gap somebody forgot to close.
+   */
+  describe('the declared permission requirements', () => {
+    const reflector = new Reflector();
+
+    const requirementOf = (handler: unknown) =>
+      reflector.get<PermissionRequirement | undefined>(
+        REQUIRED_PERMISSIONS_KEY,
+        handler as () => unknown,
+      );
+
+    const all = (key: string) => ({ keys: [key], mode: 'ALL' });
+
+    it.each([
+      ['findAll', PermissionController.prototype.findAll, 'PERMISSIONS.VIEW'],
+      [
+        'findPresets',
+        PermissionController.prototype.findPresets,
+        'PERMISSIONS.VIEW',
+      ],
+      [
+        'findMatrix',
+        UserPermissionController.prototype.findMatrix,
+        'PERMISSIONS.VIEW',
+      ],
+      [
+        'findHistory',
+        UserPermissionController.prototype.findHistory,
+        'PERMISSIONS.VIEW',
+      ],
+      [
+        'replace',
+        UserPermissionController.prototype.replace,
+        'PERMISSIONS.EDIT',
+      ],
+      [
+        'applyPreset',
+        UserPermissionController.prototype.applyPreset,
+        'PERMISSIONS.CONFIGURE',
+      ],
+      [
+        'resetToRole',
+        UserPermissionController.prototype.resetToRole,
+        'PERMISSIONS.CONFIGURE',
+      ],
+    ])('gates %s on %s', (_name, handler, key) => {
+      expect(requirementOf(handler)).toEqual(all(key as string));
+    });
+
+    it('leaves me/effective ungated, so anybody can read their own set', () => {
+      expect(
+        requirementOf(PermissionController.prototype.findMyEffective),
+      ).toBeUndefined();
+    });
   });
 });

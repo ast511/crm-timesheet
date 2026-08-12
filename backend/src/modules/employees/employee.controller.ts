@@ -9,6 +9,7 @@ import {
   Query,
 } from '@nestjs/common';
 
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EmployeeQueryDto } from './dto/employee-query.dto';
@@ -26,11 +27,17 @@ import { EmployeeEntity } from './entities/employee.entity';
  * user, department and position exist — is the service's; a controller that did
  * any of it here would be the one place those decisions could drift.
  *
- * Note what is *not* here: no guard, no role check, no notion of who is
- * calling. Personnel records are the most sensitive resource in the API so far
- * and will need all three, but authentication and authorization are later
- * features, and half of an access check is worse than none — it reads as
- * protection while providing none.
+ * **Access is still unchanged from Feature 010**, deliberately: no guard and no
+ * role check on any route here. Managing employees is HR's job as much as an
+ * administrator's, and Feature 035's gating model is opt-in — a route is gated
+ * when its permission key exists and the team decides — so these keep the domain
+ * rules they have always had. `EMPLOYEES.*` is seeded and waiting.
+ *
+ * The one exception is the account opt-in Feature 036 added to `create`, and it
+ * is an exception about the *body* rather than the route: creating an employee is
+ * HR's job and creating a login is not, so a body carrying `account` is refused
+ * for anybody who is not `ADMIN` or `SUPERADMIN`. That check could not have been
+ * a route-level gate and lives in the service — see `assertAccountAdministrator`.
  *
  * `id` is taken as a plain string: ids are cuids, so `ParseUUIDPipe` would
  * reject valid ones, and a malformed id simply matches no row and yields the
@@ -52,10 +59,26 @@ export class EmployeeController {
     return this.employeeService.findOne(id);
   }
 
-  /** Answers 201; Nest applies it to `@Post` without a `@HttpCode`. */
+  /**
+   * Creates an employee, optionally with the login account to go with it.
+   *
+   * Answers 201; Nest applies it to `@Post` without a `@HttpCode`.
+   *
+   * The caller is read here **only** because of the account opt-in: creating an
+   * employee is HR's job and creating a login is not, so a body carrying
+   * `account` is refused for anybody who is not `ADMIN` or `SUPERADMIN`. That
+   * check could not have been a route-level gate — whether this request
+   * administers an account depends on its body — so it lives in the service
+   * beside the other statements about what a valid creation is. Employee
+   * creation without the opt-in is unchanged and unrestricted, exactly as before
+   * Feature 036.
+   */
   @Post()
-  create(@Body() dto: CreateEmployeeDto): Promise<EmployeeEntity> {
-    return this.employeeService.create(dto);
+  create(
+    @CurrentUser() user: CurrentUser,
+    @Body() dto: CreateEmployeeDto,
+  ): Promise<EmployeeEntity> {
+    return this.employeeService.create(user, dto);
   }
 
   @Patch(':id')

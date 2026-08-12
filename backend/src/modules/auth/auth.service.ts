@@ -11,6 +11,8 @@ import {
   hashPassword,
   verifyPassword,
 } from '../../common/password/password.hasher';
+import type { Prisma } from '../../generated/prisma/client';
+import { AccountStatus } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   INVALID_ACCESS_TOKEN_MESSAGE,
@@ -78,7 +80,7 @@ export interface ClientContext {
  * presents a token that already has a successor. The application cannot tell
  * which one is the thief — the request looks identical — so it does the only
  * safe thing and ends every session the account has, forcing a real login. See
- * {@link revokeFamily}, which is deliberately blunter than walking the chain:
+ * {@link revokeSessions}, which is deliberately blunter than walking the chain:
  * the chain would identify the compromised session, but a token captured once
  * may have been captured from a machine that is still compromised, and there is
  * no good argument for leaving the account's other sessions open while an
@@ -126,18 +128,27 @@ export class AuthService {
   /**
    * Exchanges an email and a password for a session.
    *
-   * Three things can be wrong — no such account, wrong password, account
-   * deactivated — and all three answer with {@link INVALID_CREDENTIALS_MESSAGE}
-   * and a `401`. Telling a deactivated employee that their password was right
-   * would confirm both the address and the credential to whoever is holding
-   * them, and "your account is disabled" is a fact about somebody's employment
-   * that an unauthenticated caller is not owed. The person it actually happens
-   * to is told by their manager, not by a login screen.
+   * **Four** things can be wrong as of Feature 036 — no such account, wrong
+   * password, an account an administrator disabled, and an account whose owner
+   * has never followed their activation link — and all four answer with
+   * {@link INVALID_CREDENTIALS_MESSAGE} and a `401`. Telling a deactivated
+   * employee that their password was right would confirm both the address and
+   * the credential to whoever is holding them, and "your account is disabled" is
+   * a fact about somebody's employment that an unauthenticated caller is not
+   * owed. The person it actually happens to is told by their manager, not by a
+   * login screen.
    *
-   * The deactivation check runs *after* the password comparison rather than as
-   * part of the `where`, so that a deactivated account costs the same as an
-   * active one with a wrong password. Reading `isActive` and ignoring it until
-   * the end is what keeps the three paths indistinguishable from outside.
+   * The state check runs *after* the password comparison rather than as part of
+   * the `where`, so that a refused account costs the same as an active one with a
+   * wrong password. Reading `status` and ignoring it until the end is what keeps
+   * the paths indistinguishable from outside.
+   *
+   * **A `PENDING_ACTIVATION` account has no password at all** — `passwordHash` is
+   * null — and it takes the same route: the null falls through to the decoy hash,
+   * so the comparison runs and costs what every other comparison costs, and then
+   * the status refuses it. Short-circuiting on the null would have made "this
+   * address exists but has never been activated" measurable in milliseconds,
+   * which during an onboarding week is a list of exactly who has just joined.
    */
   async login(
     dto: LoginDto,
@@ -158,7 +169,11 @@ export class AuthService {
     // reach for it: a distinct code for a deactivated account would confirm both
     // that the address exists and that the password was right, undoing the
     // no-enumeration property from the one place nobody would think to look.
-    if (user === null || !passwordMatches || !user.isActive) {
+    if (
+      user === null ||
+      !passwordMatches ||
+      user.status !== AccountStatus.ACTIVE
+    ) {
       throw new UnauthorizedException(
         codedError(
           ERROR_CODES.AUTH_INVALID_CREDENTIALS,
@@ -302,10 +317,12 @@ export class AuthService {
    *
    * The database read is the point, not an overhead to be optimised away. The
    * token carries an id and nothing else; role, employment record and — above
-   * all — `isActive` are read fresh, so deactivating an account takes effect on
+   * all — `status` are read fresh, so deactivating an account takes effect on
    * its next request rather than when its token happens to expire. What that
    * costs is one primary-key lookup on an already-open pool. What it buys is
-   * that `users.is_active` means something in real time.
+   * that `users.status` means something in real time — which is what makes
+   * Feature 036's `POST /users/:id/deactivate` an action with an effect now
+   * rather than an intention that lands within a week.
    */
   async authenticate(accessToken: string): Promise<CurrentUser> {
     const userId = await this.tokenService.verifyAccessToken(accessToken);
@@ -354,7 +371,15 @@ export class AuthService {
    * `AUTH_INACTIVE_USER` therefore reveals nothing, and it buys the difference
    * between a frontend saying "sign in again" — which would fail forever — and
    * "your account has been deactivated". Login has no such caller, holds no such
-   * proof, and keeps one code for all three of its failures.
+   * proof, and keeps one code for all of its failures.
+   *
+   * As of Feature 036 the check is `status === ACTIVE` rather than `isActive`,
+   * so it now also refuses a `PENDING_ACTIVATION` account. That state is
+   * unreachable here in practice — an account that never had a password was
+   * never signed in to, so no token names it — but it is refused rather than
+   * assumed impossible, because "unreachable" is a property of today's flows and
+   * this is the one place where being wrong about it would hand somebody a
+   * session on an account nobody has ever claimed.
    *
    * The English message stays the caller's generic one either way, because it is
    * read from logs rather than shown to anybody, and because leaving it alone
@@ -376,7 +401,7 @@ export class AuthService {
       throw new UnauthorizedException(codedError(errorCode, message));
     }
 
-    if (!user.isActive) {
+    if (user.status !== AccountStatus.ACTIVE) {
       throw new UnauthorizedException(
         codedError(ERROR_CODES.AUTH_INACTIVE_USER, message),
       );
@@ -438,7 +463,7 @@ export class AuthService {
    * would make the log itself worth stealing.
    */
   private async handleReuse(stored: StoredRefreshToken): Promise<never> {
-    const revoked = await this.revokeFamily(stored.userId);
+    const revoked = await this.revokeSessions(stored.userId);
 
     this.logger.warn(
       `A spent refresh token was presented for user ${stored.userId}; revoked ${String(revoked)} live session(s)`,
@@ -452,12 +477,53 @@ export class AuthService {
     );
   }
 
-  /** Revokes every live refresh token of an account. Returns how many. */
-  private async revokeFamily(userId: string): Promise<number> {
-    const { count } = await this.prisma.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+  /**
+   * Revokes an account's live refresh tokens. Returns how many were ended.
+   *
+   * **The one place a session is ended in bulk**, and it is public as of Feature
+   * 036 because three callers now need it and a second implementation would be a
+   * second answer to "what counts as a live session":
+   *
+   * - reuse detection, here, revoking everything after a spent token came back;
+   * - a password reset, revoking everything, because the person may be
+   *   recovering from a compromise;
+   * - a password change, revoking everything *but* the session doing it;
+   * - and deactivation, which revokes everything so a disabled account's open
+   *   sessions die at their next refresh rather than at their token's expiry.
+   *
+   * `exceptToken` is the raw refresh token to spare, hashed here rather than by
+   * the caller — hashing is `TokenService`'s and this keeps every caller from
+   * needing it. An unknown or absent value simply spares nothing, which is the
+   * safe direction: the failure mode is an extra sign-in, not a session that
+   * should have ended and did not.
+   *
+   * `tx` lets the revocation join the transaction that changed the password, so
+   * a partial failure cannot leave the new password stored with the old sessions
+   * still live.
+   *
+   * Access tokens are untouched and cannot be — the stateless trade-off argued on
+   * `RefreshToken` in `schema.prisma`. What this bounds is the *refresh*, so a
+   * revoked session survives at most `JWT_ACCESS_TTL`.
+   */
+  async revokeSessions(
+    userId: string,
+    options: { tx?: Prisma.TransactionClient; exceptToken?: string } = {},
+  ): Promise<number> {
+    const spared =
+      options.exceptToken === undefined
+        ? undefined
+        : this.tokenService.hash(options.exceptToken);
+
+    const { count } = await (options.tx ?? this.prisma).refreshToken.updateMany(
+      {
+        where: {
+          userId,
+          revokedAt: null,
+          ...(spared === undefined ? {} : { NOT: { tokenHash: spared } }),
+        },
+        data: { revokedAt: new Date() },
+      },
+    );
 
     return count;
   }

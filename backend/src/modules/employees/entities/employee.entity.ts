@@ -38,9 +38,17 @@ export type EmployeePositionSummary = Pick<
   'id' | 'code' | 'name'
 >;
 
+/**
+ * The account behind an employee, as an employee record renders it.
+ *
+ * `status` replaced `isActive` in Feature 036 — see [AccountStatus] in
+ * `schema.prisma`. It matters more here than it looks: an employee list is where
+ * somebody notices that a colleague hired last week has still not accepted their
+ * invitation, and a boolean could not say so.
+ */
 export type EmployeeUserSummary = Pick<
   UserModel,
-  'id' | 'email' | 'username' | 'role' | 'isActive'
+  'id' | 'email' | 'username' | 'role' | 'status'
 >;
 
 /**
@@ -120,7 +128,7 @@ export const EMPLOYEE_PUBLIC_SELECT = {
       email: true,
       username: true,
       role: true,
-      isActive: true,
+      status: true,
     },
   },
   createdAt: true,
@@ -184,7 +192,7 @@ export function toEmployeeEntity(
       email: employee.user.email,
       username: employee.user.username,
       role: employee.user.role,
-      isActive: employee.user.isActive,
+      status: employee.user.status,
     },
     createdAt: toIsoTimestamp(employee.createdAt),
     updatedAt: toIsoTimestamp(employee.updatedAt),

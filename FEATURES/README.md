@@ -67,3 +67,5 @@ behaviour, record that in the new document and link back to the old one.
 | 032 | [Authentication](032-authentication.md) |
 | 033 | [Error Code Standardization](033-error-code-standardization.md) |
 | 034 | [Rate Limiting](034-rate-limiting.md) |
+| 035 | [Authorization Enforcement](035-authorization-enforcement.md) |
+| 036 | [Account Lifecycle](036-account-lifecycle.md) |

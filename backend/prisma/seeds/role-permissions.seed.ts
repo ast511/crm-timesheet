@@ -34,11 +34,19 @@ import { requireSeeded, type SeedClient } from './seed-context';
  *
  * ```text
  *   USER    16 of 55   their own work
- *   HR      35         + the people side, read and write, no deletes
- *   ADMIN   46         + the administration screens; no deletes on the
- *                        directory and configuration resources, no
+ *   HR      33         + the people side, read and write, no deletes,
+ *                        and — since Feature 035 — no company-wide reports
+ *   ADMIN   46         + the reports and the administration screens; no deletes
+ *                        on the directory and configuration resources, no
  *                        WORK_SCHEDULE.CONFIGURE, no permission writing
  * ```
+ *
+ * The HR line lost `REPORTS.PAGE_ACCESS` and `REPORTS.VIEW` in Feature 035, when
+ * `REPORTS.VIEW` became the enforced control on `/api/v1/reports` and the
+ * question "should HR read company-wide hour matrices" had to be answered rather
+ * than inherited. `ADMIN` is unchanged: it holds the two keys from a lower tier
+ * now. `permission-sets.ts` records the reasoning, and the fact that a re-run of
+ * this seed will not withdraw the rows from a database that already has them.
  *
  * `PERMISSIONS.EDIT` and `PERMISSIONS.CONFIGURE` are held by no baseline, which
  * is deliberate: managing what other people may do is an explicit grant, made

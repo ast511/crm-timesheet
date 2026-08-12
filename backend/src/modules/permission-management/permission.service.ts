@@ -51,16 +51,16 @@ const CASE_INSENSITIVE = { mode: 'insensitive' } as const;
  * unless something in the application checks it, so inventing one at runtime
  * would put a cell on the matrix screen that nothing anywhere reads.
  *
- * **Nothing here enforces anything either.** {@link resolveEffective} computes a
- * permission set; it blocks no request, guards no route and is imported by no
- * interceptor. That was written when it could not be otherwise — an access check
- * over a forgeable header reads as protection while providing none — and
- * Feature 032 removed the obstacle: the caller is now an account behind a
- * validated access token rather than a claim. Enforcement is the authorization
- * enforcement feature, which calls this method from a guard.
- * `GET /permissions/me/effective` still exists
- * so a client can *hide* what it should not offer, which is a courtesy rather
- * than a control, and remains one after the guard lands.
+ * **Nothing here enforces anything either, and that is still true.**
+ * {@link resolveEffective} computes a permission set; it blocks no request and
+ * guards no route. What changed with Feature 035 is who reads it:
+ * `PermissionsGuard` calls this method and turns its answer into a `403`. The
+ * enforcement lives there, the resolution lives here, and the guard reimplements
+ * none of it — including the super-admin branch below.
+ *
+ * `GET /permissions/me/effective` still exists so a client can *hide* what it
+ * should not offer, which was a courtesy rather than a control when it was
+ * written and remains one now that the control exists behind it.
  *
  * There is no repository, for the reason `ReminderService` has none: the queries
  * here share no predicate, so a layer between this and Prisma would be a file
@@ -164,11 +164,13 @@ export class PermissionService {
    * Every endpoint that reports an effective set calls this and none computes
    * one of its own — `/permissions/me/effective`, `GET /users/:id/permissions`,
    * and the matrix returned by each of the three write endpoints all come out of
-   * here. That is not tidiness: an effective set computed in two places is two
-   * answers to one question, and the day they disagree the screen would show a
-   * permission the enforcement layer did not grant. When Permission Enforcement
-   * is written, its guard calls this method too rather than reimplementing three
-   * lines it can see.
+   * here — and since Feature 035, so does `PermissionsGuard`. That is not
+   * tidiness: an effective set computed in two places is two answers to one
+   * question, and the day they disagree the screen would show a permission the
+   * enforcement layer did not grant. The guard therefore calls this method
+   * rather than reimplementing three lines it can see, and reduces the result to
+   * granted keys through the same `toEffectivePermissionsEntity` that
+   * `/permissions/me/effective` answers with.
    *
    * **The super-admin branch reads nothing.** It does not consult
    * `role_permissions` or `user_permission_overrides`, because a super-admin has

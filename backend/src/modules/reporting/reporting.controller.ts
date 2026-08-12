@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { ExportQueryDto } from './dto/export-query.dto';
 import { ReportQueryDto } from './dto/report-query.dto';
 import { ReportTypeParamsDto } from './dto/report-type-params.dto';
@@ -32,11 +32,39 @@ import { ReportingService } from './reporting.service';
  * the global filter's, and every rule — the access check, the caps, the
  * aggregation — is the service's.
  *
- * **The access check is not here and there is no guard.** Only administrative
- * roles may generate a report, and that is enforced in `ReportingService` as a
- * domain rule for the reason Feature 030 gives for its ownership rules: it
- * describes what a report *is*, it would be true under any permission system, and
- * authorization proper needs authentication first. See `assertReportingAccess`.
+ * **Every route requires `REPORTS.VIEW`, as of Feature 035** — and this is the
+ * one place in that feature where an existing check was *replaced* rather than
+ * layered under a gate. `ReportingService` used to carry an
+ * `assertReportingAccess` that admitted the three roles in
+ * `ADMINISTRATIVE_ROLES`; it is gone, and the permission is now the only control.
+ *
+ * Two reasons, and the second is the one that made the choice rather than merely
+ * allowing it:
+ *
+ * 1. **The role check no longer says what the company means.** It admitted HR,
+ *    because `isAdministrativeRole` is a statement about which roles administer
+ *    the *system* — the same list that decides who sees the administrative
+ *    notification workspace — and it was reused here for want of anything
+ *    better. Whether HR should read company-wide hour matrices is a different
+ *    question with a different answer, and Feature 035 settles it as no by
+ *    default: `REPORTS.VIEW` sits in the `ADMIN` and `SUPERADMIN` baselines and
+ *    not in HR's.
+ * 2. **Because nobody yet knows whether that answer will hold.** It is entirely
+ *    plausible that one HR lead will need the attendance sheet next quarter. A
+ *    role restriction would make that a code change, a review and a deployment;
+ *    a permission makes it a per-user `GRANT` through the permissions screen,
+ *    for that one account, recorded in the audit trail with who granted it.
+ *    Until somebody does that the gate behaves *identically* to the rigid check
+ *    it replaced minus HR — same routes, same `403` — so the flexibility costs
+ *    nothing while it is unused.
+ *
+ * Layering the two would have been the worse of both: the role check would have
+ * kept admitting HR, so the permission could never narrow anything, and it would
+ * have silently vetoed any grant an administrator made — a permission screen
+ * that says "granted" over an endpoint that still refuses.
+ *
+ * Nothing else about access is checked anywhere in this module. The caller is
+ * not read at all: see `ReportingService`.
  *
  * **`POST` for what is logically a read**, on all three generating endpoints.
  * The parameters are a body so the preview and the export take *identical*
@@ -56,8 +84,9 @@ export class ReportingController {
    * nothing and takes no parameters.
    */
   @Get()
-  findAll(@CurrentUser() user: CurrentUser): typeof REPORT_DEFINITIONS {
-    return this.reportingService.listReports(user);
+  @RequirePermission('REPORTS.VIEW')
+  findAll(): typeof REPORT_DEFINITIONS {
+    return this.reportingService.listReports();
   }
 
   /**
@@ -71,12 +100,12 @@ export class ReportingController {
    */
   @Post(':reportType/preview')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('REPORTS.VIEW')
   preview(
-    @CurrentUser() user: CurrentUser,
     @Param() { reportType }: ReportTypeParamsDto,
     @Body() query: ReportQueryDto,
   ): Promise<ReportDataModel> {
-    return this.reportingService.preview(user, reportType, query);
+    return this.reportingService.preview(reportType, query);
   }
 
   /**
@@ -103,15 +132,14 @@ export class ReportingController {
   // browser can serve yesterday's file for today's request, which is the one
   // failure that would make a report quietly wrong.
   @Header('Cache-Control', 'no-store')
+  @RequirePermission('REPORTS.VIEW')
   async exportReport(
-    @CurrentUser() user: CurrentUser,
     @Param() { reportType }: ReportTypeParamsDto,
     @Body() query: ReportQueryDto,
     @Query() exportQuery: ExportQueryDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
     const report = await this.reportingService.export(
-      user,
       reportType,
       query,
       exportQuery,

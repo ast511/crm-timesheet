@@ -1,9 +1,14 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
 import { TimesheetEntryType, UserRole } from '../../generated/prisma/enums';
 import { TestAuthentication } from '../auth/testing/authentication.testing';
+import {
+  PermissionRequirement,
+  REQUIRED_PERMISSIONS_KEY,
+} from '../authorization/decorators/require-permission.decorator';
 import { TimesheetController } from './timesheet.controller';
 import { TimesheetService } from './timesheet.service';
 
@@ -364,6 +369,51 @@ describe('timesheet routing', () => {
         .delete('/timesheets/me/tsh-1')
         .set(as())
         .expect(404);
+    });
+  });
+
+  /**
+   * Which routes Feature 035 gated, and — just as deliberately — which it did
+   * not.
+   *
+   * Only the two review transitions declare `TIMESHEET.APPROVE`. The owner's
+   * four routes and the three administrative reads and the delete declare
+   * nothing, so they are governed exactly as they were: by the ownership and
+   * role rules in `timesheet-management.rules.ts`, which this feature left in
+   * place. Asserting the absence matters as much as asserting the presence — a
+   * decorator drifting onto `submitOwn` would stop every employee handing in a
+   * month, and no other test here would notice, because no guard is registered
+   * in this spec.
+   */
+  describe('the declared permission requirements', () => {
+    const reflector = new Reflector();
+
+    const requirementOf = (method: keyof TimesheetController) =>
+      reflector.get<PermissionRequirement | undefined>(
+        REQUIRED_PERMISSIONS_KEY,
+        TimesheetController.prototype[method],
+      );
+
+    it.each<keyof TimesheetController>(['approve', 'reject'])(
+      'gates %s on TIMESHEET.APPROVE',
+      (method) => {
+        expect(requirementOf(method)).toEqual({
+          keys: ['TIMESHEET.APPROVE'],
+          mode: 'ALL',
+        });
+      },
+    );
+
+    it.each<keyof TimesheetController>([
+      'findOwn',
+      'openOwn',
+      'setOwnEntries',
+      'submitOwn',
+      'findAll',
+      'findOne',
+      'remove',
+    ])('leaves %s ungated', (method) => {
+      expect(requirementOf(method)).toBeUndefined();
     });
   });
 });

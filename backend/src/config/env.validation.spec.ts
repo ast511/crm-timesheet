@@ -18,12 +18,24 @@ const DATABASE_URL = 'postgresql://user:s3cret@localhost:5432/db?schema=public';
 const JWT_ACCESS_SECRET = 'test-access-secret-0123456789abcdef';
 const JWT_REFRESH_SECRET = 'test-refresh-secret-0123456789abcdef';
 
+/**
+ * Where the emailed activation and reset links point, which Feature 036 made
+ * mandatory.
+ *
+ * It joins the baseline for the same reason the two signing keys did, and the
+ * reason it has no default is worth restating here: a guessed origin does not
+ * fail loudly. It produces invitations delivered successfully to a link nobody
+ * can open, and the symptom arrives days later as a colleague who never got in.
+ */
+const APP_WEB_URL = 'https://hr.example.com';
+
 describe('validateEnvironment', () => {
   const validateWith = (overrides: Record<string, unknown> = {}) =>
     validateEnvironment({
       DATABASE_URL,
       JWT_ACCESS_SECRET,
       JWT_REFRESH_SECRET,
+      APP_WEB_URL,
       ...overrides,
     });
 
@@ -276,6 +288,89 @@ describe('validateEnvironment', () => {
     it('never puts a secret in the message it refuses with', () => {
       expect(() => validateWith({ JWT_ACCESS_SECRET: 'short' })).not.toThrow(
         /short/,
+      );
+    });
+  });
+
+  /**
+   * The account lifecycle's three variables (Feature 036).
+   *
+   * `APP_WEB_URL` is the only one of the three that is required, and the tests
+   * below are mostly about *why*: it is the one whose absence cannot be
+   * defaulted around, because a guessed origin produces invitations that are
+   * emailed successfully to a link nobody can open.
+   */
+  describe('the account lifecycle', () => {
+    it('requires APP_WEB_URL, with no default to fall back on', () => {
+      expect(() =>
+        validateEnvironment({
+          DATABASE_URL,
+          JWT_ACCESS_SECRET,
+          JWT_REFRESH_SECRET,
+        }),
+      ).toThrow(/APP_WEB_URL/);
+    });
+
+    it.each([
+      'https://hr.company.com',
+      'http://localhost:5173',
+      'https://hr.company.com:8443',
+    ])('accepts the origin %s', (APP_WEB_URL) => {
+      expect(validateWith({ APP_WEB_URL }).APP_WEB_URL).toBe(APP_WEB_URL);
+    });
+
+    /**
+     * A path or a query would end up spliced in front of `?token=`, producing a
+     * URL that resolves to the wrong screen — or to none.
+     */
+    it.each([
+      ['a path', 'https://hr.company.com/app'],
+      ['a query', 'https://hr.company.com?x=1'],
+      ['no scheme', 'hr.company.com'],
+      ['a blank value', '   '],
+    ])('refuses a web URL with %s', (_case, APP_WEB_URL) => {
+      expect(() => validateWith({ APP_WEB_URL })).toThrow(/APP_WEB_URL/);
+    });
+
+    it('defaults the two link lifetimes to 72 hours and 1 hour', () => {
+      const config = validateWith();
+
+      expect(config.ACCOUNT_ACTIVATION_TTL).toBe(259_200);
+      expect(config.ACCOUNT_PASSWORD_RESET_TTL).toBe(3600);
+    });
+
+    it('coerces the lifetimes out of their string form', () => {
+      const config = validateWith({
+        ACCOUNT_ACTIVATION_TTL: '86400',
+        ACCOUNT_PASSWORD_RESET_TTL: '1800',
+      });
+
+      expect(config.ACCOUNT_ACTIVATION_TTL).toBe(86_400);
+      expect(config.ACCOUNT_PASSWORD_RESET_TTL).toBe(1800);
+    });
+
+    /**
+     * Mail is store-and-forward and a greylisting server routinely holds a first
+     * message for minutes. A one-minute link is not a tight security setting; it
+     * is an onboarding flow that never works.
+     */
+    it.each(['ACCOUNT_ACTIVATION_TTL', 'ACCOUNT_PASSWORD_RESET_TTL'])(
+      'refuses a %s shorter than a mail delivery',
+      (key) => {
+        expect(() => validateWith({ [key]: '60' })).toThrow(new RegExp(key));
+      },
+    );
+
+    /**
+     * The two ceilings differ by a wide margin, and deliberately: an activation
+     * link opens an empty account, a reset link opens a real one.
+     */
+    it('lets an activation link last a week but not a reset link', () => {
+      const week = String(7 * 86_400);
+
+      expect(validateWith({ ACCOUNT_ACTIVATION_TTL: week })).toBeDefined();
+      expect(() => validateWith({ ACCOUNT_PASSWORD_RESET_TTL: week })).toThrow(
+        /ACCOUNT_PASSWORD_RESET_TTL/,
       );
     });
   });

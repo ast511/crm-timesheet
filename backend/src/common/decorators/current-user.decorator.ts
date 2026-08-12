@@ -76,10 +76,12 @@ export interface CurrentUser {
  * of when the token happens to expire. See `AuthService.authenticate`.
  *
  * What has *not* changed: this authorises nothing. An authenticated caller is
- * known to be who they say; whether they may touch a given resource is Feature
- * 033. The one check that already existed — the administrative workspace — was
- * never authorization arriving early, it is what `ADMINISTRATIVE_USERS` means,
- * and it stays where it was.
+ * known to be who they say; whether they may do a given thing is
+ * `PermissionsGuard` (Feature 035), which reads the caller through
+ * {@link resolveCurrentUser} — this same function — and then asks the permission
+ * catalog. The one check that already existed — the administrative workspace —
+ * was never authorization arriving early, it is what `ADMINISTRATIVE_USERS`
+ * means, and it stays where it was.
  */
 export const CurrentUser = createParamDecorator(
   (_data: unknown, context: ExecutionContext): CurrentUser =>

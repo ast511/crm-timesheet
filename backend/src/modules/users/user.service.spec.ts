@@ -2,26 +2,30 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { SortOrder } from '../../common/enums/sort-order.enum';
-import { hashPassword } from '../../common/password/password.hasher';
-import { UserRole } from '../../generated/prisma/enums';
+import {
+  AccountStatus,
+  AccountTokenType,
+  UserRole,
+} from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AccountEmailService } from '../auth/account-email.service';
+import { AccountTokenService } from '../auth/account-token.service';
+import { AuthService } from '../auth/auth.service';
 import { UserQueryDto } from './dto/user-query.dto';
 import { USER_PUBLIC_SELECT } from './entities/user.entity';
 import { UserService } from './user.service';
 
 /**
- * Hashing is mocked for two reasons: bcrypt at cost factor 12 costs a few
- * hundred milliseconds per call on the main thread, and what these tests are
- * about is *that* the service hashes — never that `bcryptjs` works, which is
- * `password.hasher.spec.ts`'s job.
+ * Hashing is **not** mocked here any more, because it does not happen here any
+ * more.
+ *
+ * Feature 036 took the password out of this module entirely: an account is
+ * created with none, and the only party who ever knows one is its owner. That is
+ * the single biggest change to this spec — the tests that asserted "stores the
+ * bcrypt hash" and "re-hashes when a new password is supplied" describe an API
+ * that no longer exists, and they are replaced below by tests that a created
+ * account is `PENDING_ACTIVATION` and gets an invitation instead.
  */
-jest.mock('../../common/password/password.hasher', () => ({
-  hashPassword: jest.fn().mockResolvedValue('hashed'),
-}));
-
-const hashPasswordMock = hashPassword as jest.MockedFunction<
-  typeof hashPassword
->;
 
 /**
  * A row as PostgreSQL returns it through `USER_PUBLIC_SELECT` — `Date` objects,
@@ -32,7 +36,7 @@ const USER = {
   email: 'ana.pop@example.com',
   username: 'APO',
   role: UserRole.ADMIN,
-  isActive: true,
+  status: AccountStatus.ACTIVE,
   createdAt: new Date('2026-08-01T10:00:00.000Z'),
   updatedAt: new Date('2026-08-02T11:30:00.000Z'),
 };
@@ -43,16 +47,21 @@ const USER_ENTITY = {
   email: 'ana.pop@example.com',
   username: 'APO',
   role: UserRole.ADMIN,
-  isActive: true,
+  status: AccountStatus.ACTIVE,
   createdAt: '2026-08-01T10:00:00.000Z',
   updatedAt: '2026-08-02T11:30:00.000Z',
 };
 
+/** No `password`: `POST /users` no longer accepts one. */
 const VALID_CREATE = {
   email: 'ana.pop@example.com',
   username: 'APO',
-  password: 'correct horse battery',
   role: UserRole.ADMIN,
+};
+
+const ISSUED = {
+  token: 'a-link-secret',
+  expiresAt: new Date('2026-08-04T10:00:00.000Z'),
 };
 
 const defaultQuery = (overrides: Partial<UserQueryDto> = {}): UserQueryDto =>
@@ -71,11 +80,14 @@ describe('UserService', () => {
     };
     $transaction: jest.Mock;
   };
+  let accountTokens: {
+    issue: jest.Mock;
+    ttlSeconds: jest.Mock;
+  };
+  let accountEmails: { sendActivation: jest.Mock };
+  let auth: { revokeSessions: jest.Mock };
 
   beforeEach(async () => {
-    hashPasswordMock.mockClear();
-    hashPasswordMock.mockResolvedValue('hashed');
-
     prisma = {
       user: {
         findMany: jest.fn(),
@@ -85,15 +97,31 @@ describe('UserService', () => {
         update: jest.fn(),
         delete: jest.fn(),
       },
-      // The real client resolves the batch; the mock only has to await the
-      // promises the mocked delegates already returned.
-      $transaction: jest.fn((operations: Promise<unknown>[]) =>
-        Promise.all(operations),
+      // Two shapes, because the service uses both. `findAll` passes an array of
+      // already-issued promises, and `create`/`deactivate` pass a callback that
+      // wants a transaction client — here, the same mocked delegates, which is
+      // what lets a test assert on `prisma.user.create` either way.
+      $transaction: jest.fn(
+        (arg: Promise<unknown>[] | ((tx: unknown) => Promise<unknown>)) =>
+          typeof arg === 'function' ? arg(prisma) : Promise.all(arg),
       ),
     };
 
+    accountTokens = {
+      issue: jest.fn().mockResolvedValue(ISSUED),
+      ttlSeconds: jest.fn().mockReturnValue(259_200),
+    };
+    accountEmails = { sendActivation: jest.fn().mockResolvedValue(undefined) };
+    auth = { revokeSessions: jest.fn().mockResolvedValue(0) };
+
     const moduleRef: TestingModule = await Test.createTestingModule({
-      providers: [UserService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        UserService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AccountTokenService, useValue: accountTokens },
+        { provide: AccountEmailService, useValue: accountEmails },
+        { provide: AuthService, useValue: auth },
+      ],
     }).compile();
 
     service = moduleRef.get(UserService);
@@ -177,17 +205,29 @@ describe('UserService', () => {
       );
     });
 
-    it('filters by isActive, including the false case', async () => {
-      await service.findAll(defaultQuery({ isActive: false }));
+    /**
+     * `?status=` replaced `?isActive=` in Feature 036. The state a screen
+     * actually reaches for is the third one the boolean could not express.
+     */
+    it.each([
+      AccountStatus.PENDING_ACTIVATION,
+      AccountStatus.ACTIVE,
+      AccountStatus.DISABLED,
+    ])('filters by status=%s', async (status) => {
+      await service.findAll(defaultQuery({ status }));
 
       expect(prisma.user.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { AND: [{ isActive: false }] } }),
+        expect.objectContaining({ where: { AND: [{ status }] } }),
       );
     });
 
     it('combines search and both filters with AND', async () => {
       await service.findAll(
-        defaultQuery({ search: 'ana', role: UserRole.ADMIN, isActive: true }),
+        defaultQuery({
+          search: 'ana',
+          role: UserRole.ADMIN,
+          status: AccountStatus.ACTIVE,
+        }),
       );
 
       const [{ where }] = prisma.user.findMany.mock.calls[0] as [
@@ -206,7 +246,9 @@ describe('UserService', () => {
     });
 
     it('counts with the same filter the page was read with', async () => {
-      await service.findAll(defaultQuery({ search: 'ana', isActive: true }));
+      await service.findAll(
+        defaultQuery({ search: 'ana', status: AccountStatus.ACTIVE }),
+      );
 
       const [{ where: listedWith }] = prisma.user.findMany.mock.calls[0] as [
         { where: unknown },
@@ -254,17 +296,96 @@ describe('UserService', () => {
       await expect(service.create(VALID_CREATE)).resolves.toEqual(USER_ENTITY);
     });
 
-    it('stores the bcrypt hash and never the plain password', async () => {
+    /**
+     * The central claim of Feature 036's onboarding half: an account is born
+     * with **no password at all**, so there is nothing for anybody — including
+     * the administrator who created it — to know.
+     */
+    it('creates the account pending, with no password of any kind', async () => {
       await service.create(VALID_CREATE);
-
-      expect(hashPasswordMock).toHaveBeenCalledWith('correct horse battery');
 
       const [{ data }] = prisma.user.create.mock.calls[0] as [
         { data: Record<string, unknown> },
       ];
 
-      expect(data.passwordHash).toBe('hashed');
+      expect(data.status).toBe(AccountStatus.PENDING_ACTIVATION);
+      expect(data).not.toHaveProperty('passwordHash');
       expect(data).not.toHaveProperty('password');
+    });
+
+    it('issues an activation token for the new account', async () => {
+      await service.create(VALID_CREATE);
+
+      expect(accountTokens.issue).toHaveBeenCalledWith(
+        'usr-1',
+        AccountTokenType.ACTIVATION,
+        prisma,
+      );
+    });
+
+    /**
+     * The row and its invitation are one transaction: an account nobody can
+     * onboard is invisible until somebody asks why they never got an email.
+     */
+    it('writes the account and its token in one transaction', async () => {
+      await service.create(VALID_CREATE);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.$transaction.mock.calls[0][0]).toEqual(
+        expect.any(Function),
+      );
+    });
+
+    it('emails the link, and the link secret only', async () => {
+      await service.create(VALID_CREATE);
+
+      expect(accountEmails.sendActivation).toHaveBeenCalledWith({
+        to: 'ana.pop@example.com',
+        token: ISSUED.token,
+        expiresAt: ISSUED.expiresAt,
+      });
+    });
+
+    /** The token is never in the response — it belongs in an inbox and nowhere else. */
+    it('does not return the token to the caller', async () => {
+      const created = await service.create(VALID_CREATE);
+
+      expect(JSON.stringify(created)).not.toContain(ISSUED.token);
+      expect(created).not.toHaveProperty('token');
+    });
+
+    /**
+     * A mail server that is briefly down must not destroy a perfectly good
+     * account. The administrator resends from the accounts screen.
+     */
+    it('keeps the account when the invitation cannot be sent', async () => {
+      accountEmails.sendActivation.mockRejectedValue(new Error('smtp down'));
+
+      await expect(service.create(VALID_CREATE)).resolves.toEqual(USER_ENTITY);
+    });
+
+    /**
+     * Given a transaction, it joins it rather than opening a second one — which
+     * is what lets `POST /employees` create an employee and their login as one
+     * unit. The stub carries `findMany` as well as `create` because the
+     * uniqueness check runs inside the caller's transaction too, so that it sees
+     * rows the same transaction has already written.
+     */
+    it('uses the caller’s transaction when one is supplied', async () => {
+      const tx = {
+        user: {
+          findMany: jest.fn().mockResolvedValue([]),
+          create: jest.fn().mockResolvedValue(USER),
+        },
+      };
+
+      await service.create(
+        VALID_CREATE,
+        tx as unknown as Parameters<typeof service.create>[1],
+      );
+
+      expect(tx.user.create).toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('checks the email and the username case-insensitively', async () => {
@@ -323,7 +444,12 @@ describe('UserService', () => {
       });
     });
 
-    it('does not spend a bcrypt round on a request that conflicts', async () => {
+    /**
+     * A conflicting request must not invite anybody. The address it would have
+     * written to belongs to an account that already exists, so a message would
+     * arrive at a real mailbox announcing an account the recipient did not get.
+     */
+    it('neither issues a token nor sends mail when the request conflicts', async () => {
       prisma.user.findMany.mockResolvedValue([
         { email: 'ana.pop@example.com', username: null },
       ]);
@@ -331,7 +457,152 @@ describe('UserService', () => {
       await expect(service.create(VALID_CREATE)).rejects.toBeInstanceOf(
         ConflictException,
       );
-      expect(hashPasswordMock).not.toHaveBeenCalled();
+      expect(accountTokens.issue).not.toHaveBeenCalled();
+      expect(accountEmails.sendActivation).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resendActivation', () => {
+    it('issues a fresh link and emails it for a pending account', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'usr-1',
+        email: 'ana.pop@example.com',
+        status: AccountStatus.PENDING_ACTIVATION,
+      });
+
+      await service.resendActivation('usr-1');
+
+      expect(accountTokens.issue).toHaveBeenCalledWith(
+        'usr-1',
+        AccountTokenType.ACTIVATION,
+      );
+      expect(accountEmails.sendActivation).toHaveBeenCalledWith(
+        expect.objectContaining({ token: ISSUED.token }),
+      );
+    });
+
+    /**
+     * Somebody who has activated and forgotten their password needs a *reset*,
+     * which is theirs to request. Re-inviting them would be an administrator
+     * solving the wrong problem.
+     */
+    it.each([AccountStatus.ACTIVE, AccountStatus.DISABLED])(
+      'refuses a %s account with a coded 409',
+      async (status) => {
+        prisma.user.findUnique.mockResolvedValue({
+          id: 'usr-1',
+          email: 'ana.pop@example.com',
+          status,
+        });
+
+        await expect(service.resendActivation('usr-1')).rejects.toMatchObject({
+          response: {
+            errorCode: 'ACCOUNT_NOT_PENDING_ACTIVATION',
+            params: { status },
+          },
+        });
+        expect(accountTokens.issue).not.toHaveBeenCalled();
+      },
+    );
+
+    it('throws 404 for an unknown id', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.resendActivation('missing')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('activate', () => {
+    it('re-enables a disabled account', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        status: AccountStatus.DISABLED,
+      });
+      prisma.user.update.mockResolvedValue(USER);
+
+      await expect(service.activate('usr-1')).resolves.toEqual(USER_ENTITY);
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'usr-1' },
+        data: { status: AccountStatus.ACTIVE },
+        select: USER_PUBLIC_SELECT,
+      });
+    });
+
+    /**
+     * There would be no password to activate it *with*: the result would be an
+     * `ACTIVE` account whose owner meets "invalid email or password" forever.
+     */
+    it('refuses a pending account, which has no password', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        status: AccountStatus.PENDING_ACTIVATION,
+      });
+
+      await expect(service.activate('usr-1')).rejects.toMatchObject({
+        response: { errorCode: 'ACCOUNT_NOT_PENDING_ACTIVATION' },
+      });
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('throws 404 for an unknown id', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.activate('missing')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('deactivate', () => {
+    beforeEach(() => {
+      prisma.user.findUnique.mockResolvedValue({
+        status: AccountStatus.ACTIVE,
+      });
+      prisma.user.update.mockResolvedValue({
+        ...USER,
+        status: AccountStatus.DISABLED,
+      });
+    });
+
+    it('disables the account', async () => {
+      await expect(service.deactivate('usr-1')).resolves.toEqual({
+        ...USER_ENTITY,
+        status: AccountStatus.DISABLED,
+      });
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'usr-1' },
+        data: { status: AccountStatus.DISABLED },
+        select: USER_PUBLIC_SELECT,
+      });
+    });
+
+    /**
+     * Without this the account keeps working until its refresh token expires —
+     * up to a week — and "we disabled their account" would mean "next Tuesday".
+     */
+    it('revokes the account’s live sessions, in the same transaction', async () => {
+      await service.deactivate('usr-1');
+
+      expect(auth.revokeSessions).toHaveBeenCalledWith('usr-1', { tx: prisma });
+    });
+
+    it('works on a pending account, stopping an invitation sent in error', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        status: AccountStatus.PENDING_ACTIVATION,
+      });
+
+      await expect(service.deactivate('usr-1')).resolves.toMatchObject({
+        status: AccountStatus.DISABLED,
+      });
+    });
+
+    it('throws 404 for an unknown id', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.deactivate('missing')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 
@@ -363,7 +634,7 @@ describe('UserService', () => {
       prisma.user.findUnique.mockResolvedValue({ id: 'usr-1' });
       prisma.user.update.mockResolvedValue(USER);
 
-      await service.update('usr-1', { isActive: false });
+      await service.update('usr-1', { role: UserRole.HR });
 
       expect(prisma.user.findMany).not.toHaveBeenCalled();
     });
@@ -376,32 +647,35 @@ describe('UserService', () => {
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'usr-1' },
-        data: {
-          username: undefined,
-          passwordHash: undefined,
-          role: UserRole.HR,
-          isActive: undefined,
-        },
+        data: { username: undefined, role: UserRole.HR },
         select: USER_PUBLIC_SELECT,
       });
-      expect(hashPasswordMock).not.toHaveBeenCalled();
     });
 
-    it('re-hashes when a new password is supplied', async () => {
+    /**
+     * The patch can no longer touch a password or a status, and the assertion is
+     * on the *written data* rather than on the DTO — a field the type rejects but
+     * the service still wrote would be the failure this catches.
+     */
+    it('never writes a password or a status, whatever was sent', async () => {
       prisma.user.findUnique.mockResolvedValue({ id: 'usr-1' });
       prisma.user.update.mockResolvedValue(USER);
-      hashPasswordMock.mockResolvedValue('rehashed');
 
-      await service.update('usr-1', { password: 'a whole new secret' });
+      await service.update('usr-1', {
+        role: UserRole.HR,
+        // Cast, because the DTO has no such properties — which is the point:
+        // the pipe rejects them at the edge, and this proves the service would
+        // ignore them even if one arrived.
+        ...({ password: 'smuggled', status: AccountStatus.ACTIVE } as object),
+      });
 
-      expect(hashPasswordMock).toHaveBeenCalledWith('a whole new secret');
-      expect(prisma.user.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            passwordHash: 'rehashed',
-          }) as unknown,
-        }),
-      );
+      const [{ data }] = prisma.user.update.mock.calls[0] as [
+        { data: Record<string, unknown> },
+      ];
+
+      expect(data).not.toHaveProperty('passwordHash');
+      expect(data).not.toHaveProperty('password');
+      expect(data).not.toHaveProperty('status');
     });
 
     it('clears the username on an explicit null', async () => {
@@ -436,7 +710,7 @@ describe('UserService', () => {
       prisma.user.update.mockResolvedValue(USER);
 
       await expect(
-        service.update('usr-1', { isActive: true }),
+        service.update('usr-1', { role: UserRole.ADMIN }),
       ).resolves.toEqual(USER_ENTITY);
     });
   });

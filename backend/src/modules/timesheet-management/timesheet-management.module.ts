@@ -69,14 +69,17 @@ import { TimesheetService } from './timesheet.service';
  * leave features want to announce something — by importing this module then", and
  * exported it for this caller.
  *
- * **No permission is checked and no guard is registered.** The ownership and role
- * rules here — an owner fills and submits, an administrator approves and rejects —
- * are domain logic in `timesheet-management.rules.ts`, not authorization: they
- * describe what a timesheet *is*, and would be true under any permission system.
- * Feature 029 built the permission catalog and enforces none of it, because
- * enforcement needs authentication first; this module follows that and adds no
- * `@RequirePermission` of its own. `PermissionResource.TIMESHEET` is already
- * seeded and waiting.
+ * **No guard is registered here, and the domain rules are untouched.** The
+ * ownership and role rules in `timesheet-management.rules.ts` — an owner fills
+ * and submits, an administrator approves and rejects — are domain logic rather
+ * than authorization: they describe what a timesheet *is*, and would be true
+ * under any permission system. Feature 035 added
+ * `@RequirePermission('TIMESHEET.APPROVE')` to the two review actions and
+ * removed none of them, so both layers now run on `approve` and `reject`; the
+ * global `PermissionsGuard` does the enforcing, and this module imports one
+ * decorator and nothing else from it. `PermissionResource.TIMESHEET`, seeded by
+ * Feature 029, is what that decorator names. The other three routes declare no
+ * requirement and behave exactly as they did.
  *
  * **`TimesheetService` is exported, as of Feature 031.** This module said
  * "Reporting will read these tables eventually and will do it through

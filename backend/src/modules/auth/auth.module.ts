@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 
+import { EmailModule } from '../email/email.module';
+import { AccountEmailService } from './account-email.service';
+import { AccountPasswordService } from './account-password.service';
+import { AccountTokenService } from './account-token.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -34,9 +38,15 @@ import { TokenService } from './token.service';
  * on authentication, so authentication must depend on none of it, or the graph
  * acquires a cycle the first time somebody sends a "new login" notification.
  *
- * Notably absent: `EmailModule`. It is available and this feature does not use
- * it. Password reset is Feature 034, and importing a mailer in advance of having
- * anything to send would be the guess Feature 025 explicitly refused to make.
+ * `EmailModule`, **as of Feature 036**. Feature 032 left it out and said why —
+ * "importing a mailer in advance of having anything to send would be the guess
+ * Feature 025 explicitly refused to make" — and this is the feature that finally
+ * has something to send: an invitation link and a password-reset link. It is
+ * imported for `EmailService.send` and nothing else; no `SMTP_*` variable is read
+ * in this module, and `AccountEmailService` composes while that service delivers.
+ *
+ * It does not create a cycle: `EmailModule` depends on nothing, which is the
+ * property its own documentation asks to be protected.
  *
  * ## The dependency
  *
@@ -62,24 +72,51 @@ import { TokenService } from './token.service';
  *   it is still active. A second implementation for the socket is exactly the one
  *   that would still be honouring a deactivated account next week.
  *
+ * `AccountTokenService` and `AccountEmailService` are exported **as of Feature
+ * 036**, for one caller each and for the same underlying reason: onboarding
+ * starts in the users module — an administrator creates an account, or resends
+ * an invitation — and ends here, when the person follows the link. The account
+ * lives in `users`, the credential mechanism lives in `auth`, and the module that
+ * owns each does its own half.
+ *
+ * `UserModule` is deliberately **not** imported in return. The dependency points
+ * one way — users → auth — so the graph stays acyclic and this module keeps the
+ * property its own documentation asks for: everything will eventually depend on
+ * authentication, so authentication depends on none of it. Where this module
+ * needs an account it reads the `users` table directly, which it already did for
+ * login.
+ *
  * `TokenService` is not exported. Nothing outside this module has any business
- * signing a token.
+ * signing a token — and `AccountTokenService`, which mints the link secrets, is
+ * exported only so the users module can *ask for* one, never to hash or verify.
  *
  * ## What this does not do
  *
  * It authorises nothing. An authenticated caller is known to be who their token
- * says; whether they may read a particular timesheet or approve a particular
- * leave request is still unchecked, exactly as it was before this feature.
- * The authorization enforcement feature adds that on top, as a second global
- * guard reading `@CurrentUser()` and the effective permission set
- * `PermissionManagementModule` already resolves. Splitting the two was deliberate: identity is a prerequisite for
- * authorization and has nothing to do with it, and a feature that shipped half
- * of each would leave both half-testable.
+ * says; whether they may do a particular thing is `AuthorizationModule`
+ * (Feature 035), which adds a second global guard reading `@CurrentUser()` and
+ * the effective permission set `PermissionManagementModule` resolves. Splitting
+ * the two was deliberate: identity is a prerequisite for authorization and has
+ * nothing to do with it, and a feature that shipped half of each would leave
+ * both half-testable. Nothing in this module changed when the other half landed,
+ * which is what the split was for.
  */
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({}), EmailModule],
   controllers: [AuthController],
-  providers: [AuthService, TokenService, JwtAuthGuard],
-  exports: [AuthService, JwtAuthGuard],
+  providers: [
+    AuthService,
+    TokenService,
+    JwtAuthGuard,
+    AccountTokenService,
+    AccountEmailService,
+    AccountPasswordService,
+  ],
+  exports: [
+    AuthService,
+    JwtAuthGuard,
+    AccountTokenService,
+    AccountEmailService,
+  ],
 })
 export class AuthModule {}

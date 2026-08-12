@@ -1,5 +1,5 @@
 import { toIsoTimestamp } from '../../../common/utils/date.util';
-import type { UserRole } from '../../../generated/prisma/enums';
+import type { AccountStatus, UserRole } from '../../../generated/prisma/enums';
 import type { Prisma } from '../../../generated/prisma/client';
 import type { UserModel } from '../../../generated/prisma/models';
 
@@ -32,7 +32,21 @@ export interface UserEntity {
   email: string;
   username: string | null;
   role: UserRole;
-  isActive: boolean;
+  /**
+   * Where the account stands in its own life.
+   *
+   * **Replaced `isActive` in Feature 036**, and it is a breaking change to this
+   * resource rather than a rename: the boolean could not express
+   * `PENDING_ACTIVATION`, so a screen listing accounts had no way to show the
+   * difference between somebody who has never accepted their invitation and a
+   * colleague who has been working here for a year. See [AccountStatus] in
+   * `schema.prisma` for why one column replaced the boolean instead of sitting
+   * beside it.
+   *
+   * A client that used to read `isActive` reads `status !== 'DISABLED'`, and a
+   * client that filtered `?isActive=true` filters `?status=ACTIVE`.
+   */
+  status: AccountStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,7 +63,7 @@ export const USER_PUBLIC_SELECT = {
   email: true,
   username: true,
   role: true,
-  isActive: true,
+  status: true,
   createdAt: true,
   updatedAt: true,
 } as const satisfies Prisma.UserSelect;
@@ -64,7 +78,7 @@ export function toUserEntity(user: PublicUserRow): UserEntity {
     email: user.email,
     username: user.username,
     role: user.role,
-    isActive: user.isActive,
+    status: user.status,
     createdAt: toIsoTimestamp(user.createdAt),
     updatedAt: toIsoTimestamp(user.updatedAt),
   };

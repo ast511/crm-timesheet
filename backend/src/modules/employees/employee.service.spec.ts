@@ -5,8 +5,10 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SortOrder } from '../../common/enums/sort-order.enum';
 import {
+  AccountStatus,
   EmployeeStatus,
   SeniorityLevel,
   UserRole,
@@ -45,7 +47,7 @@ const EMPLOYEE = {
     email: 'ion.popescu@example.com',
     username: 'IPO',
     role: UserRole.USER,
-    isActive: true,
+    status: AccountStatus.ACTIVE,
   },
   createdAt: new Date('2026-08-01T10:00:00.000Z'),
   updatedAt: new Date('2026-08-02T11:30:00.000Z'),
@@ -72,6 +74,21 @@ const VALID_CREATE = {
   status: EmployeeStatus.ACTIVE,
 };
 
+/** The account to create when the opt-in is used, instead of `userId`. */
+const NEW_ACCOUNT = {
+  email: 'ion.popescu@example.com',
+  role: UserRole.USER,
+};
+
+const caller = (role: UserRole): CurrentUser => ({
+  userId: 'usr-caller',
+  employeeId: 'emp-caller',
+  role,
+  administrativeAccess: role !== UserRole.USER,
+});
+
+const ADMIN = caller(UserRole.ADMIN);
+
 const defaultQuery = (
   overrides: Partial<EmployeeQueryDto> = {},
 ): EmployeeQueryDto =>
@@ -91,7 +108,7 @@ describe('EmployeeService', () => {
     };
     $transaction: jest.Mock;
   };
-  let users: { findEmployeeLink: jest.Mock };
+  let users: { findEmployeeLink: jest.Mock; create: jest.Mock };
   let departments: { exists: jest.Mock };
   let positions: { exists: jest.Mock };
   let projectMembers: { closeOpenMemberships: jest.Mock };
@@ -123,6 +140,13 @@ describe('EmployeeService', () => {
     // says otherwise.
     users = {
       findEmployeeLink: jest.fn().mockResolvedValue({ employeeId: null }),
+      // Feature 036: the account opt-in creates the login through the module
+      // that owns `users`, rather than by writing the table from here.
+      create: jest.fn().mockResolvedValue({
+        id: 'usr-new',
+        email: NEW_ACCOUNT.email,
+        status: AccountStatus.PENDING_ACTIVATION,
+      }),
     };
     departments = { exists: jest.fn().mockResolvedValue(true) };
     positions = { exists: jest.fn().mockResolvedValue(true) };
@@ -319,13 +343,13 @@ describe('EmployeeService', () => {
     });
 
     it('creates and returns the employee when everything checks out', async () => {
-      await expect(service.create(VALID_CREATE)).resolves.toEqual(
+      await expect(service.create(ADMIN, VALID_CREATE)).resolves.toEqual(
         EMPLOYEE_ENTITY,
       );
     });
 
     it('confirms each referenced row through the module that owns it', async () => {
-      await service.create(VALID_CREATE);
+      await service.create(ADMIN, VALID_CREATE);
 
       expect(users.findEmployeeLink).toHaveBeenCalledWith('usr-1');
       expect(departments.exists).toHaveBeenCalledWith('dep-1');
@@ -333,7 +357,7 @@ describe('EmployeeService', () => {
     });
 
     it('parses the ISO hire date into the Date the column stores', async () => {
-      await service.create(VALID_CREATE);
+      await service.create(ADMIN, VALID_CREATE);
 
       const [{ data }] = prisma.employee.create.mock.calls[0] as [
         { data: { hireDate: Date } },
@@ -345,7 +369,7 @@ describe('EmployeeService', () => {
     it('rejects a missing department with a 400', async () => {
       departments.exists.mockResolvedValue(false);
 
-      await expect(service.create(VALID_CREATE)).rejects.toBeInstanceOf(
+      await expect(service.create(ADMIN, VALID_CREATE)).rejects.toBeInstanceOf(
         BadRequestException,
       );
       expect(prisma.employee.create).not.toHaveBeenCalled();
@@ -356,7 +380,7 @@ describe('EmployeeService', () => {
       departments.exists.mockResolvedValue(false);
       positions.exists.mockResolvedValue(false);
 
-      await expect(service.create(VALID_CREATE)).rejects.toMatchObject({
+      await expect(service.create(ADMIN, VALID_CREATE)).rejects.toMatchObject({
         response: {
           message: [
             'User usr-1 does not exist',
@@ -370,7 +394,7 @@ describe('EmployeeService', () => {
     it('rejects a user another employee already holds', async () => {
       users.findEmployeeLink.mockResolvedValue({ employeeId: 'emp-9' });
 
-      await expect(service.create(VALID_CREATE)).rejects.toMatchObject({
+      await expect(service.create(ADMIN, VALID_CREATE)).rejects.toMatchObject({
         response: {
           message: 'User usr-1 is already linked to employee emp-9',
         },
@@ -381,7 +405,7 @@ describe('EmployeeService', () => {
     it('rejects a duplicate employee code, compared without case', async () => {
       prisma.employee.findFirst.mockResolvedValue({ id: 'emp-9' });
 
-      await expect(service.create(VALID_CREATE)).rejects.toBeInstanceOf(
+      await expect(service.create(ADMIN, VALID_CREATE)).rejects.toBeInstanceOf(
         ConflictException,
       );
       expect(prisma.employee.findFirst).toHaveBeenCalledWith({
@@ -396,10 +420,122 @@ describe('EmployeeService', () => {
     it('checks the relations before spending a query on the code', async () => {
       departments.exists.mockResolvedValue(false);
 
-      await expect(service.create(VALID_CREATE)).rejects.toBeInstanceOf(
+      await expect(service.create(ADMIN, VALID_CREATE)).rejects.toBeInstanceOf(
         BadRequestException,
       );
       expect(prisma.employee.findFirst).not.toHaveBeenCalled();
+    });
+
+    /**
+     * **The opt-in is off, and nothing about this path changed.** It is the
+     * regression criterion for Feature 036's employees half: a body naming an
+     * existing `userId` creates one employee, creates no account, and sends no
+     * email — exactly what it did before, and what HR does every day.
+     */
+    it('creates no account when the opt-in is absent', async () => {
+      await service.create(ADMIN, VALID_CREATE);
+
+      expect(users.create).not.toHaveBeenCalled();
+      expect(prisma.employee.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ userId: 'usr-1' }) as unknown,
+        }),
+      );
+    });
+  });
+
+  /**
+   * The "checkbox on the Employees page" flow: one request, two records, one
+   * invitation.
+   */
+  describe('create with the account opt-in', () => {
+    const WITH_ACCOUNT = (() => {
+      const { userId: _userId, ...rest } = VALID_CREATE;
+
+      return { ...rest, account: NEW_ACCOUNT };
+    })();
+
+    beforeEach(() => {
+      prisma.employee.create.mockResolvedValue(EMPLOYEE);
+    });
+
+    it('creates the account through the users module and links it', async () => {
+      await service.create(ADMIN, WITH_ACCOUNT);
+
+      expect(users.create).toHaveBeenCalledWith(NEW_ACCOUNT, prisma);
+      expect(prisma.employee.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ userId: 'usr-new' }) as unknown,
+        }),
+      );
+    });
+
+    /**
+     * One transaction, so a duplicate employee code cannot leave behind an
+     * account that was invited to a job nobody created.
+     */
+    it('creates both inside one transaction', async () => {
+      await service.create(ADMIN, WITH_ACCOUNT);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not look for an existing account to link', async () => {
+      await service.create(ADMIN, WITH_ACCOUNT);
+
+      expect(users.findEmployeeLink).not.toHaveBeenCalled();
+    });
+
+    /**
+     * **Creating an employee is HR's job; creating a login is not.** This is the
+     * check that could not have been a route-level gate, because whether the
+     * request administers an account depends on its body.
+     */
+    it.each([UserRole.HR, UserRole.USER])(
+      'refuses the opt-in for %s, writing nothing at all',
+      async (role) => {
+        await expect(
+          service.create(caller(role), WITH_ACCOUNT),
+        ).rejects.toMatchObject({
+          response: { errorCode: 'AUTHORIZATION_ACCOUNT_ADMIN_REQUIRED' },
+        });
+
+        expect(users.create).not.toHaveBeenCalled();
+        expect(prisma.employee.create).not.toHaveBeenCalled();
+      },
+    );
+
+    /** HR keeps creating employees against an existing account, as before. */
+    it('still lets HR create an employee without the opt-in', async () => {
+      await expect(
+        service.create(caller(UserRole.HR), VALID_CREATE),
+      ).resolves.toEqual(EMPLOYEE_ENTITY);
+    });
+
+    it.each([UserRole.ADMIN, UserRole.SUPERADMIN])(
+      'admits %s',
+      async (role) => {
+        await expect(
+          service.create(caller(role), WITH_ACCOUNT),
+        ).resolves.toEqual(EMPLOYEE_ENTITY);
+      },
+    );
+
+    /** Neither and both are different mistakes, and both are refused. */
+    it('rejects a body naming neither an account nor a new one', async () => {
+      const { userId: _userId, ...withoutEither } = VALID_CREATE;
+
+      await expect(service.create(ADMIN, withoutEither)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(prisma.employee.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a body naming both', async () => {
+      await expect(
+        service.create(ADMIN, { ...VALID_CREATE, account: NEW_ACCOUNT }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(users.create).not.toHaveBeenCalled();
     });
   });
 

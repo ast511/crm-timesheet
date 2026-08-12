@@ -1,13 +1,12 @@
 import {
-  ForbiddenException,
   INestApplication,
   ValidationPipe,
   VersioningType,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AllExceptionsFilter } from '../../common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from '../../common/interceptors/response.interceptor';
 import {
@@ -17,8 +16,12 @@ import {
 } from '../../config/api.constants';
 import { UserRole } from '../../generated/prisma/enums';
 import { TestAuthentication } from '../auth/testing/authentication.testing';
+import {
+  PermissionRequirement,
+  REQUIRED_PERMISSIONS_KEY,
+} from '../authorization/decorators/require-permission.decorator';
 import { ReportingController } from './reporting.controller';
-import { assertReportingAccess, ReportingService } from './reporting.service';
+import { ReportingService } from './reporting.service';
 
 /**
  * The reporting routes, exercised through real requests.
@@ -27,12 +30,18 @@ import { assertReportingAccess, ReportingService } from './reporting.service';
  *
  * 1. **Which routes exist**, and which deliberately do not — there is no
  *    `GET /reports/:reportType`, because a report type is not a resource.
- * 2. **`@CurrentUser()` through Nest's pipeline**, since a param decorator's
- *    logic runs inside the request and a direct call would test nothing.
+ * 2. **That every route requires an access token**, which is this module's own
+ *    stake in Feature 032 rather than a re-test of how a token is verified.
  * 3. **The global `ValidationPipe` on the real routes**, so `:reportType`, the
  *    body and `?format=` are rejected where a client actually meets them.
  * 4. **The export's headers and body**, which is the one response in this
  *    application that is not the `{ success, data }` envelope.
+ *
+ * No `PermissionsGuard` is registered here, so `@RequirePermission('REPORTS.VIEW')`
+ * is inert and every request below succeeds on its merits — which is exactly what
+ * makes these assertions about routing rather than about access. The gate itself
+ * is exercised in `authorization/routing.spec.ts`; that the routes still *declare*
+ * it is asserted at the bottom of this file.
  */
 describe('reporting routing', () => {
   let app: INestApplication;
@@ -188,7 +197,6 @@ describe('reporting routing', () => {
         .expect(200);
 
       expect(reporting.preview).toHaveBeenCalledWith(
-        expect.anything(),
         'timesheet-status',
         expect.objectContaining({ departmentId: 'dep-1', clientName: 'Acme' }),
       );
@@ -265,37 +273,38 @@ describe('reporting routing', () => {
 });
 
 /**
- * The access rule, checked directly.
+ * What each route declares, rather than what a guard does with it.
  *
- * It is a domain rule in the service rather than a guard — see
- * `assertReportingAccess` — so it is asserted here as a function rather than
- * through a request, which is also what makes it independent of how the caller
- * comes to be identified once authentication lands.
+ * This module used to hold its own access rule — `assertReportingAccess`, which
+ * admitted the three roles in `ADMINISTRATIVE_ROLES` — and Feature 035 replaced
+ * it with a `REPORTS.VIEW` requirement enforced by the global
+ * `PermissionsGuard`. The rule is therefore no longer this module's to test:
+ * that a caller holding `REPORTS.VIEW` is admitted and one without it is refused
+ * is asserted end to end in `authorization/routing.spec.ts`, once, against the
+ * real guard.
+ *
+ * What is still this module's to state is the *declaration*: that all three
+ * routes are gated and gated on the same key. A route quietly losing its
+ * decorator would be a report anybody could run, and nothing else in the suite
+ * would notice — the requests above all pass with or without it, because no
+ * guard is registered here.
  */
-describe('assertReportingAccess', () => {
-  const user = (role: UserRole): CurrentUser => ({
-    userId: 'usr-1',
-    employeeId: 'emp-1',
-    role,
-    administrativeAccess: false,
-  });
+describe('the reporting routes declare REPORTS.VIEW', () => {
+  const reflector = new Reflector();
 
-  it.each([UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.HR])(
-    'admits %s',
-    (role) => {
-      expect(() => assertReportingAccess(user(role))).not.toThrow();
+  const requirementOf = (method: keyof ReportingController) =>
+    reflector.get<PermissionRequirement | undefined>(
+      REQUIRED_PERMISSIONS_KEY,
+      ReportingController.prototype[method],
+    );
+
+  it.each<keyof ReportingController>(['findAll', 'preview', 'exportReport'])(
+    'gates %s on REPORTS.VIEW',
+    (method) => {
+      expect(requirementOf(method)).toEqual({
+        keys: ['REPORTS.VIEW'],
+        mode: 'ALL',
+      });
     },
   );
-
-  it('refuses an ordinary employee', () => {
-    expect(() => assertReportingAccess(user(UserRole.USER))).toThrow(
-      ForbiddenException,
-    );
-  });
-
-  it('names the roles that may generate a report', () => {
-    expect(() => assertReportingAccess(user(UserRole.USER))).toThrow(
-      /SUPERADMIN, ADMIN or HR/,
-    );
-  });
 });

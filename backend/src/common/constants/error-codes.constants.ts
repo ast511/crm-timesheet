@@ -197,6 +197,112 @@ export const ERROR_CODES = {
    * No params.
    */
   AUTH_NO_EMPLOYEE_RECORD: 'AUTH_NO_EMPLOYEE_RECORD',
+
+  // ---------------------------------------------------------------------------
+  // Authorization (Feature 035).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The caller is authenticated, and does not hold the permission the route
+   * declares — a `403` from `PermissionsGuard`.
+   *
+   * **The code that separates "who are you" from "may you".** Everything above
+   * with an `AUTH_` prefix is about the credential; this one is about the
+   * account behind a credential that was perfectly good. A frontend's response
+   * to it is therefore the opposite of its response to
+   * {@link AUTH_UNAUTHENTICATED}: refreshing the token will not help and sending
+   * the person to the login screen would be a lie, because signing in again
+   * produces exactly the same refusal. The right screen is "you do not have
+   * access to this — ask an administrator", and the right long-term fix is a
+   * permission granted through the permissions screen.
+   *
+   * One code for every gated route rather than one per permission, for the
+   * reason `RATE_LIMIT_EXCEEDED` is one code for two tiers: the client's
+   * behaviour does not vary, and the *which* travels in `params`.
+   *
+   * Params:
+   *
+   * - `requiredPermissions` — the key the route declares, or several joined by
+   *   `", "`, so a message can name what is missing. Publishing it is safe: it
+   *   is the route's own requirement, which the person on the other side just
+   *   met, and it is already visible in this project's documentation. What is
+   *   **not** returned is the caller's effective set — that would turn every
+   *   refusal into a map of the account's remaining reach.
+   * - `mode` — `ALL` or `ANY`, so a message can say "all of" rather than
+   *   implying the caller needs only one of several listed keys.
+   */
+  AUTHORIZATION_PERMISSION_DENIED: 'AUTHORIZATION_PERMISSION_DENIED',
+
+  /**
+   * The caller is authenticated, and is not `ADMIN` or `SUPERADMIN` — a `403`
+   * on an account or role-management route.
+   *
+   * Separate from {@link AUTHORIZATION_PERMISSION_DENIED} because there is
+   * nothing to grant. That code means "ask an administrator for this
+   * permission"; this one means "this is not something your role can be given",
+   * and a frontend that offered a "request access" link for it would be
+   * promising something no screen in this application can do. The rigid boundary
+   * it enforces is argued on `ACCOUNT_ADMIN_ROLES`.
+   *
+   * **HR meets this code**, which is the case it mostly exists for: HR manages
+   * employees and never accounts or roles, so an HR user who reaches a `/users`
+   * write is being told about a boundary rather than about a missing checkbox.
+   *
+   * No params. Which roles would have been allowed is in the message, and it is
+   * not a secret — but it is not a translation variable either.
+   */
+  AUTHORIZATION_ACCOUNT_ADMIN_REQUIRED: 'AUTHORIZATION_ACCOUNT_ADMIN_REQUIRED',
+
+  // ---------------------------------------------------------------------------
+  // Account lifecycle (Feature 036).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * An activation or password-reset link that cannot be used: unknown, expired,
+   * already followed, or naming an account that is in the wrong state for it.
+   *
+   * **One code for all four**, and the reason is the one login gives for its
+   * single credentials code. These endpoints are `@Public()`: whoever presents a
+   * token is unauthenticated and may be anybody, so distinguishing "that link
+   * expired" from "that link was never issued" would let somebody with a
+   * half-guessed token learn which guesses were real. The client's behaviour is
+   * identical in every case — tell the person the link no longer works and how to
+   * get a new one.
+   *
+   * Params: `purpose` — `ACTIVATION` or `PASSWORD_RESET`, so the screen can say
+   * "ask your administrator to resend your invitation" rather than "request a new
+   * reset link". It leaks nothing: the client just followed a link of that kind
+   * and already knows which.
+   */
+  ACCOUNT_TOKEN_INVALID: 'ACCOUNT_TOKEN_INVALID',
+
+  /**
+   * `POST /users/:id/resend-activation` was called for an account that is not
+   * `PENDING_ACTIVATION`.
+   *
+   * Reached only by an authenticated account administrator, so unlike
+   * {@link ACCOUNT_TOKEN_INVALID} it can afford to be specific: the caller is
+   * looking at the account on a screen and needs to be told that this person has
+   * already activated, and that a forgotten password is theirs to reset rather
+   * than an invitation to re-send.
+   *
+   * Params: `status` — the state the account is actually in.
+   */
+  ACCOUNT_NOT_PENDING_ACTIVATION: 'ACCOUNT_NOT_PENDING_ACTIVATION',
+
+  /**
+   * `POST /auth/change-password` was given the wrong `currentPassword`.
+   *
+   * Distinct from {@link AUTH_INVALID_CREDENTIALS} although both mean "that
+   * password is wrong", because the situations have nothing in common. That one
+   * is an unauthenticated login attempt and must reveal nothing; this one is a
+   * caller who is already signed in as the account, so there is no enumeration to
+   * protect against and the honest message — "your current password is not
+   * correct" — is what stops somebody assuming their *new* password was rejected.
+   *
+   * No params.
+   */
+  ACCOUNT_CURRENT_PASSWORD_INCORRECT: 'ACCOUNT_CURRENT_PASSWORD_INCORRECT',
 } as const;
 
 /**

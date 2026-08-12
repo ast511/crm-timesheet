@@ -9,6 +9,8 @@ import { validateEnvironment } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
+import { AuthorizationModule } from './modules/authorization/authorization.module';
+import { PermissionsGuard } from './modules/authorization/permissions.guard';
 import { DepartmentModule } from './modules/departments/department.module';
 import { EmailModule } from './modules/email/email.module';
 import { EmployeeLeaveBalancesModule } from './modules/employee-leave-balances/employee-leave-balances.module';
@@ -20,6 +22,7 @@ import { NotificationManagementModule } from './modules/notification-management/
 import { NotificationModule } from './modules/notifications/notification.module';
 import { PermissionManagementModule } from './modules/permission-management/permission-management.module';
 import { PositionModule } from './modules/positions/position.module';
+import { ProfileModule } from './modules/profile/profile.module';
 import { ProjectMemberModule } from './modules/project-members/project-member.module';
 import { ProjectModule } from './modules/projects/project.module';
 import { PublicHolidayModule } from './modules/public-holidays/public-holiday.module';
@@ -60,10 +63,21 @@ import { PrismaModule } from './prisma/prisma.module';
     // placeholder that Features 023 and 026 installed behind `@CurrentUser()`,
     // and it did so without editing a single one of the modules that read it.
     // It establishes identity only — what an authenticated caller is *allowed*
-    // to do per resource is the authorization enforcement feature, which will
-    // add a second global guard over the permission set
-    // `PermissionManagementModule` already resolves.
+    // to do per resource is `AuthorizationModule` below, which adds the second
+    // global guard over the permission set `PermissionManagementModule`
+    // resolves.
     AuthModule,
+    // What an identified caller may do. The other half of the pair above and
+    // the last of the three cross-cutting layers, listed with them for the same
+    // reason: it owns no table, exposes no endpoint, and every route below is
+    // subject to it. It imports `PermissionManagementModule` for the one
+    // resolution method and reimplements none of it, which is why it can sit
+    // here without knowing anything about the business modules it guards.
+    //
+    // Registering it changes no route on its own: only a route declaring
+    // `@RequirePermission()` is checked. Feature 035 declares them on
+    // permission management, reporting and the two timesheet review actions.
+    AuthorizationModule,
     // How fast anybody may ask. Cross-cutting plumbing rather than a resource —
     // it owns no table and exposes no endpoint — and listed beside the other
     // infrastructure for the reason `AuthModule` is: every route below is
@@ -82,6 +96,11 @@ import { PrismaModule } from './prisma/prisma.module';
     PositionModule,
     UserModule,
     EmployeeModule,
+    // The two halves of a person, on one screen — the only place in the
+    // application where an account and its employment record are shown together,
+    // and the only place somebody edits anything about themselves. It owns no
+    // table and is listed here beside the two modules it reads across.
+    ProfileModule,
     ProjectModule,
     ProjectMemberModule,
     // Configuration rather than a resource: one row describing how the company
@@ -124,10 +143,9 @@ import { PrismaModule } from './prisma/prisma.module';
     // Who may do what: the permission catalog, what each role grants by default,
     // the presets an administrator applies in one click, and where an individual
     // departs from their role. It stores that configuration and resolves it into
-    // an effective set; it enforces none of it, and adds no access check to any
-    // module above. Enforcement needs authentication first — every caller here
-    // is still whoever they claim to be — so it is a later feature that will
-    // import this one and call its resolution method.
+    // an effective set, and still enforces nothing itself — `AuthorizationModule`
+    // above is the caller it was exported for, and calls its one resolution
+    // method from a guard.
     PermissionManagementModule,
     // What everything above was for: the monthly record of what people actually
     // worked. It is the widest reader in the application — the work schedule, the
@@ -136,9 +154,9 @@ import { PrismaModule } from './prisma/prisma.module';
     // it — and it is the first module whose data is produced by employees rather
     // than configured by administrators. It owns the fill-in rules, the
     // submit/approve/reject lifecycle and the hour aggregates; it announces what
-    // happens through the delivery engine and sends nothing itself, and it checks
-    // no permission, for the reason `PermissionManagementModule` above enforces
-    // none.
+    // happens through the delivery engine and sends nothing itself. Its two
+    // review actions carry `@RequirePermission('TIMESHEET.APPROVE')` as of
+    // Feature 035; the ownership and state rules underneath them are unchanged.
     TimesheetManagementModule,
     // What the timesheets were recorded for: five predefined reports, each for a
     // single month, previewed as JSON and exported as PDF or Excel. It is the
@@ -147,9 +165,10 @@ import { PrismaModule } from './prisma/prisma.module';
     // schedule, the projects and the employees, and renders them. Nothing is
     // stored: no report row, no file on disk, no cache, so every request
     // recomputes from live data and an export can never disagree with the screen
-    // it was downloaded from. Only administrative roles may generate one, checked
-    // as a domain rule in its service, for the reason the two modules above
-    // enforce no permission either.
+    // it was downloaded from. Who may generate one is `REPORTS.VIEW`, enforced by
+    // the guard above — Feature 035 replaced the role check its service used to
+    // carry, so access can be widened or withdrawn one account at a time without
+    // a code change.
     ReportingModule,
   ],
   controllers: [AppController],
@@ -186,6 +205,22 @@ import { PrismaModule } from './prisma/prisma.module';
     // supply them. `@Public()` is the exemption; `login`, `refresh`, `GET /` and
     // `GET /health` are the four routes that carry it.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Authorization, applied to every route that asks for it.
+    //
+    // **Declared after the authentication guard, and the order is the point
+    // again.** This one reads `request.user`, and nothing puts a user there
+    // until `JwtAuthGuard` has run — so reversed, every gated route would answer
+    // `403` to a perfectly valid token, and the two status codes would swap
+    // meanings. A client could then no longer tell "your session expired, sign
+    // in again" from "your account may not do this, ask an administrator",
+    // which is the distinction this feature exists to make legible.
+    //
+    // Unlike the two above it, registering this one **gates nothing by
+    // itself**: it allows any route that declares no `@RequirePermission()`.
+    // That is deliberately the opposite posture from `JwtAuthGuard`'s, because
+    // there is a universal answer to "must a caller be known" and none to
+    // "which permission does this route need". See `PermissionsGuard`.
+    { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
 export class AppModule {}

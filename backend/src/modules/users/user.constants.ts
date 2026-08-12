@@ -16,14 +16,17 @@
 export const USER_USERNAME_MAX_LENGTH = 50;
 
 /**
- * Shortest password the API accepts.
+ * The password minimum used to be declared here, as
+ * `USER_PASSWORD_MIN_LENGTH`.
  *
- * 8 is the NIST SP 800-63B minimum for a user-chosen secret. It is a floor, not
- * a policy: composition rules (an upper-case letter, a digit, a symbol) are
- * deliberately absent, because the same guidance found they push people towards
- * predictable substitutions rather than stronger passwords.
+ * Feature 036 moved it to `common/password/password.policy.ts` as
+ * `PASSWORD_MIN_LENGTH`, along with the rest of the rule. It was never a
+ * property of this module — this file's own header already said as much about
+ * the *maximum*, which belonged to bcrypt — and once activation, reset and
+ * change all had to agree with each other, keeping the floor in the module that
+ * no longer accepts a password at all would have been the way the four
+ * eventually disagreed.
  */
-export const USER_PASSWORD_MIN_LENGTH = 8;
 
 /** Bound on `?search=`, so a huge term cannot be pushed into a `LIKE` scan. */
 export const USER_SEARCH_MAX_LENGTH = 100;

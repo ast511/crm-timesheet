@@ -14,9 +14,9 @@ import { ALL_PERMISSION_KEYS, type PermissionKey } from './permissions.seed';
  *
  * ```text
  *   USER baseline    = OWN_WORK                                       16
- *   HR - View Only   = OWN_WORK + read of the HR resources            26
- *   HR - Standard    = HR - View Only + the day-to-day HR work        35   ← HR baseline
- *   HR - Full Access = HR - Standard + deletes and leave policy       41
+ *   HR - View Only   = OWN_WORK + read of the HR resources            24
+ *   HR - Standard    = HR - View Only + the day-to-day HR work        33   ← HR baseline
+ *   HR - Full Access = HR - Standard + deletes and leave policy       39
  *   Admin - Limited  = HR - Standard + approvals and admin reads      40
  *   Admin - Standard = Admin - Limited + the admin writes             46   ← ADMIN baseline
  *   Admin - Full     = the whole catalog                              55
@@ -31,6 +31,36 @@ import { ALL_PERMISSION_KEYS, type PermissionKey } from './permissions.seed';
  * `SUPERADMIN` appears nowhere here. It holds every permission by resolution
  * rather than by configuration, so it has no baseline to seed and no preset to
  * apply — see `PermissionService.resolveEffective`.
+ *
+ * ## Amended by Feature 035: `REPORTS` moved out of the HR column
+ *
+ * `REPORTS.PAGE_ACCESS` and `REPORTS.VIEW` were in {@link HR_VIEW_ONLY}, which
+ * put them in the HR baseline and — because the sets nest — in every admin tier
+ * above it. Feature 035 made `REPORTS.VIEW` the *enforced* control on
+ * `/api/v1/reports`, replacing the role check that module used to run, and that
+ * turned an untested assumption into a decision somebody had to make: a report
+ * is a company-wide document, the attendance sheet lists everybody's absences
+ * and the hour matrices state what each colleague earned their month on. The two
+ * keys therefore moved down to {@link ADMIN_LIMITED}. **The admin tiers are
+ * unchanged at 40, 46 and 55** — they inherit the keys from a step lower now
+ * instead of two — and the three HR cards each lose exactly two, which is the
+ * whole of the change.
+ *
+ * It is reversible without touching this file, and that is the point of gating
+ * on a permission rather than on a role: an administrator who decides one HR
+ * lead does need the reports grants `REPORTS.PAGE_ACCESS` and `REPORTS.VIEW` to
+ * that account through the permissions screen, and the audit trail records who
+ * did it. Moving them back here would be the different, larger decision that
+ * every HR account should have them.
+ *
+ * **On an existing database this seed will not withdraw them.** Seeds here add
+ * and never remove — see `role-permissions.seed.ts`, which says so and explains
+ * why — so an HR baseline that already holds the two rows keeps them until
+ * either `prisma migrate reset` rebuilds it or somebody revokes them
+ * deliberately. That is the correct behaviour rather than an oversight:
+ * withdrawing a permission changes what people can do and belongs in an act
+ * somebody performed on purpose, not in a script that runs whenever anybody
+ * types `npm run prisma:seed`.
  */
 
 /**
@@ -79,8 +109,10 @@ export const USER_BASELINE = OWN_WORK;
  * it.
  *
  * The card an auditor, a new joiner in the HR team, or a manager covering a
- * holiday is put on. It adds `PAGE_ACCESS` and `VIEW` on the five resources HR
+ * holiday is put on. It adds `PAGE_ACCESS` and `VIEW` on the four resources HR
  * works in and not one write, which is what makes it safe to hand out.
+ *
+ * `REPORTS` was a fifth until Feature 035; see the note at the top of this file.
  */
 export const HR_VIEW_ONLY: readonly PermissionKey[] = [
   ...OWN_WORK,
@@ -88,8 +120,6 @@ export const HR_VIEW_ONLY: readonly PermissionKey[] = [
   'EMPLOYEES.VIEW',
   'LEAVES.PAGE_ACCESS',
   'LEAVES.VIEW',
-  'REPORTS.PAGE_ACCESS',
-  'REPORTS.VIEW',
   'DEPARTMENTS.PAGE_ACCESS',
   'DEPARTMENTS.VIEW',
   'WORK_SCHEDULE.PAGE_ACCESS',
@@ -147,14 +177,21 @@ export const HR_FULL_ACCESS: readonly PermissionKey[] = [
 /**
  * `Admin - Limited` — an administrator who watches rather than configures.
  *
- * Everything `HR - Standard` grants, plus both approvals and read access to the
- * two administration screens. It is the card for somebody being brought into the
- * role: they can see the whole system, sign things off, and change nothing that
- * governs how it behaves.
+ * Everything `HR - Standard` grants, plus both approvals, the company-wide
+ * reports, and read access to the two administration screens. It is the card for
+ * somebody being brought into the role: they can see the whole system, sign
+ * things off, and change nothing that governs how it behaves.
+ *
+ * **This is the tier the reports enter the ladder at**, as of Feature 035, and
+ * it is therefore the lowest set that satisfies the `REPORTS.VIEW` gate on
+ * `/api/v1/reports`. It was `HR - View Only` before; see the note at the top of
+ * this file for why it moved and how a single HR account can still be given it.
  */
 export const ADMIN_LIMITED: readonly PermissionKey[] = [
   ...HR_STANDARD,
   'TIMESHEET.APPROVE',
+  'REPORTS.PAGE_ACCESS',
+  'REPORTS.VIEW',
   'NOTIFICATION_CONFIG.PAGE_ACCESS',
   'NOTIFICATION_CONFIG.VIEW',
   'PERMISSIONS.PAGE_ACCESS',

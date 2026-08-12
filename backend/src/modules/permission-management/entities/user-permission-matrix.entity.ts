@@ -111,12 +111,17 @@ export interface PermissionMatrixResourceEntity {
  * buttons to draw, and would tempt a client into branching on `source`, which is
  * an administrator's concern rather than a renderer's.
  *
- * It is **soft gating and nothing more**, and it stays that way once real
- * enforcement arrives. Hiding a button is a courtesy to the person using the
- * screen; a client that skipped this call and drew every button would simply
- * meet a `403` on the request. The reason no permission is enforced *today* is
- * that the authorization enforcement feature has not landed — Feature 032
- * supplied the identity it needs. See the module documentation.
+ * It is **soft gating and nothing more**, and it stayed that way when real
+ * enforcement arrived. Hiding a button is a courtesy to the person using the
+ * screen; a client that skips this call and draws every button meets a `403` on
+ * the request, which since Feature 035 is a real refusal rather than a
+ * hypothetical one. The guard reduces its resolution to keys through
+ * {@link toEffectivePermissionsEntity} — this very mapper — so what the screen
+ * hides and what the server refuses cannot disagree.
+ *
+ * This endpoint is deliberately **not** permission-gated: it answers about the
+ * caller alone, and gating it would mean an ordinary employee could not discover
+ * their own permissions. See `PermissionController`.
  */
 export interface EffectivePermissionsEntity {
   userId: string;

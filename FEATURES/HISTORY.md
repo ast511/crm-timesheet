@@ -38,6 +38,23 @@ Append new features to the end of this table.
 | 032 | [Authentication](032-authentication.md) | Completed | 2026-08-08 |
 | 033 | [Error Code Standardization](033-error-code-standardization.md) | Completed | 2026-08-09 |
 | 034 | [Rate Limiting](034-rate-limiting.md) | Completed | 2026-08-09 |
+| 035 | [Authorization Enforcement](035-authorization-enforcement.md) | Completed | 2026-08-09 |
+| 036 | [Account Lifecycle](036-account-lifecycle.md) | Completed | 2026-08-09 |
+
+**The authentication series (032–036) is complete.** Identity is proved rather
+than claimed (032), every failure carries a stable code (033), every route is
+rate limited (034), declared routes are authorised (035), and an account now has
+a life of its own — created by an administrator, activated by its owner through
+an emailed link, recovered, changed, enabled and disabled (036). No password is
+ever emailed, and nobody but an account's owner ever knows one.
+
+Feature 035 closes the deferral recorded across the whole project. Nearly every
+module from 023 onwards carries a version of the same sentence — "no permission
+is checked", "there is no guard here", "`PermissionResource.REPORTS` is seeded
+and waiting", "this computes but does not enforce" — because enforcement needed a
+real identity first. Feature 029 built the engine, Feature 032 supplied the
+identity, and 035 connects them. Gating the *remaining* routes stays a gradual,
+per-module effort; the mechanism is no longer missing.
 
 ## Amendments
 

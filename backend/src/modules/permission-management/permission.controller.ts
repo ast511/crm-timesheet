@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { PermissionQueryDto } from './dto/permission-query.dto';
 import { PresetQueryDto } from './dto/preset-query.dto';
 import { PermissionPresetEntity } from './entities/permission-preset.entity';
@@ -23,13 +24,23 @@ import { PermissionService } from './permission.service';
  * with a migration and a seed entry, which is the same call Feature 003 recorded
  * for how roles and permissions would be added.
  *
- * **No route here enforces anything.** `me/effective` reports a permission set;
- * it blocks nothing, and nothing else in this application consults it. That was
- * written when a guard could only have checked a forgeable identity — half an
- * access check, which reads as protection while providing none. Feature 032
- * fixed the identity; every route below now requires a valid access token, and
- * *which* caller may do *what* is the authorization enforcement feature. See
- * the module documentation for the guard it will bring.
+ * **The two administrative reads are gated as of Feature 035**, with
+ * `PERMISSIONS.VIEW`: reading the catalog and the presets is how the permissions
+ * screen is drawn, and a caller who may not see that screen has no business
+ * enumerating what can be granted. `PermissionsGuard` refuses with a `403` and
+ * `AUTHORIZATION_PERMISSION_DENIED`.
+ *
+ * **`me/effective` is deliberately not gated, and that is the interesting
+ * one.** It is the endpoint every client calls to find out which buttons to
+ * draw, for *itself*, and gating it on `PERMISSIONS.VIEW` would mean that only
+ * an administrator could discover their own permissions — every ordinary
+ * employee would get a `403` from the call whose entire purpose is to tell them
+ * what they may do, and the frontend would have to treat that `403` as "you have
+ * nothing", which is exactly wrong. Reading your own effective set is not a
+ * privileged act: it returns keys the caller already holds and reveals nothing
+ * about anybody else, in the same way that reading your own inbox is denied to
+ * nobody. Somebody else's set is `GET /users/:id/permissions`, and that one *is*
+ * gated.
  *
  * The two static segments — `presets` and `me/effective` — cannot collide with
  * anything, because this controller deliberately has **no `GET /:id`**: a
@@ -51,6 +62,7 @@ export class PermissionController {
    * the whole matrix in one request, which is what the screen asks for.
    */
   @Get()
+  @RequirePermission('PERMISSIONS.VIEW')
   findAll(
     @Query() query: PermissionQueryDto,
   ): Promise<PaginatedResult<PermissionResourceGroupEntity>> {
@@ -65,6 +77,7 @@ export class PermissionController {
    * be applied to any account that is not a super-admin.
    */
   @Get('presets')
+  @RequirePermission('PERMISSIONS.VIEW')
   findPresets(
     @Query() query: PresetQueryDto,
   ): Promise<PaginatedResult<PermissionPresetEntity>> {
@@ -83,6 +96,12 @@ export class PermissionController {
    * A super-admin caller gets every key and `readOnly: true`. The role comes
    * from `@CurrentUser()` — a claim in a header when this was written, an
    * account read from `users` since Feature 032, through the same parameter.
+   *
+   * **Not permission-gated**, and it must not become so: this is how a client
+   * learns what to hide, and it answers about the caller alone. See the
+   * controller documentation. It is soft gating still — a client that skipped
+   * this call and drew every button now meets a real `403` on the request rather
+   * than nothing at all, which is what Feature 035 changed about it.
    */
   @Get('me/effective')
   findMyEffective(

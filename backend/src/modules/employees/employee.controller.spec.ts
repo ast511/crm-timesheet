@@ -1,6 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 
-import { EmployeeStatus, SeniorityLevel } from '../../generated/prisma/enums';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  EmployeeStatus,
+  SeniorityLevel,
+  UserRole,
+} from '../../generated/prisma/enums';
 import { EmployeeQueryDto } from './dto/employee-query.dto';
 import { EmployeeController } from './employee.controller';
 import { EmployeeService } from './employee.service';
@@ -9,11 +14,23 @@ import { EmployeeService } from './employee.service';
  * The controller owns no logic, so what is worth pinning is exactly that: each
  * route reaches the matching service method with the arguments it was given,
  * and adds nothing of its own on the way back.
+ *
+ * `create` gained the caller in Feature 036, and it is passed straight through
+ * rather than judged here: whether a body may create a login account depends on
+ * that body, so the check lives in the service beside the other statements about
+ * what a valid creation is.
  */
 describe('EmployeeController', () => {
   const query = new EmployeeQueryDto();
   const page = { items: [], meta: {} };
   const employee = { id: 'emp-1' };
+
+  const ADMIN: CurrentUser = {
+    userId: 'usr-1',
+    employeeId: 'emp-1',
+    role: UserRole.ADMIN,
+    administrativeAccess: true,
+  };
 
   let controller: EmployeeController;
   let service: {
@@ -64,8 +81,8 @@ describe('EmployeeController', () => {
       status: EmployeeStatus.ACTIVE,
     };
 
-    await expect(controller.create(body)).resolves.toBe(employee);
-    expect(service.create).toHaveBeenCalledWith(body);
+    await expect(controller.create(ADMIN, body)).resolves.toBe(employee);
+    expect(service.create).toHaveBeenCalledWith(ADMIN, body);
   });
 
   it('updates with both the id and the body', async () => {

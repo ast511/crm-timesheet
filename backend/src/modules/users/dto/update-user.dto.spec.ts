@@ -28,12 +28,10 @@ describe('UpdateUserDto', () => {
   });
 
   it('accepts a single field on its own', async () => {
-    const dto = await validate({ isActive: false });
+    const dto = await validate({ role: UserRole.HR });
 
-    expect(dto.isActive).toBe(false);
+    expect(dto.role).toBe(UserRole.HR);
     expect(dto.username).toBeUndefined();
-    expect(dto.role).toBeUndefined();
-    expect(dto.password).toBeUndefined();
   });
 
   it('normalises a username exactly as creation does', async () => {
@@ -48,11 +46,26 @@ describe('UpdateUserDto', () => {
     expect(dto.username).toBeNull();
   });
 
-  it('accepts a new password, still subject to the length rules', async () => {
-    const dto = await validate({ password: 'a whole new secret' });
-
-    expect(dto.password).toBe('a whole new secret');
-    await expect(validate({ password: 'short' })).rejects.toThrow();
+  /**
+   * The three fields Feature 036 removed, and each for its own reason.
+   *
+   * `password`: nobody sets somebody else's password any more — the owner uses
+   * `POST /auth/change-password`, or recovers through `forgot-password`.
+   * `isActive`: the column is gone, replaced by a three-state `status`.
+   * `status`: enabling and disabling are transitions with side effects
+   * (deactivating revokes live sessions), so they are `POST` sub-resources
+   * rather than a field a patch may write.
+   *
+   * Asserted as rejections rather than as silence: a client written against the
+   * old contract is told which property is not accepted, instead of believing it
+   * disabled an account that is still working.
+   */
+  it.each([
+    ['a password', { password: 'a whole new secret' }],
+    ['an isActive flag', { isActive: false }],
+    ['an account status', { status: 'DISABLED' }],
+  ])('rejects %s', async (_case, body) => {
+    await expect(validate(body)).rejects.toThrow();
   });
 
   /**

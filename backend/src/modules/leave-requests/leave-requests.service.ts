@@ -177,11 +177,13 @@ export interface ApprovedLeaveDay extends LeaveSpan, HalfDay {
  * 6. **Nothing here authorises.** Feature 032 made the caller real — the `/me`
  *    endpoints act on the authenticated account's employment record rather than
  *    on a header anybody could set — but no route checks a *permission*, and the
- *    HR endpoints check nothing about the caller at all. That is the
- *    authorization enforcement feature; half an access check reads as
- *    protection while providing none. What the `/me` methods *do* enforce is
- *    ownership: a request belonging to somebody else is a `404`, not a `403`,
- *    so the endpoint cannot be used to discover that a request exists.
+ *    HR endpoints check nothing about the caller at all. Feature 035 built the
+ *    mechanism and applied it to a chosen set of routes; this module is not yet
+ *    among them, so its behaviour is unchanged. `LEAVE_REQUESTS.APPROVE` is
+ *    seeded and is the obvious key for the two HR endpoints when this module is
+ *    migrated. What the `/me` methods *do* enforce is ownership: a request
+ *    belonging to somebody else is a `404`, not a `403`, so the endpoint cannot
+ *    be used to discover that a request exists.
  */
 @Injectable()
 export class LeaveRequestsService {

@@ -73,6 +73,59 @@ enum UserRole {
   USER       @map("user")
 }
 
+/// Where an account stands in its own life — Feature 036.
+///
+/// **This replaces the `users.is_active` boolean**, and the replacement is the
+/// point rather than a rename. A boolean has two states and this question has
+/// three, so before 036 the third one had nowhere to live: an account created by
+/// an administrator, with no password its owner had ever chosen, was stored as
+/// `is_active = true` and was indistinguishable from a colleague who had been
+/// working here for a year. Login would have accepted it the moment anybody
+/// guessed a password that did not exist.
+///
+/// The two facts a boolean conflated are genuinely different, are reached by
+/// different routes and are shown differently on a screen:
+///
+/// - `PENDING_ACTIVATION` — the account exists and **has never had a password**.
+///   `password_hash` is null. It got here by being created, and it leaves by its
+///   owner following the emailed activation link. An administrator cannot move
+///   it to `ACTIVE` by hand: there would be no password to move it *with*.
+/// - `ACTIVE` — usable. The only state in which authentication succeeds.
+/// - `DISABLED` — an administrator turned a working account off. The password
+///   survives, so re-enabling is one click and the person's own credential still
+///   works; this is the state a leaver's account sits in.
+///
+/// Keeping `is_active` beside this was considered and rejected. `DISABLED` and
+/// `is_active = false` would have been one fact in two columns, every write
+/// would have had to set both, and the first path that forgot one would leave an
+/// account the login screen and the user list disagreed about — the failure this
+/// schema argues against wherever a total could be stored beside the rows that
+/// state it.
+enum AccountStatus {
+  PENDING_ACTIVATION @map("pending_activation")
+  ACTIVE             @map("active")
+  DISABLED           @map("disabled")
+}
+
+/// What an [AccountToken] is for.
+///
+/// Two purposes, **one mechanism**. Both are a single-use, time-limited, hashed
+/// secret emailed as a link so somebody can set a password without ever being
+/// sent one; they differ only in the account state they apply to and the wording
+/// of the email. Two parallel tables would have been two expiry rules, two
+/// invalidation rules and two chances to store a raw token by accident.
+///
+/// - `ACTIVATION` — issued when an account is created or an administrator
+///   resends. Consuming it sets the first password and moves the account from
+///   `PENDING_ACTIVATION` to `ACTIVE`.
+/// - `PASSWORD_RESET` — issued by `POST /auth/forgot-password` for an account
+///   that is already `ACTIVE`. Consuming it replaces the password and changes no
+///   status.
+enum AccountTokenType {
+  ACTIVATION     @map("activation")
+  PASSWORD_RESET @map("password_reset")
+}
+
 enum EmployeeStatus {
   ACTIVE     @map("active")
   INACTIVE   @map("inactive")
@@ -441,12 +494,42 @@ model User {
   email    String  @unique
   username String? @unique
 
-  passwordHash String @map("password_hash")
+  /// The bcrypt hash of the password its owner chose, or null before they have.
+  ///
+  /// **Nullable as of Feature 036**, and the null is a real state rather than a
+  /// missing value: an account is created by an administrator and nobody — not
+  /// the administrator, not this application — knows a password for it until the
+  /// person follows their activation link and picks one. It was non-null when the
+  /// only way to create an account was to type a password into `POST /users`,
+  /// which is exactly the flow 036 removed, because a password an administrator
+  /// chose is a password an administrator knows.
+  ///
+  /// Null and `status = PENDING_ACTIVATION` are the same fact seen from two
+  /// sides, and the status is the one anything queries. This column is read by
+  /// login alone, where a null is refused with the same generic answer as a wrong
+  /// password — see `AuthService.login`.
+  passwordHash String? @map("password_hash")
 
-  role     UserRole @default(USER)
-  isActive Boolean  @default(true) @map("is_active")
+  role UserRole @default(USER)
+
+  /// Whether this account may sign in, and why not when it may not.
+  ///
+  /// **Replaces `is_active`** (Feature 036); the argument is on [AccountStatus].
+  /// The default is `PENDING_ACTIVATION` rather than `ACTIVE` for the same reason
+  /// `@Public()` is an allowlist: a row inserted by a path that forgot to think
+  /// about this — a future import, a fixture, a migration — is unusable until
+  /// somebody activates it, instead of being a working login nobody created on
+  /// purpose.
+  status AccountStatus @default(PENDING_ACTIVATION)
 
   employee Employee?
+
+  /// The activation and password-reset links outstanding for this account.
+  ///
+  /// At most two rows at any moment — one per [AccountTokenType], enforced by the
+  /// unique pair on that model — because issuing a link invalidates the previous
+  /// one of the same kind. See [AccountToken].
+  accountTokens AccountToken[]
 
   /// Notifications addressed to this account by name.
   ///
@@ -578,7 +661,7 @@ model Employee {
   /// stores one row with a null `employee_id`, so this relation is the
   /// *individually addressed* subset rather than every campaign a person will
   /// receive — the same distinction `User.notifications` draws.
-  campaignRecipients NotificationRecipient[]
+  campaignRecipients    NotificationRecipient[]
 
   /// The months this person has accounted for — their own timesheets.
   timesheets Timesheet[]
@@ -2537,4 +2620,100 @@ model RefreshToken {
   /// deactivation all revoke, and what the expiry sweep counts.
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+/// A single-use link that lets somebody set a password by email — Feature 036.
+///
+/// **One mechanism, two purposes.** Activating a new account and resetting a
+/// forgotten password are the same problem: prove that whoever is asking
+/// controls the mailbox, then let them choose a password. Modelling them as two
+/// tables would have meant two expiry rules, two invalidation rules, two
+/// consume-once implementations and two chances to store a raw token — so the
+/// purpose is a column ([AccountTokenType]) rather than a schema. What differs
+/// between them is the account state each applies to and the wording of the
+/// email, and neither of those belongs in a table.
+///
+/// **No password ever travels by email**, which is the whole reason this exists.
+/// The link carries a random secret; the person on the other end types a
+/// password this application then hashes. An emailed password is a password
+/// sitting in a mailbox, a mail server's logs and a backup, readable by anyone
+/// who ever reaches any of the three — and, because people reuse passwords, it is
+/// a credential for somewhere else too.
+model AccountToken {
+  id String @id @default(cuid())
+
+  /// `Cascade`, and the sixth in this schema — the same argument
+  /// `refresh_tokens.user_id` makes, for the same kind of thing. An activation
+  /// link is a credential handed to an account: once the account is gone nobody
+  /// can present it, no lookup will ever match it, and keeping it would make an
+  /// account undeletable for the sake of a link that can no longer be followed.
+  /// The opposite of `permission_audit_logs.changed_by_user_id`, which is a
+  /// record of something somebody *did* and must outlive them.
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type AccountTokenType
+
+  /// SHA-256 of the token, hex-encoded — never the token itself.
+  ///
+  /// **The same choice `refresh_tokens.token_hash` makes, and deliberately not a
+  /// different one.** The full argument is there; the short version is that the
+  /// input is 32 bytes from a CSPRNG rather than something a person typed, so
+  /// there is nothing for a slow hash to defend against, and a deterministic
+  /// digest is what makes the lookup one indexed read instead of a bcrypt
+  /// comparison against every outstanding link. Introducing bcrypt here would
+  /// have meant two answers to "how does this project store a bearer token".
+  ///
+  /// Storing the raw value would mean a database dump, a backup, or a careless
+  /// `SELECT *` in a support session handed out the ability to set the password
+  /// of every account with an outstanding link — which, just after an onboarding
+  /// batch, is every new joiner at once.
+  ///
+  /// `@unique` rather than a plain index: it is the lookup, since the raw token
+  /// is stored nowhere to find a row by, and it is the guarantee that one token
+  /// names at most one row.
+  tokenHash String @unique @map("token_hash")
+
+  /// When the link stops working regardless of anything else.
+  ///
+  /// An instant, so `@db.Timestamptz(3)`. Checked in the application rather than
+  /// enforced by the database, for the reason `refresh_tokens.expires_at` gives:
+  /// a row that deleted itself would be indistinguishable from one that never
+  /// existed, and "your link expired" and "that link was never issued" are
+  /// different things to tell somebody.
+  ///
+  /// The two purposes get different lifetimes from the environment — days for an
+  /// activation somebody may open on Monday, an hour or so for a reset — because
+  /// they are different situations, not because the mechanism differs.
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  /// When the link was followed and the password set, or null while it is unused.
+  ///
+  /// **This is what makes it single-use.** A link is a bearer credential that
+  /// travels through a mailbox and sits in it afterwards; without this column,
+  /// anybody who later read that mailbox — a shared inbox, a forwarded thread, a
+  /// phone somebody left unlocked — could set the password again months later.
+  ///
+  /// A timestamp rather than a boolean, for the reason `revoked_at` is one: *when*
+  /// is the question asked afterwards, and it is the only record that an
+  /// activation actually happened.
+  usedAt DateTime? @map("used_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  /// **One outstanding link per purpose per account, enforced by the database.**
+  ///
+  /// Issuing a link is an upsert on this pair, so a resend *overwrites* the row
+  /// and the previous link stops working the moment the new one is created —
+  /// which is the invalidation rule, held by a constraint rather than by
+  /// remembering to delete. Without it, "I never got the first email, send
+  /// another" would leave two working links, and the older one would keep working
+  /// from whatever inbox it had reached.
+  ///
+  /// It also bounds the table: at most two rows per account, whatever anybody
+  /// does, so there is no growth to sweep and no way to flood it by asking for
+  /// resets. A spent row simply waits to be replaced by the next request of its
+  /// kind.
+  @@unique([userId, type])
+  @@map("account_tokens")
 }

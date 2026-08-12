@@ -89,6 +89,43 @@ const MAX_ACCESS_TTL_SECONDS = 3600;
 const MIN_REFRESH_TTL_SECONDS = 3600;
 const MAX_REFRESH_TTL_SECONDS = 7_776_000;
 
+/**
+ * Floor for either account-link lifetime, in seconds — five minutes.
+ *
+ * Anything shorter is a link that expires while its email is still in a queue.
+ * Mail is store-and-forward and a greylisting server routinely holds a first
+ * message for several minutes, so a one-minute link would not be a tight
+ * security setting; it would be an onboarding flow that never works and whose
+ * failure looks like a bug in the token check.
+ */
+const MIN_ACCOUNT_TOKEN_TTL_SECONDS = 300;
+
+/**
+ * Ceiling on an activation link — 30 days.
+ *
+ * Not a security boundary so much as a statement that a link is not a permanent
+ * credential. An invitation nobody has followed in a month is a person who did
+ * not join, and the right answer is a fresh link from the accounts screen rather
+ * than one that works forever.
+ */
+const MAX_ACTIVATION_TTL_SECONDS = 2_592_000;
+
+/**
+ * Ceiling on a password-reset link — 24 hours.
+ *
+ * Deliberately far lower than the activation ceiling, because the two protect
+ * different things: an activation link opens an empty account, a reset link
+ * opens a real one. A day is already generous for something the requester is
+ * waiting on.
+ */
+const MAX_PASSWORD_RESET_TTL_SECONDS = 86_400;
+
+/** 72 hours — see {@link EnvironmentVariables.ACCOUNT_ACTIVATION_TTL}. */
+const DEFAULT_ACTIVATION_TTL_SECONDS = 259_200;
+
+/** One hour — see {@link EnvironmentVariables.ACCOUNT_PASSWORD_RESET_TTL}. */
+const DEFAULT_PASSWORD_RESET_TTL_SECONDS = 3600;
+
 /** Fifteen minutes — see {@link EnvironmentVariables.JWT_ACCESS_TTL}. */
 const DEFAULT_ACCESS_TTL_SECONDS = 900;
 
@@ -334,6 +371,70 @@ export class EnvironmentVariables {
   @Min(MIN_REFRESH_TTL_SECONDS)
   @Max(MAX_REFRESH_TTL_SECONDS)
   readonly JWT_REFRESH_TTL: number = DEFAULT_REFRESH_TTL_SECONDS;
+
+  // ---------------------------------------------------------------------------
+  // Account lifecycle — read by the activation and password-reset links
+  // (Feature 036) and by nothing else.
+  //
+  // `APP_WEB_URL` is **required and has no default**, unlike the two lifetimes
+  // below. A guessed origin does not fail loudly: it produces invitations that
+  // are emailed successfully to a link nobody can open, and the symptom is a new
+  // joiner asking a week later why they never got in. The two lifetimes have
+  // sensible values an operator has no reason to think about, so they default.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Origin of the frontend the emailed links point at — `https://hr.company.com`.
+   *
+   * The backend mints the token, so it builds the URL; the *screen* the URL opens
+   * belongs to the React application, and this is the one thing this API knows
+   * about it. A trailing slash is tolerated and stripped by the loader, because
+   * `https://x/` and `https://x` are the same intention and the difference
+   * between them is a link containing `//activate` that some routers serve and
+   * some do not.
+   *
+   * Validated as an origin with the same pattern `CORS_ORIGINS` uses — scheme,
+   * host, optional port, no path — so a value with a path or a query is refused
+   * at startup rather than producing a malformed link.
+   */
+  @Matches(ORIGIN_PATTERN, {
+    message:
+      'APP_WEB_URL must be an origin such as https://hr.company.com (no path, no query)',
+  })
+  readonly APP_WEB_URL!: string;
+
+  /**
+   * How long an activation link works, in seconds. Defaults to 72 hours.
+   *
+   * Long, and deliberately much longer than a reset. An invitation is sent when
+   * an administrator gets round to creating the account, which is routinely a
+   * Friday afternoon for somebody starting on Monday — a link that dies
+   * overnight would mean the first thing a new colleague does is ask for another
+   * one. The risk it trades against is modest: the account has no password and
+   * no data, so a link intercepted in that window grants a login to an empty
+   * account whose real owner would immediately notice they cannot activate.
+   */
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_ACCOUNT_TOKEN_TTL_SECONDS)
+  @Max(MAX_ACTIVATION_TTL_SECONDS)
+  readonly ACCOUNT_ACTIVATION_TTL: number = DEFAULT_ACTIVATION_TTL_SECONDS;
+
+  /**
+   * How long a password-reset link works, in seconds. Defaults to one hour.
+   *
+   * Short, and for the opposite reason. A reset link is a way into an account
+   * that already holds somebody's timesheets, their leave and possibly
+   * administrative authority, and the person asking for it is at their keyboard
+   * *now* — they check their mail within minutes or not at all. Every extra hour
+   * is time the link spends sitting in a mailbox being a working credential.
+   */
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_ACCOUNT_TOKEN_TTL_SECONDS)
+  @Max(MAX_PASSWORD_RESET_TTL_SECONDS)
+  readonly ACCOUNT_PASSWORD_RESET_TTL: number =
+    DEFAULT_PASSWORD_RESET_TTL_SECONDS;
 
   // ---------------------------------------------------------------------------
   // SMTP — read by the email module (Feature 025) and by nothing else.

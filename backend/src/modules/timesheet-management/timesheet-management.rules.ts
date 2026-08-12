@@ -75,17 +75,24 @@ export function assertOwner(user: CurrentUser, ownerEmployeeId: string): void {
 /**
  * Refuses a caller who is not an administrator, on the endpoints that review.
  *
- * Read from `CurrentUser.administrativeAccess`, which is derived from the claimed
- * role rather than sent — so a caller cannot claim `USER` and administrative
- * access at once.
+ * Read from `CurrentUser.administrativeAccess`, which is derived from the role
+ * rather than sent — so a caller cannot be an ordinary employee and hold
+ * administrative access at once.
  *
- * **It authenticates nothing**, and cannot: any caller may claim any role until
- * authentication exists. It is here for the reason `NotificationService` refuses
- * the administrative workspace to an ordinary employee — that check is what the
- * *workspace* means, not an access control arriving early — and for the sharper
- * reason that approving your own month is the one thing this lifecycle must not
- * permit by accident. When authentication lands, this stays exactly as it is and
- * a guard is added in front of it.
+ * **It authorises nothing fine-grained**, and never did. It is here for the
+ * reason `NotificationService` refuses the administrative workspace to an
+ * ordinary employee — that check is what the *workspace* means, not an access
+ * control arriving early — and for the sharper reason that approving your own
+ * month is the one thing this lifecycle must not permit by accident.
+ *
+ * Feature 035 put `@RequirePermission('TIMESHEET.APPROVE')` in front of
+ * `approve` and `reject` and left this exactly as it was, which is what it said
+ * would happen. The two are not redundant: the permission can be revoked from
+ * one administrator, and this refuses everybody who is not one — so the gate
+ * narrows within the administrative roles while this holds the floor beneath
+ * them. It also still guards `findAll`, `findOne` and `remove`, which declare no
+ * permission. See `TimesheetController` for why the layering was chosen here
+ * where reporting's role check was replaced instead.
  */
 export function assertAdministrative(user: CurrentUser): void {
   if (!user.administrativeAccess) {

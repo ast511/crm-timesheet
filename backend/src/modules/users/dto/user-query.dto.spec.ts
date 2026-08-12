@@ -5,7 +5,7 @@ import {
   FIRST_PAGE,
 } from '../../../common/constants/pagination.constants';
 import { SortOrder } from '../../../common/enums/sort-order.enum';
-import { UserRole } from '../../../generated/prisma/enums';
+import { AccountStatus, UserRole } from '../../../generated/prisma/enums';
 import {
   DEFAULT_USER_SORT_FIELD,
   USER_SEARCH_MAX_LENGTH,
@@ -64,16 +64,23 @@ describe('UserQueryDto', () => {
     expect(query.role).toBe(role);
   });
 
-  it('turns isActive=true into a real boolean', async () => {
-    const query = await validate({ isActive: 'true' });
+  /**
+   * `?status=` replaced `?isActive=` in Feature 036. The boolean could answer
+   * two questions and the accounts screen has three; the filter an administrator
+   * actually reaches for — "who has not accepted their invitation yet" — is the
+   * one it could not express.
+   */
+  it.each(Object.values(AccountStatus))(
+    'filters by the status %s',
+    async (status) => {
+      const query = await validate({ status });
 
-    expect(query.isActive).toBe(true);
-  });
+      expect(query.status).toBe(status);
+    },
+  );
 
-  it('turns isActive=false into a real boolean, not into "absent"', async () => {
-    const query = await validate({ isActive: 'false' });
-
-    expect(query.isActive).toBe(false);
+  it('rejects the retired isActive parameter rather than ignoring it', async () => {
+    await expect(validate({ isActive: 'true' })).rejects.toThrow();
   });
 
   it.each([
@@ -82,7 +89,7 @@ describe('UserQueryDto', () => {
     ['an unknown direction', { sortOrder: 'sideways' }],
     ['a role outside the enum', { role: 'ROOT' }],
     ['a lower-cased role', { role: 'admin' }],
-    ['a boolean spelling that is not true or false', { isActive: 'yes' }],
+    ['a status outside the enum', { status: 'ARCHIVED' }],
     ['an unknown parameter', { email: 'ana@example.com' }],
   ])('rejects %s', async (_case, query) => {
     await expect(validate(query)).rejects.toThrow();

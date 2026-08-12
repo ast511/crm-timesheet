@@ -50,7 +50,7 @@ import { ReportingService } from './reporting.service';
  *
  * **Two services, and the split is the same seam Feature 030 draws.**
  * `ReportingSourceService` does every query and classifies each day;
- * `ReportingService` checks access, dispatches on the report type and wires
+ * `ReportingService` dispatches on the report type and wires
  * sourcing → builder → renderer. The builders in between are **pure functions**:
  * resolved inputs in, a data model out, no I/O and no clock — which is what lets
  * every report's arithmetic be tested without a database, and what makes the
@@ -61,12 +61,16 @@ import { ReportingService } from './reporting.service';
  * worksheet layout — and because a future third format should be a provider
  * beside them rather than an import somebody adds to the service.
  *
- * **No permission is checked and no guard is registered.** Only administrative
- * roles may generate a report, and that is a domain rule in `ReportingService`
- * for the reason `TimesheetManagementModule` gives for its ownership rules:
- * Feature 029 built the permission catalog and enforces none of it, because
- * enforcement needs authentication first. `PermissionResource.REPORTS` is already
- * seeded and waiting.
+ * **Access is `REPORTS.VIEW`, and this module registers no guard of its own.**
+ * The three routes carry `@RequirePermission('REPORTS.VIEW')` and the global
+ * `PermissionsGuard` from Feature 035 enforces it — so this module imports
+ * nothing from the authorization or permission modules beyond that one
+ * decorator, and reads no permission table. The `assertReportingAccess` domain
+ * rule that stood here until then is gone rather than layered underneath, and
+ * the reasoning for replacing it — including why HR is now outside the default
+ * and how it can be let back in one account at a time — is on
+ * `ReportingController`. `PermissionResource.REPORTS`, seeded by Feature 029 for
+ * a screen this backend had not yet built, is finally what decides.
  *
  * Nothing is exported. This module is the end of the chain — nothing reads a
  * report.

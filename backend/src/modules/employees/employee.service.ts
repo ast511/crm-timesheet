@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SortOrder } from '../../common/enums/sort-order.enum';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
 import {
@@ -19,6 +20,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { DepartmentService } from '../departments/department.service';
 import { PositionService } from '../positions/position.service';
 import { ProjectMemberService } from '../project-members/project-member.service';
+import { assertAccountAdministrator } from '../users/user.rules';
 import { UserService } from '../users/user.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EmployeeQueryDto } from './dto/employee-query.dto';
@@ -226,30 +228,55 @@ export class EmployeeService {
    * a body pointing at rows that do not exist is a `400`, and only a body that
    * is otherwise sound can go on to conflict with an existing employee.
    */
-  async create(dto: CreateEmployeeDto): Promise<EmployeeEntity> {
+  async create(
+    user: CurrentUser,
+    dto: CreateEmployeeDto,
+  ): Promise<EmployeeEntity> {
     assertEmploymentSpanIsOrdered(dto.hireDate, dto.terminationDate);
+    assertExactlyOneAccountSource(dto);
+
+    // The account opt-in is the one thing in this request that is not HR's to
+    // do, so it is refused before anything is written or any other check runs —
+    // an HR user who sends it gets a `403` and no employee, rather than an
+    // employee and a `403`.
+    if (dto.account !== undefined) {
+      assertAccountAdministrator(user);
+    }
 
     await this.assertRelationsExist(dto);
     await this.assertEmployeeCodeIsFree(dto.employeeCode);
 
-    const created = await this.prisma.employee.create({
-      data: {
-        employeeCode: dto.employeeCode,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        phone: dto.phone,
-        // The DTO guarantees an ISO-8601 string; this is the one place it
-        // becomes the `Date` the `timestamp` column stores.
-        hireDate: new Date(dto.hireDate),
-        terminationDate: toNullableDate(dto.terminationDate),
-        userId: dto.userId,
-        departmentId: dto.departmentId,
-        positionId: dto.positionId,
-        seniority: dto.seniority,
-        status: dto.status,
-        canReplaceOthers: dto.canReplaceOthers,
-      },
-      select: EMPLOYEE_PUBLIC_SELECT,
+    const created = await this.prisma.$transaction(async (tx) => {
+      // Creating the account inside the transaction is what makes the pair
+      // atomic: a duplicate employee code, or any other failure below, must not
+      // leave behind an account that was invited to a job nobody created. The
+      // invitation email is sent by `UserService.create` *after* it returns and
+      // is deliberately outside that guarantee — see its own documentation for
+      // why a mail failure must not destroy a good record.
+      const userId =
+        dto.account === undefined
+          ? dto.userId
+          : (await this.users.create(dto.account, tx)).id;
+
+      return tx.employee.create({
+        data: {
+          employeeCode: dto.employeeCode,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          phone: dto.phone,
+          // The DTO guarantees an ISO-8601 string; this is the one place it
+          // becomes the `Date` the `timestamp` column stores.
+          hireDate: new Date(dto.hireDate),
+          terminationDate: toNullableDate(dto.terminationDate),
+          userId: userId as string,
+          departmentId: dto.departmentId,
+          positionId: dto.positionId,
+          seniority: dto.seniority,
+          status: dto.status,
+          canReplaceOthers: dto.canReplaceOthers,
+        },
+        select: EMPLOYEE_PUBLIC_SELECT,
+      });
     });
 
     return toEmployeeEntity(created);
@@ -777,6 +804,46 @@ function notFoundMessage(id: string): string {
 /** `null` stays `null`; anything else becomes the `Date` the column stores. */
 function toNullableDate(value: string | null | undefined): Date | null {
   return value === undefined || value === null ? null : new Date(value);
+}
+
+/**
+ * Rejects a creation that names neither an account nor a new one, or both.
+ *
+ * `Employee.userId` is required and unique, so every employee has exactly one
+ * account — Feature 036 changed *how* that account is named, not whether there is
+ * one. The body may point at an existing account (`userId`) or ask for a new one
+ * (`account`), and the two failures it rules out are different mistakes worth
+ * different sentences:
+ *
+ * - **Neither** is the old contract being sent against the new API, or a form
+ *   that forgot to bind its checkbox. The column has nothing to store.
+ * - **Both** is genuinely ambiguous — it says "link this employee to that
+ *   account, and also create a different one" — and there is no reading of it
+ *   that is not somebody's bug. Picking one silently would create an orphaned
+ *   account and send its owner an invitation to a job they do not have.
+ *
+ * This is a rule about two fields at once, which is why it is here rather than in
+ * the DTO: class-validator judges properties, and a cross-field rule expressed as
+ * a decorator on one of them reads as a property of that field.
+ *
+ * A `400` with an array message, the shape the `ValidationPipe` produces, so a
+ * form handles it with the code it already has for field errors.
+ */
+function assertExactlyOneAccountSource({
+  userId,
+  account,
+}: CreateEmployeeDto): void {
+  if (userId === undefined && account === undefined) {
+    throw new BadRequestException([
+      'Either userId (an existing account) or account (a new one to create) is required',
+    ]);
+  }
+
+  if (userId !== undefined && account !== undefined) {
+    throw new BadRequestException([
+      'userId and account cannot both be given: either link an existing account or create a new one',
+    ]);
+  }
 }
 
 /**

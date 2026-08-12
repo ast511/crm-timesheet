@@ -5,7 +5,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { ERROR_CODES } from '../../common/constants/error-codes.constants';
 import { hashPassword } from '../../common/password/password.hasher';
-import { UserRole } from '../../generated/prisma/enums';
+import { AccountStatus, UserRole } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JWT_KEYS } from './auth.config';
 import {
@@ -40,7 +40,7 @@ describe('AuthService', () => {
     id: 'usr-1',
     email: 'maria.ionescu@company.com',
     role: UserRole.HR,
-    isActive: true,
+    status: AccountStatus.ACTIVE,
     passwordHash,
     employee: { id: 'emp-1' },
     ...overrides,
@@ -191,14 +191,29 @@ describe('AuthService', () => {
     });
 
     /**
-     * The three failures answer identically. Distinguishing them would make
-     * this endpoint an oracle for "does this person have an account here" —
-     * which, in a company's internal system, is "does this person work here".
+     * **Four** failures as of Feature 036, and they answer identically.
+     * Distinguishing them would make this endpoint an oracle for "does this
+     * person have an account here" — which, in a company's internal system, is
+     * "does this person work here". The fourth is the new one: an account whose
+     * owner has never followed their activation link has no password at all, and
+     * saying so during an onboarding week would list exactly who has just joined.
      */
     it.each([
       ['an unknown address', null, PASSWORD],
       ['a wrong password', account(), 'not the password'],
-      ['a deactivated account', account({ isActive: false }), PASSWORD],
+      [
+        'a deactivated account',
+        account({ status: AccountStatus.DISABLED }),
+        PASSWORD,
+      ],
+      [
+        'an account that has never been activated',
+        account({
+          status: AccountStatus.PENDING_ACTIVATION,
+          passwordHash: null,
+        }),
+        PASSWORD,
+      ],
     ])('refuses %s with the same generic 401', async (_case, row, password) => {
       prisma.user.findUnique.mockResolvedValue(row);
 
@@ -208,6 +223,15 @@ describe('AuthService', () => {
 
       expect(prisma.refreshToken.create).not.toHaveBeenCalled();
     });
+
+    /**
+     * The null hash falls through to the decoy rather than short-circuiting, so
+     * a never-activated account costs what every other refusal costs. That is a
+     * *timing* property and this file deliberately does not assert it: the
+     * argument is on `AuthService.login`, and the test below — which measures the
+     * decoy path for an unknown address — is as close as a test suite can come to
+     * it without becoming flaky on a loaded machine.
+     */
 
     /**
      * Generic wording is not enough on its own — the two paths have to *cost*
@@ -383,7 +407,9 @@ describe('AuthService', () => {
     it('refuses a refresh for an account deactivated since it logged in', async () => {
       const presented = await liveSession();
 
-      prisma.user.findUnique.mockResolvedValue(account({ isActive: false }));
+      prisma.user.findUnique.mockResolvedValue(
+        account({ status: AccountStatus.DISABLED }),
+      );
 
       await expect(service.refresh(presented, CLIENT)).rejects.toThrow(
         UnauthorizedException,
@@ -490,7 +516,9 @@ describe('AuthService', () => {
      * token happens to expire.
      */
     it('refuses a valid token for a deactivated account', async () => {
-      prisma.user.findUnique.mockResolvedValue(account({ isActive: false }));
+      prisma.user.findUnique.mockResolvedValue(
+        account({ status: AccountStatus.DISABLED }),
+      );
 
       const token = await tokens.issueAccessToken('usr-1');
 
@@ -591,7 +619,11 @@ describe('AuthService', () => {
     it.each([
       ['an unknown address', null, PASSWORD],
       ['a wrong password', account(), 'not the password'],
-      ['a deactivated account', account({ isActive: false }), PASSWORD],
+      [
+        'a deactivated account',
+        account({ status: AccountStatus.DISABLED }),
+        PASSWORD,
+      ],
     ])(
       'answers %s with AUTH_INVALID_CREDENTIALS',
       async (_c, row, password) => {
@@ -611,7 +643,7 @@ describe('AuthService', () => {
     it('never distinguishes a deactivated account at login', async () => {
       const codes: unknown[] = [];
 
-      for (const row of [null, account({ isActive: false })]) {
+      for (const row of [null, account({ status: AccountStatus.DISABLED })]) {
         prisma.user.findUnique.mockResolvedValue(row);
 
         codes.push(
@@ -638,7 +670,9 @@ describe('AuthService', () => {
       const { token } = await tokens.issueRefreshToken('usr-1');
 
       prisma.refreshToken.findUnique.mockResolvedValue(storedToken());
-      prisma.user.findUnique.mockResolvedValue(account({ isActive: false }));
+      prisma.user.findUnique.mockResolvedValue(
+        account({ status: AccountStatus.DISABLED }),
+      );
 
       await expect(codeOf(service.refresh(token, CLIENT))).resolves.toBe(
         ERROR_CODES.AUTH_INACTIVE_USER,
@@ -646,7 +680,9 @@ describe('AuthService', () => {
     });
 
     it('answers an authenticated request by a deactivated account the same way', async () => {
-      prisma.user.findUnique.mockResolvedValue(account({ isActive: false }));
+      prisma.user.findUnique.mockResolvedValue(
+        account({ status: AccountStatus.DISABLED }),
+      );
 
       await expect(
         codeOf(service.authenticate(await tokens.issueAccessToken('usr-1'))),

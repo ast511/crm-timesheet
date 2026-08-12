@@ -1,30 +1,43 @@
-import { IsBoolean, IsOptional } from 'class-validator';
+import { IsOptional } from 'class-validator';
 
 import { IsEmailAddress } from '../../../common/decorators/is-email-address.decorator';
 import { UserRole } from '../../../generated/prisma/enums';
-import {
-  IsUserPassword,
-  IsUserRole,
-  IsUserUsername,
-} from './user-field.decorators';
+import { IsUserRole, IsUserUsername } from './user-field.decorators';
 
 /**
- * Body of `POST /api/v1/users`.
+ * Body of `POST /api/v1/users` — an administrator creating a login.
  *
- * `email` and `password` are the only required fields. `username` is optional
- * because the column is nullable; `isActive` is left to the schema's `true`
- * default rather than repeated here, so "a new account is enabled" stays one
- * decision made in one place.
+ * ## There is no `password`, and that is the feature
  *
- * `role` is required rather than defaulted, even though the schema defaults it
- * to `USER`. An administrator creating an account is choosing what that account
- * may do, and a privilege level is the last field that should be decided by
- * omission.
+ * Feature 036 removed it. An administrator no longer chooses somebody else's
+ * password, because a password an administrator chooses is a password an
+ * administrator *knows* — and in practice also one that lives on in a chat
+ * message, is never changed, and is the same three words for everybody they
+ * onboarded that month. The account is created in `PENDING_ACTIVATION` with no
+ * password at all, and the person it belongs to sets their own through the
+ * activation link emailed to them. Nothing in this API ever transmits a password
+ * to anybody.
  *
- * `password` is the plain-text secret and the only place it appears in this
- * module's types: the service hashes it and never persists or returns it.
- * `passwordHash` is not a property of this class, so the global pipe's
- * `forbidNonWhitelisted` turns an attempt to supply one into a `400`.
+ * Being absent from the class, `password` is rejected with a `400` naming it
+ * rather than silently ignored — the global pipe's `forbidNonWhitelisted` — so a
+ * client written against the old contract is told plainly rather than creating an
+ * account whose password it thinks it set.
+ *
+ * ## There is no `isActive` either
+ *
+ * It went with the column. A new account's state is not something the creator
+ * chooses: it is `PENDING_ACTIVATION` because nobody has set a password yet, and
+ * it becomes `ACTIVE` when its owner does. Creating an account that is disabled
+ * before it exists is not a thing anybody needs; disabling one afterwards is
+ * `POST /users/:id/deactivate`.
+ *
+ * `email` is required and is where the invitation is sent, so it is the one field
+ * a typo in is expensive — the link goes to a mailbox nobody reads, and the fix
+ * is to delete the account and create it again, since `email` is not patchable.
+ *
+ * `role` is required rather than defaulted, even though the schema defaults it to
+ * `USER`. An administrator creating an account is choosing what that account may
+ * do, and a privilege level is the last field that should be decided by omission.
  */
 export class CreateUserDto {
   @IsEmailAddress()
@@ -34,13 +47,6 @@ export class CreateUserDto {
   @IsUserUsername()
   readonly username?: string | null;
 
-  @IsUserPassword()
-  readonly password!: string;
-
   @IsUserRole()
   readonly role!: UserRole;
-
-  @IsOptional()
-  @IsBoolean()
-  readonly isActive?: boolean;
 }

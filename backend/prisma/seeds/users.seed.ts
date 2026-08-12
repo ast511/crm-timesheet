@@ -1,5 +1,6 @@
 import { hashPassword } from '../../src/common/password/password.hasher';
 import {
+  AccountStatus,
   EmployeeStatus,
   SeniorityLevel,
   UserRole,
@@ -45,8 +46,21 @@ interface EmployeeAccountSeed {
   readonly email: string;
   readonly username: string;
   readonly role: UserRole;
-  /** Whether the account may sign in. Mirrors a non-working employee status. */
-  readonly isActive: boolean;
+  /**
+   * Whether the account may sign in — `isActive` until Feature 036.
+   *
+   * Named `accountStatus` rather than `status` because `status` on the same
+   * record is the *employee's* (`EmployeeStatus`), and the two are different
+   * facts about different entities: a person can be `ON_LEAVE` with a perfectly
+   * usable login, and a `TERMINATED` employee's account is what gets disabled.
+   *
+   * Every seeded account is `ACTIVE` or `DISABLED` and none is
+   * `PENDING_ACTIVATION`, deliberately: the seed writes a password hash, so a
+   * pending account here would be one the seed had lied about. The pending state
+   * is reached by creating an account through the API, which is the flow it
+   * belongs to.
+   */
+  readonly accountStatus: AccountStatus;
 
   readonly firstName: string;
   readonly lastName: string;
@@ -77,7 +91,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'andrei.popescu@example.com',
     username: 'APO',
     role: UserRole.SUPERADMIN,
-    isActive: true,
+    accountStatus: AccountStatus.ACTIVE,
     firstName: 'Andrei',
     lastName: 'Popescu',
     phone: '+40 721 000 001',
@@ -93,7 +107,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'maria.ionescu@example.com',
     username: 'MIO',
     role: UserRole.ADMIN,
-    isActive: true,
+    accountStatus: AccountStatus.ACTIVE,
     firstName: 'Maria',
     lastName: 'Ionescu',
     phone: '+40 721 000 002',
@@ -109,7 +123,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'elena.dumitrescu@example.com',
     username: 'EDU',
     role: UserRole.HR,
-    isActive: true,
+    accountStatus: AccountStatus.ACTIVE,
     firstName: 'Elena',
     lastName: 'Dumitrescu',
     phone: '+40 721 000 003',
@@ -125,7 +139,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'cristian.stan@example.com',
     username: 'CST',
     role: UserRole.USER,
-    isActive: true,
+    accountStatus: AccountStatus.ACTIVE,
     firstName: 'Cristian',
     lastName: 'Stan',
     phone: '+40 721 000 004',
@@ -141,7 +155,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'ioana.marin@example.com',
     username: 'IMA',
     role: UserRole.USER,
-    isActive: true,
+    accountStatus: AccountStatus.ACTIVE,
     firstName: 'Ioana',
     lastName: 'Marin',
     phone: '+40 721 000 005',
@@ -157,7 +171,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'vlad.georgescu@example.com',
     username: 'VGE',
     role: UserRole.USER,
-    isActive: true,
+    accountStatus: AccountStatus.ACTIVE,
     firstName: 'Vlad',
     lastName: 'Georgescu',
     phone: '+40 721 000 006',
@@ -173,7 +187,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'alexandru.radu@example.com',
     username: 'ARA',
     role: UserRole.USER,
-    isActive: true,
+    accountStatus: AccountStatus.ACTIVE,
     firstName: 'Alexandru',
     lastName: 'Radu',
     phone: '+40 721 000 007',
@@ -190,7 +204,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'gabriela.munteanu@example.com',
     username: 'GMU',
     role: UserRole.USER,
-    isActive: true,
+    accountStatus: AccountStatus.ACTIVE,
     firstName: 'Gabriela',
     lastName: 'Munteanu',
     phone: '+40 721 000 008',
@@ -206,7 +220,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'stefan.constantin@example.com',
     username: 'SCO',
     role: UserRole.USER,
-    isActive: false,
+    accountStatus: AccountStatus.DISABLED,
     firstName: 'Stefan',
     lastName: 'Constantin',
     phone: null,
@@ -222,7 +236,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'diana.nistor@example.com',
     username: 'DNI',
     role: UserRole.USER,
-    isActive: true,
+    accountStatus: AccountStatus.ACTIVE,
     firstName: 'Diana',
     lastName: 'Nistor',
     phone: '+40 721 000 010',
@@ -238,7 +252,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'mihai.barbu@example.com',
     username: 'MBA',
     role: UserRole.USER,
-    isActive: false,
+    accountStatus: AccountStatus.DISABLED,
     firstName: 'Mihai',
     lastName: 'Barbu',
     phone: null,
@@ -254,7 +268,7 @@ const EMPLOYEE_ACCOUNTS = [
     email: 'andreea.voicu@example.com',
     username: 'AVO',
     role: UserRole.USER,
-    isActive: false,
+    accountStatus: AccountStatus.DISABLED,
     firstName: 'Andreea',
     lastName: 'Voicu',
     phone: '+40 721 000 012',
@@ -345,14 +359,14 @@ export async function seedUsersAndEmployees(
         update: {
           username: account.username,
           role: account.role,
-          isActive: account.isActive,
+          status: account.accountStatus,
         },
         create: {
           email: account.email,
           username: account.username,
           passwordHash: account.passwordHash,
           role: account.role,
-          isActive: account.isActive,
+          status: account.accountStatus,
         },
       });
 

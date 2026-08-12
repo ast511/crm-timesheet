@@ -11,6 +11,7 @@ import {
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreateTimesheetDto } from './dto/create-timesheet.dto';
 import { RejectTimesheetDto } from './dto/reject-timesheet.dto';
 import { SetTimesheetEntriesDto } from './dto/set-timesheet-entries.dto';
@@ -55,6 +56,35 @@ import { TimesheetService } from './timesheet.service';
  * asking: an owner fills and submits, an administrator approves and rejects, and
  * neither may do the other's. Those checks are in the service as domain rules —
  * see `timesheet-management.rules.ts` — and not as a guard.
+ *
+ * **The two review actions gained a permission gate in Feature 035**, and the
+ * rules underneath them did not move. `POST /:id/approve` and
+ * `POST /:id/reject` carry `@RequirePermission('TIMESHEET.APPROVE')`; the
+ * service still runs `assertAdministrative`, `assertAdminVisible` and
+ * `assertStatusIs` on exactly the same paths, so a caller who holds the
+ * permission and sends a `DRAFT` still gets the `404` and one who sends an
+ * `APPROVED` month still gets the `409`. That is the layering this project
+ * intends everywhere: the gate answers "may this account sign off timesheets",
+ * the domain rules answer "may this timesheet be signed off, by this caller,
+ * now".
+ *
+ * `assertAdministrative` was deliberately **kept rather than replaced** — the
+ * opposite of the call Feature 035 made for reporting, and for a reason worth
+ * stating. Its purpose is not to name a tier of staff: it is what stops an
+ * employee approving their own month, which is the one thing this lifecycle must
+ * never permit by accident, and it also guards `GET /timesheets`, `GET /:id` and
+ * `DELETE /:id` — routes this feature did not gate. Dropping it from two of the
+ * five would have left the review queue protected by a rule that approval no
+ * longer used. The gate is therefore additive here, and what it buys is the
+ * ability to *narrow*: `TIMESHEET.APPROVE` can be revoked from one particular
+ * administrator through the permissions screen, and that now works. It cannot
+ * *widen* below the administrative roles — granting it to a plain `USER` leaves
+ * `assertAdministrative` refusing — and extending approval to non-administrative
+ * staff is a decision that should be made deliberately rather than fall out of a
+ * checkbox.
+ *
+ * The other three routes are ungated, and behave exactly as before. Migrating
+ * them is a later, per-module step; see `PermissionsGuard`.
  *
  * Every method is a one-line delegation on purpose, and `id` is taken as a plain
  * string: ids are cuids, so `ParseUUIDPipe` would reject valid ones.
@@ -218,6 +248,7 @@ export class TimesheetController {
    * rules it was judged by.
    */
   @Post(':id/approve')
+  @RequirePermission('TIMESHEET.APPROVE')
   approve(
     @CurrentUser() user: CurrentUser,
     @Param('id') id: string,
@@ -236,6 +267,7 @@ export class TimesheetController {
    * race.
    */
   @Post(':id/reject')
+  @RequirePermission('TIMESHEET.APPROVE')
   reject(
     @CurrentUser() user: CurrentUser,
     @Param('id') id: string,

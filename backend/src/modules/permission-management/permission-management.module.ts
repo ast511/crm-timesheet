@@ -22,16 +22,15 @@ import { UserPermissionService } from './user-permission.service';
  * repeating its three lines, because an effective set computed in two places is
  * two answers to one question.
  *
- * ## This feature stores and resolves permissions. It does not enforce them.
+ * ## This module stores and resolves permissions. Something else enforces them.
  *
- * There is no guard here, no decorator, no interceptor, and no access check
- * added to any other module's endpoints. That is the feature's central decision
- * and it is the same one every module up to 028 has recorded:
+ * There is still no guard here, no decorator and no interceptor, and that
+ * separation held through the feature that finally did the enforcing:
  *
  * ```text
- *   permission-management   who may do what          (this module)
- *   authentication          who the caller actually is    (Feature 032 — done)
- *   permission enforcement  refusing the request              (not written)
+ *   permission-management   who may do what             (this module)
+ *   authentication          who the caller actually is  (Feature 032)
+ *   authorization           refusing the request        (Feature 035)
  * ```
  *
  * Enforcement could not be written before authentication, because there was
@@ -44,24 +43,22 @@ import { UserPermissionService } from './user-permission.service';
  * every subsequent feature *feel* protected, so the missing half would have
  * stopped being obvious.
  *
- * **Feature 032 supplied the missing half.** `@CurrentUser()` now returns an
- * account read from `users` on this request, behind a validated access token,
- * so the guard this module was waiting for has a real identity to resolve
- * against. The authorization enforcement feature adds it, reading the method
- * below. Nothing here changed to make that possible, which was the point of
- * putting the identity behind one seam.
+ * Feature 032 supplied the identity; **Feature 035 added the guard, and not one
+ * line of this module changed for it.** `AuthorizationModule` imports this one
+ * and calls {@link PermissionService.resolveEffective} — the export below was
+ * written for a caller that did not yet exist, and the caller needed nothing
+ * that was not already there. That is the whole return on having declined to
+ * write a dead decorator in advance: there was no unexercised code for the
+ * enforcing feature to audit before trusting it.
  *
- * What ships instead is `GET /permissions/me/effective`, which a frontend uses to
- * hide the buttons it should not offer. That is a courtesy to the person using
- * the screen, honestly labelled as such, and it is exactly the part of
- * enforcement that does not depend on the caller being who they say they are.
+ * `GET /permissions/me/effective` still exists and still means the same thing: a
+ * frontend uses it to hide the buttons it should not offer. It was always
+ * honestly labelled as a courtesy rather than a control, and it stays one — a
+ * client that ignores it now meets a real `403` instead of nothing.
  *
- * The intended guard is designed and documented in
- * `FEATURES/029-permission-management.md` — its name, how it would read
- * `@CurrentUser()`, and how it would call `resolveEffective` — and deliberately
- * not written. A dead decorator nothing applies is worse than none: it is
- * unexercised code that the feature which finally needs it would have to audit
- * before trusting.
+ * The permission-management routes are themselves gated as of 035, with
+ * `PERMISSIONS.VIEW`, `PERMISSIONS.EDIT` and `PERMISSIONS.CONFIGURE`. See the
+ * two controllers.
  *
  * `PrismaModule` is not imported: it is `@Global`, so `PrismaService` is
  * injectable in both services without the repetition every feature module would
@@ -78,12 +75,12 @@ import { UserPermissionService } from './user-permission.service';
  * trail credits a `User` where a campaign credits an `Employee`.
  *
  * `PermissionService` is exported, because the whole point of a resolution is
- * that something else reads it: the Permission Enforcement feature will import
- * this module and call `resolveEffective`, and a future Authentication feature
- * will do the same to put a permission set on a token. `UserPermissionService`
- * is exported alongside it so those features reach the tables through the module
- * that owns them rather than querying `user_permission_overrides` directly. No
- * method is written for either caller in advance.
+ * that something else reads it — and as of Feature 035 something does:
+ * `AuthorizationModule` imports this module and calls `resolveEffective` from
+ * its guard. `UserPermissionService` is exported alongside it so any such caller
+ * reaches the tables through the module that owns them rather than querying
+ * `user_permission_overrides` directly; nothing outside this module reads it
+ * yet.
  */
 @Module({
   imports: [UserModule],

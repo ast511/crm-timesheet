@@ -56,3 +56,59 @@ export function isAdministrativeRole(
 ): role is AdministrativeRole {
   return (ADMINISTRATIVE_ROLES as readonly UserRole[]).includes(role);
 }
+
+/**
+ * The two roles that may administer **accounts** — Feature 036.
+ *
+ * **Deliberately not {@link ADMINISTRATIVE_ROLES}, and the difference is HR.**
+ * The two lists answer different questions and confusing them would be the
+ * single most consequential mistake in this area:
+ *
+ * ```text
+ *   ADMINISTRATIVE_ROLES   SUPERADMIN, ADMIN, HR   "administers the company"
+ *   ACCOUNT_ADMIN_ROLES    SUPERADMIN, ADMIN       "administers who can log in"
+ * ```
+ *
+ * HR manages *people* — hiring somebody, recording their department, approving
+ * their leave. HR does not manage *access*: creating a login, changing what role
+ * an account holds, or turning an account off are decisions about who can reach
+ * the system and with what authority. An HR account that could set a role could
+ * grant itself `ADMIN`, and from there everything else, which makes the
+ * distinction between the two lists the boundary that holds the whole
+ * authorization model up.
+ *
+ * **This is a rigid boundary rather than a configurable permission**, and that is
+ * why it is a role check here instead of a `@RequirePermission()` gate. Feature
+ * 035 made reports granular precisely because *whether HR should read them* is a
+ * question the company might reasonably answer either way, and a permission
+ * keeps that door open. Account administration is the opposite: there is no
+ * account that should be able to grant itself authority, so there must be no
+ * checkbox that grants it. 035 recorded exactly this case — "for something only
+ * ever meant for admins regardless of fine-grained perms, a role check may
+ * remain".
+ *
+ * It lives here beside its sibling rather than in the users module, for the
+ * reason that one does: it is a statement about `UserRole`, which no module
+ * owns, and the two must be readable side by side or somebody will eventually
+ * reach for the wrong one.
+ */
+export const ACCOUNT_ADMIN_ROLES = [
+  UserRole.SUPERADMIN,
+  UserRole.ADMIN,
+] as const;
+
+/** One of the two, as a type. Narrower than {@link AdministrativeRole}. */
+export type AccountAdminRole = (typeof ACCOUNT_ADMIN_ROLES)[number];
+
+/**
+ * Whether a role may create accounts, change roles, or enable and disable
+ * accounts.
+ *
+ * A type guard for the reason {@link isAdministrativeRole} is one, and named so
+ * that a call site reads as the question it is asking — `isAccountAdminRole` at
+ * a glance cannot be mistaken for "is an administrator", which is the mistake
+ * that would let HR through.
+ */
+export function isAccountAdminRole(role: UserRole): role is AccountAdminRole {
+  return (ACCOUNT_ADMIN_ROLES as readonly UserRole[]).includes(role);
+}

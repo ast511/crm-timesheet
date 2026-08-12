@@ -1,7 +1,7 @@
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { isAdministrativeRole } from '../../../common/constants/role.constants';
 import type { Prisma } from '../../../generated/prisma/client';
-import type { UserRole } from '../../../generated/prisma/enums';
+import type { AccountStatus, UserRole } from '../../../generated/prisma/enums';
 
 /**
  * The account, as the caller's own session sees it.
@@ -42,16 +42,17 @@ export interface AuthUserEntity {
  * {@link CREDENTIALS_SELECT} — so the hash is never read into memory on the path
  * that runs a hundred times a minute.
  *
- * `isActive` is here rather than filtered in the `where`, because the two are
- * not the same answer: filtering would make a deactivated account
- * indistinguishable from a deleted one at the call site, and the caller wants to
- * refuse both while logging neither as a missing user.
+ * `status` is here rather than filtered in the `where`, because the two are not
+ * the same answer: filtering would make a refused account indistinguishable from
+ * a deleted one at the call site, and the caller wants to refuse both while
+ * logging neither as a missing user. It replaced `isActive` in Feature 036, which
+ * gave the column a third state — see [AccountStatus] in `schema.prisma`.
  */
 export const AUTHENTICATED_USER_SELECT = {
   id: true,
   email: true,
   role: true,
-  isActive: true,
+  status: true,
   employee: { select: { id: true } },
 } as const satisfies Prisma.UserSelect;
 
@@ -60,7 +61,7 @@ export interface AuthenticatedUserRow {
   id: string;
   email: string;
   role: UserRole;
-  isActive: boolean;
+  status: AccountStatus;
   employee: { id: string } | null;
 }
 
@@ -76,14 +77,22 @@ export const CREDENTIALS_SELECT = {
   id: true,
   email: true,
   role: true,
-  isActive: true,
+  status: true,
   passwordHash: true,
   employee: { select: { id: true } },
 } as const satisfies Prisma.UserSelect;
 
-/** A `users` row read through {@link CREDENTIALS_SELECT}. */
+/**
+ * A `users` row read through {@link CREDENTIALS_SELECT}.
+ *
+ * `passwordHash` is nullable as of Feature 036: an account created by an
+ * administrator has none until its owner follows the activation link and chooses
+ * one. Login reads the null through the decoy hash so the comparison still costs
+ * what every comparison costs, and the `status` check then refuses it — see
+ * `AuthService.login`.
+ */
 export interface CredentialsRow extends AuthenticatedUserRow {
-  passwordHash: string;
+  passwordHash: string | null;
 }
 
 /**

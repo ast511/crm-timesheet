@@ -25,7 +25,7 @@ import { JwtAuthGuard } from '../jwt-auth.guard';
  * the part that concerns it: that its routes are guarded at all, that a request
  * with no token is refused, and that a token resolves to the `CurrentUser` its
  * handlers read. What it no longer exercises — signatures, expiry, the account
- * lookup, `isActive` — belongs to one feature and is tested once, in
+ * lookup, the account's `status` — belongs to one feature and is tested once, in
  * `auth.service.spec.ts` and `auth/routing.spec.ts`. Nineteen copies of a JWT
  * test would be nineteen places to update the day the token format changes.
  *
@@ -63,6 +63,24 @@ export class TestAuthentication {
       { provide: AuthService, useValue: { authenticate: this.authenticate } },
       { provide: APP_GUARD, useClass: JwtAuthGuard },
     ];
+  }
+
+  /**
+   * The stub `authenticate` on its own, for a spec that must supply its *own*
+   * `AuthService` stub.
+   *
+   * {@link providers} registers a complete `AuthService` whose only method is
+   * `authenticate`, which is all nineteen routing specs need. Feature 036 added
+   * a caller that needs more: the account-lifecycle spec substitutes
+   * `revokeSessions` as well, so it builds one object out of both rather than
+   * registering two `AuthService` providers where the second would silently win.
+   *
+   * Spread it in — `{ ...auth.stub, revokeSessions }` — and register the result
+   * yourself. The `APP_GUARD` half of {@link providers} still has to be added
+   * separately.
+   */
+  get stub(): { authenticate: (token: string) => Promise<CurrentUser> } {
+    return { authenticate: this.authenticate };
   }
 
   /**

@@ -14,16 +14,18 @@ export const IS_PUBLIC_KEY = 'auth:isPublic';
  * allowlist fails closed; a denylist fails open, and the failure is invisible
  * until somebody finds it.
  *
- * **This is authentication-level only, and the distinction matters more after
- * Feature 032 than it did before it.** `@Public()` means "this route does not
- * need to know who is calling". It does not mean "anyone may do this", because
- * that question — may *this* caller touch *this* resource — is not asked
- * anywhere yet. The authorization enforcement feature adds `@RequirePermission()`
- * on top of this guard, and when it does, a `@Public()` route is one that
- * neither guard inspects,
- * while every other route is authenticated here and authorised there. Marking
- * something `@Public()` today to make a test pass is therefore a decision that
- * survives into a world where it means considerably more.
+ * **This is authentication-level only.** `@Public()` means "this route does not
+ * need to know who is calling". It does not mean "anyone may do this": that
+ * question — may *this* caller do *this* — is `@RequirePermission()` and
+ * `PermissionsGuard` (Feature 035). A `@Public()` route is one that neither
+ * guard inspects, while every other route is authenticated here and authorised
+ * there. Marking something `@Public()` to make a test pass is therefore a
+ * decision that means considerably more than it looks.
+ *
+ * **The two cannot be combined.** A public route has no caller, so there is no
+ * permission set to check, and the pair is refused at startup by
+ * `PublicRouteValidator` rather than left to produce a route that answers `401`
+ * to everybody who tries it.
  *
  * It is used on exactly four routes in this feature, and each has to be public
  * for a reason that would not be fixed by better credentials:

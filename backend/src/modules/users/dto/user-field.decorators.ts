@@ -1,20 +1,9 @@
 import { applyDecorators } from '@nestjs/common';
 import { Transform } from 'class-transformer';
-import {
-  IsEnum,
-  IsString,
-  MaxLength,
-  MinLength,
-  registerDecorator,
-  ValidationArguments,
-} from 'class-validator';
+import { IsEnum, IsString, MaxLength } from 'class-validator';
 
-import { MAX_PASSWORD_BYTES } from '../../../common/password/password.hasher';
 import { UserRole } from '../../../generated/prisma/enums';
-import {
-  USER_PASSWORD_MIN_LENGTH,
-  USER_USERNAME_MAX_LENGTH,
-} from '../user.constants';
+import { USER_USERNAME_MAX_LENGTH } from '../user.constants';
 
 /**
  * The per-field rules shared by `CreateUserDto` and `UpdateUserDto`.
@@ -67,55 +56,17 @@ export function IsUserUsername() {
 }
 
 /**
- * `password` — the plain-text secret, on its way to being hashed and discarded.
+ * There is no `IsUserPassword` any more.
  *
- * Not trimmed. Leading and trailing spaces are legitimate characters in a
- * passphrase, and silently removing them would mean the password accepted at
- * creation is not the password the user typed.
- *
- * The upper bound is bcrypt's, expressed in **bytes** rather than characters
- * because that is the unit the algorithm truncates on: 72 emoji are 288 bytes,
- * and `@MaxLength(72)` would wave them through for `hashPassword` to reject
- * with a `500`. Validating it here makes it a `400` naming the field.
+ * Feature 036 took the password out of both DTOs in this module — an
+ * administrator no longer sets anybody's password — so the rule had nothing left
+ * to validate here. It did not disappear: it moved to
+ * `common/password/password.policy.ts` as `@IsPassword()`, where the three auth
+ * bodies that *do* accept a password share it. The byte-length check it used
+ * went with it, for the same reason.
  */
-export function IsUserPassword() {
-  return applyDecorators(
-    IsString(),
-    MinLength(USER_PASSWORD_MIN_LENGTH),
-    MaxByteLength(MAX_PASSWORD_BYTES),
-  );
-}
 
 /** `role` — one of the `UserRole` values the schema's enum column accepts. */
 export function IsUserRole() {
   return applyDecorators(IsEnum(UserRole));
-}
-
-/**
- * Rejects a string whose UTF-8 encoding exceeds `max` bytes.
- *
- * `@MaxLength()` counts UTF-16 code units, which is the wrong unit for any
- * limit imposed by a binary format. Non-strings pass, leaving them to the
- * `@IsString()` alongside, whose message is far better than a length check
- * failing on a number.
- */
-function MaxByteLength(max: number): PropertyDecorator {
-  return (target, propertyName) => {
-    registerDecorator({
-      name: 'maxByteLength',
-      target: target.constructor,
-      propertyName: propertyName as string,
-      constraints: [max],
-      validator: {
-        validate(value: unknown): boolean {
-          return (
-            typeof value !== 'string' || Buffer.byteLength(value, 'utf8') <= max
-          );
-        },
-        defaultMessage({ property }: ValidationArguments): string {
-          return `${property} must not exceed ${max} bytes`;
-        },
-      },
-    });
-  };
 }

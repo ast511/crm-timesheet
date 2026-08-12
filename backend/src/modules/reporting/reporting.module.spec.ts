@@ -59,6 +59,15 @@ describe('ReportingModule wiring', () => {
               JWT_REFRESH_SECRET: 'wiring-refresh-secret-0123456789abcdef',
               JWT_ACCESS_TTL: 900,
               JWT_REFRESH_TTL: 604_800,
+              // Feature 036 put `AccountTokenService` and `AccountEmailService`
+              // in `AuthModule`, and both read their configuration in the
+              // constructor for the reason `TokenService` does — a deployment
+              // that cannot build an activation link should fail at startup
+              // rather than at the first onboarding. Which means it fails here
+              // too, and that is this spec doing its job.
+              APP_WEB_URL: 'https://hr.example.com',
+              ACCOUNT_ACTIVATION_TTL: 259_200,
+              ACCOUNT_PASSWORD_RESET_TTL: 3600,
             }),
           ],
         }),

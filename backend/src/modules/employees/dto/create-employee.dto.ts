@@ -1,4 +1,5 @@
-import { IsBoolean, IsOptional } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsOptional, ValidateNested } from 'class-validator';
 
 import { IsIsoDateString } from '../../../common/decorators/is-iso-date-string.decorator';
 import { IsRelationId } from '../../../common/decorators/is-relation-id.decorator';
@@ -7,6 +8,7 @@ import {
   EmployeeStatus,
   SeniorityLevel,
 } from '../../../generated/prisma/enums';
+import { CreateUserDto } from '../../users/dto/create-user.dto';
 import {
   IsEmployeeCode,
   IsEmployeeName,
@@ -73,8 +75,50 @@ export class CreateEmployeeDto {
   @IsIsoDateString()
   readonly terminationDate?: string | null;
 
+  /**
+   * The existing account this employee signs in with.
+   *
+   * **Optional as of Feature 036, and exactly one of `userId` / `account` must be
+   * given.** The service enforces that pair rule, because "neither" and "both"
+   * are both mistakes and only a rule about two fields at once can say so.
+   *
+   * `Employee.userId` is still a required, unique column — an employee always has
+   * exactly one account — so this is not a step towards employees without logins.
+   * It is a choice about *which* account: one that already exists, or one created
+   * in the same breath.
+   */
+  @IsOptional()
   @IsRelationId()
-  readonly userId!: string;
+  readonly userId?: string;
+
+  /**
+   * Create the login alongside the employee — the "checkbox on the Employees
+   * page" flow, and the common case.
+   *
+   * Supplying this creates a `PENDING_ACTIVATION` account and emails the person
+   * an activation link, in the same transaction that creates their employee
+   * record. It reuses `CreateUserDto` wholesale rather than restating `email`,
+   * `username` and `role`, so the account created here and the one created by
+   * `POST /users` cannot acquire different validation — and so that a `password`
+   * smuggled in through this nested object is rejected exactly as it is there.
+   *
+   * **Nested validation needs both decorators.** `@ValidateNested()` tells
+   * class-validator to descend, and `@Type()` tells class-transformer what to
+   * instantiate; without the second the payload stays a plain object and *no*
+   * rule inside it runs, which is the failure mode where an unvalidated email
+   * reaches the database. Whitelisting descends too, so an unknown key inside
+   * `account` is a `400` like one at the top level.
+   *
+   * **Only `ADMIN` and `SUPERADMIN` may use it.** Creating an employee is HR's
+   * job; creating a login is not, and the same request may do both — which is
+   * precisely why that check is in the service against `@CurrentUser()` rather
+   * than a gate on the route. An HR user sending this gets a `403` and no
+   * employee; the fix is to omit it and let an administrator create the account.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateUserDto)
+  readonly account?: CreateUserDto;
 
   @IsRelationId()
   readonly departmentId!: string;

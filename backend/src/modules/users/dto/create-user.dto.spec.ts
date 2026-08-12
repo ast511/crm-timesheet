@@ -1,12 +1,8 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
 
 import { EMAIL_MAX_LENGTH } from '../../../common/constants/email.constants';
-import { MAX_PASSWORD_BYTES } from '../../../common/password/password.hasher';
 import { UserRole } from '../../../generated/prisma/enums';
-import {
-  USER_PASSWORD_MIN_LENGTH,
-  USER_USERNAME_MAX_LENGTH,
-} from '../user.constants';
+import { USER_USERNAME_MAX_LENGTH } from '../user.constants';
 import { CreateUserDto } from './create-user.dto';
 
 /**
@@ -14,6 +10,13 @@ import { CreateUserDto } from './create-user.dto';
  * what is asserted here is the object the controller receives — transforms
  * included, since normalising `email` before the uniqueness check is what makes
  * the database's unique index authoritative.
+ *
+ * **The password tests are gone, because the field is.** Feature 036 removed
+ * `password` from this body: an account is created with none and its owner sets
+ * one through an emailed link. The rule those tests covered did not disappear —
+ * it moved to `common/password/password.policy.ts`, where the three auth bodies
+ * that *do* accept a password share it, and it is tested there once instead of
+ * per DTO.
  */
 describe('CreateUserDto', () => {
   const pipe = new ValidationPipe({
@@ -32,11 +35,10 @@ describe('CreateUserDto', () => {
 
   const VALID = {
     email: 'ana.pop@example.com',
-    password: 'correct horse battery',
     role: UserRole.ADMIN,
   };
 
-  it('accepts a payload with only email, password and role', async () => {
+  it('accepts a payload with only email and role', async () => {
     const dto = await validate(VALID);
 
     expect(dto.email).toBe('ana.pop@example.com');
@@ -62,53 +64,42 @@ describe('CreateUserDto', () => {
     expect(dto.username).toBeNull();
   });
 
-  it('keeps the password exactly as typed, spaces included', async () => {
-    const dto = await validate({ ...VALID, password: '  spaces matter  ' });
-
-    expect(dto.password).toBe('  spaces matter  ');
-  });
-
-  it('has no property for a password hash, so one cannot be supplied', async () => {
-    await expect(
-      validate({ ...VALID, passwordHash: '$2b$12$abcdefghij' }),
-    ).rejects.toThrow();
-  });
-
   it.each(Object.values(UserRole))('accepts the role %s', async (role) => {
     const dto = await validate({ ...VALID, role });
 
     expect(dto.role).toBe(role);
   });
 
+  /**
+   * The three fields Feature 036 removed, asserted as **rejections rather than
+   * as silence**.
+   *
+   * `forbidNonWhitelisted` turns each into a `400` naming the property, which is
+   * the behaviour that matters for a client written against the old contract: an
+   * integrator who sends `password` is told plainly that it is not accepted,
+   * instead of creating an account whose password they believe they set and
+   * whose owner cannot sign in.
+   */
   it.each([
-    ['a missing email', { password: 'correct horse', role: UserRole.USER }],
-    ['a missing password', { email: 'a@example.com', role: UserRole.USER }],
-    ['a missing role', { email: 'a@example.com', password: 'correct horse' }],
+    ['a password', { password: 'correct horse battery' }],
+    ['a password hash', { passwordHash: '$2b$12$abcdefghij' }],
+    ['an isActive flag', { isActive: true }],
+    ['an account status', { status: 'ACTIVE' }],
+  ])('rejects %s: onboarding is an emailed link', async (_case, extra) => {
+    await expect(validate({ ...VALID, ...extra })).rejects.toThrow();
+  });
+
+  it.each([
+    ['a missing email', { role: UserRole.USER }],
+    ['a missing role', { email: 'a@example.com' }],
     ['a malformed email', { ...VALID, email: 'not-an-email' }],
     ['a blank email', { ...VALID, email: '   ' }],
     ['a role outside the enum', { ...VALID, role: 'ROOT' }],
     ['a lower-cased role', { ...VALID, role: 'admin' }],
     ['a non-string username', { ...VALID, username: 42 }],
-    ['a non-boolean isActive', { ...VALID, isActive: 'yes' }],
     ['an unknown property', { ...VALID, nickname: 'Ana' }],
   ])('rejects %s', async (_case, body) => {
     await expect(validate(body)).rejects.toThrow();
-  });
-
-  it('rejects a password below the minimum length', async () => {
-    await expect(
-      validate({
-        ...VALID,
-        password: 'a'.repeat(USER_PASSWORD_MIN_LENGTH - 1),
-      }),
-    ).rejects.toThrow();
-  });
-
-  it('accepts a password of exactly the minimum length', async () => {
-    const password = 'a'.repeat(USER_PASSWORD_MIN_LENGTH);
-    const dto = await validate({ ...VALID, password });
-
-    expect(dto.password).toBe(password);
   });
 
   it.each([
@@ -122,29 +113,5 @@ describe('CreateUserDto', () => {
         : 'a'.repeat(maxLength + 1);
 
     await expect(validate({ ...VALID, [field]: value })).rejects.toThrow();
-  });
-
-  /**
-   * The bound bcrypt actually imposes is on bytes, and these two cases are the
-   * reason it is validated in bytes rather than characters: the first is 72
-   * characters and passes, the second is 24 characters — well under any
-   * plausible `@MaxLength` — and would silently reach `hashPassword`, which
-   * throws.
-   */
-  it('accepts a password of exactly the bcrypt byte limit', async () => {
-    const password = 'a'.repeat(MAX_PASSWORD_BYTES);
-
-    await expect(validate({ ...VALID, password })).resolves.toBeDefined();
-  });
-
-  it('rejects a short password whose UTF-8 encoding is over the limit', async () => {
-    // Each emoji is 4 bytes: 24 characters, 96 bytes.
-    const password = '🔒'.repeat(24);
-
-    expect(password.length).toBeLessThan(MAX_PASSWORD_BYTES);
-    expect(Buffer.byteLength(password, 'utf8')).toBeGreaterThan(
-      MAX_PASSWORD_BYTES,
-    );
-    await expect(validate({ ...VALID, password })).rejects.toThrow();
   });
 });

@@ -1,15 +1,8 @@
-import {
-  IsBoolean,
-  IsIn,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
-import { ToBoolean } from '../../../common/decorators/to-boolean.decorator';
 import { Trim } from '../../../common/decorators/trim.decorator';
 import { SortQueryDto } from '../../../common/dto/sort-query.dto';
-import { UserRole } from '../../../generated/prisma/enums';
+import { AccountStatus, UserRole } from '../../../generated/prisma/enums';
 import {
   DEFAULT_USER_SORT_FIELD,
   USER_SEARCH_MAX_LENGTH,
@@ -20,7 +13,7 @@ import { IsUserRole } from './user-field.decorators';
 
 /**
  * Query string of `GET /api/v1/users`:
- * `?page=2&limit=50&search=ana&role=ADMIN&isActive=true&sortBy=email&sortOrder=asc`.
+ * `?page=2&limit=50&search=ana&role=ADMIN&status=ACTIVE&sortBy=email&sortOrder=asc`.
  *
  * Extends `SortQueryDto` instead of redeclaring `page`, `limit` and
  * `sortOrder`, so the shared defaults, the page-size cap and the direction
@@ -52,11 +45,23 @@ export class UserQueryDto extends SortQueryDto {
   @IsUserRole()
   readonly role?: UserRole;
 
-  /** `?isActive=true` / `?isActive=false`; anything else is a `400`. */
+  /**
+   * Exact account state — `?status=PENDING_ACTIVATION`.
+   *
+   * **Replaced `?isActive=` in Feature 036**, along with the column behind it.
+   * The boolean could answer two questions and the screen has three: the filter
+   * an administrator actually reaches for on the accounts page is "who has not
+   * accepted their invitation yet", and `?isActive=true` used to return those
+   * people mixed in with everybody else. A client that filtered `?isActive=true`
+   * now filters `?status=ACTIVE`, and one that filtered `?isActive=false` filters
+   * `?status=DISABLED`.
+   *
+   * Validated against the enum, so it reaches Prisma as a value the column can
+   * hold rather than as arbitrary text.
+   */
   @IsOptional()
-  @ToBoolean()
-  @IsBoolean()
-  readonly isActive?: boolean;
+  @IsEnum(AccountStatus)
+  readonly status?: AccountStatus;
 
   /** Column to order by; only the enumerated ones reach Prisma's `orderBy`. */
   @IsOptional()

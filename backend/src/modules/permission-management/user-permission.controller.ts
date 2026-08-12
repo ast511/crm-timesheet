@@ -11,6 +11,7 @@ import {
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { ApplyPresetDto } from './dto/apply-preset.dto';
 import { PermissionHistoryQueryDto } from './dto/permission-history-query.dto';
 import { SetUserPermissionsDto } from './dto/set-user-permissions.dto';
@@ -39,14 +40,36 @@ import { UserPermissionService } from './user-permission.service';
  * baseline in order to compose one, and the day a baseline changed, every open
  * tab would be diffing against a stale copy.
  *
- * **Nothing here is gated by permission.** These routes should be reachable only
- * by a caller holding `PERMISSIONS.EDIT`, and they are not yet — that is Feature
- * 033. What changed with Feature 032 is that they are no longer reachable by
- * *anybody*: a valid access token is required, so the caller recorded in
- * `permission_audit_logs.changed_by_user_id` is now a person rather than a
- * claim. What *is* enforced here is the one rule about the resource rather than
- * the caller: a super-admin's permissions cannot be written, on any of the
- * three, and that is a `409`.
+ * **Every route here is permission-gated, as of Feature 035** — and this
+ * controller is the most important one in the application to lock, because it is
+ * the one that decides what everybody else may do. An ungated
+ * `PUT /users/:id/permissions` is not one hole, it is every hole: a caller who
+ * reaches it can grant themselves the rest. Three keys, not one, because the
+ * three kinds of act are genuinely different:
+ *
+ * | Route | Key | Why that one |
+ * | --- | --- | --- |
+ * | `GET` (matrix), `GET /history` | `PERMISSIONS.VIEW` | reading what somebody else may do |
+ * | `PUT` | `PERMISSIONS.EDIT` | "change an individual permission on somebody's matrix" |
+ * | `POST /apply-preset`, `DELETE` | `PERMISSIONS.CONFIGURE` | "the two operations that replace a whole matrix at once" |
+ *
+ * The wording in the right-hand column is the seed's own description of each
+ * key, and the split is the one Feature 029 already designed the catalog
+ * around: `PERMISSIONS` has no `CREATE` and no `DELETE` precisely because the
+ * only writes this screen performs are one matrix cell (`EDIT`) and the two bulk
+ * replacements (`CONFIGURE`). This feature enforces the distinction the catalog
+ * was already drawn to express rather than inventing one.
+ *
+ * Neither `EDIT` nor `CONFIGURE` is in any role baseline, which is also
+ * deliberate and predates this feature: managing what other people may do is an
+ * explicit grant made one account at a time, through the "Admin - Full Access"
+ * preset or a per-user override. A super-admin holds both by resolution, so the
+ * system can never be left with nobody able to administer it — including the
+ * case where somebody locks themselves out of this very screen.
+ *
+ * What is enforced *underneath* the gate is unchanged: the one rule about the
+ * resource rather than the caller — a super-admin's permissions cannot be
+ * written, on any of the three, and that is a `409`.
  *
  * Every method is a one-line delegation on purpose, and `id` is taken as a plain
  * string: ids are cuids, so `ParseUUIDPipe` would reject valid ones.
@@ -67,6 +90,7 @@ export class UserPermissionController {
    * A super-admin target comes back fully granted and `readOnly: true`.
    */
   @Get()
+  @RequirePermission('PERMISSIONS.VIEW')
   findMatrix(@Param('id') id: string): Promise<UserPermissionMatrixEntity> {
     return this.userPermissions.findMatrix(id);
   }
@@ -82,6 +106,7 @@ export class UserPermissionController {
    * produces no exception at all.
    */
   @Put()
+  @RequirePermission('PERMISSIONS.EDIT')
   replace(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUser,
@@ -103,6 +128,7 @@ export class UserPermissionController {
    * the resulting matrix, so the screen renders what the preset actually did.
    */
   @Post('apply-preset')
+  @RequirePermission('PERMISSIONS.CONFIGURE')
   applyPreset(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUser,
@@ -126,6 +152,7 @@ export class UserPermissionController {
    * here because the reset is exactly the case where the screen needs redrawing.
    */
   @Delete()
+  @RequirePermission('PERMISSIONS.CONFIGURE')
   resetToRole(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUser,
@@ -142,6 +169,7 @@ export class UserPermissionController {
    * share their timestamp to the millisecond.
    */
   @Get('history')
+  @RequirePermission('PERMISSIONS.VIEW')
   findHistory(
     @Param('id') id: string,
     @Query() query: PermissionHistoryQueryDto,
