@@ -15,10 +15,10 @@ import type { TimesheetApprovalEmailModel } from '../../../generated/prisma/mode
  * tell it. Feature 015 made that the rule for sub-resources, and this is the
  * same shape.
  */
-export interface TimesheetApprovalEmailEntity {
-  id: string;
-  email: string;
-  createdAt: string;
+export class TimesheetApprovalEmailEntity {
+  id!: string;
+  email!: string;
+  createdAt!: string;
 }
 
 /**

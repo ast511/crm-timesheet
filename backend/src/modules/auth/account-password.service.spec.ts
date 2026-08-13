@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -140,15 +140,18 @@ describe('AccountPasswordService', () => {
       prisma.user.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(service.activate(dto)).rejects.toMatchObject({
+        // An input error, not an authentication failure — this route has no
+        // session to authenticate. See `invalidAccountToken`.
+        status: 400,
         response: { errorCode: 'ACCOUNT_TOKEN_INVALID' },
       });
     });
 
     it('refuses a dead link before hashing anything', async () => {
-      tokens.resolve.mockRejectedValue(new UnauthorizedException('nope'));
+      tokens.resolve.mockRejectedValue(new BadRequestException('nope'));
 
       await expect(service.activate(dto)).rejects.toBeInstanceOf(
-        UnauthorizedException,
+        BadRequestException,
       );
       expect(prisma.user.updateMany).not.toHaveBeenCalled();
     });
@@ -261,6 +264,7 @@ describe('AccountPasswordService', () => {
       prisma.user.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(service.resetPassword(dto)).rejects.toMatchObject({
+        status: 400,
         response: { errorCode: 'ACCOUNT_TOKEN_INVALID' },
       });
     });

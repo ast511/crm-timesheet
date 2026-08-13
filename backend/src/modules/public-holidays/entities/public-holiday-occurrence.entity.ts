@@ -29,14 +29,14 @@ const MS_PER_DAY = 86_400_000;
  * calendar entry can be clicked through to `GET`, `PATCH` or `DELETE` without a
  * second lookup by name.
  */
-export interface PublicHolidayOccurrenceEntity {
-  id: string;
-  name: string;
-  description: string | null;
-  type: HolidayType;
-  isNational: boolean;
-  startDate: string;
-  endDate: string;
+export class PublicHolidayOccurrenceEntity {
+  id!: string;
+  name!: string;
+  description!: string | null;
+  type!: HolidayType;
+  isNational!: boolean;
+  startDate!: string;
+  endDate!: string;
 }
 
 /**

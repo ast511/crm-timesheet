@@ -15,7 +15,11 @@ import type {
 
 import { toZonedTimestamp } from '../../../common/utils/date.util';
 import { REPORT_LOCALE } from '../reporting.constants';
-import { ReportCell, ReportDataModel, ReportRow } from './report-data-model';
+import {
+  ReportCell,
+  ReportDataModel,
+  ReportRow,
+} from '../entities/report-data-model.entity';
 
 /**
  * Where pdfmake keeps the Roboto files it ships.

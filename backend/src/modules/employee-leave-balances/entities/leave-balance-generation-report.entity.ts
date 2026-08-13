@@ -12,16 +12,16 @@
  * many entries as there are leave types in scope, and a reader who assumed
  * otherwise would think the company had quadrupled.
  */
-export interface LeaveBalanceGenerationReport {
+export class LeaveBalanceGenerationReport {
   /** The year that was opened — the `year` from the request, echoed once. */
-  year: number;
+  year!: number;
 
   /**
    * Balances written. `0` on a `dryRun`, and `0` on a re-run that found
    * everything already in place — which are different situations that
    * {@link dryRun} and {@link skipped} tell apart.
    */
-  created: number;
+  created!: number;
 
   /**
    * Balances left alone because the employee already held one for this type and
@@ -31,7 +31,7 @@ export interface LeaveBalanceGenerationReport {
    * December, three people are hired in January, and the second run reports the
    * first run's rows here rather than failing on them.
    */
-  skipped: number;
+  skipped!: number;
 
   /**
    * Days written off across the previous year's balances by the carry-over
@@ -41,10 +41,10 @@ export interface LeaveBalanceGenerationReport {
    * larger than expected is how somebody notices that a leave type is missing
    * its `allowsCarryOver` flag — before the employees do.
    */
-  expiredFromPreviousYear: number;
+  expiredFromPreviousYear!: number;
 
   /** Balances whose previous year was capped; the rows behind the count above. */
-  expiredBalances: number;
+  expiredBalances!: number;
 
   /**
    * Whether this was a preview. `true` means nothing above was written.
@@ -52,7 +52,7 @@ export interface LeaveBalanceGenerationReport {
    * Echoed rather than left implicit so a report saved, pasted or logged still
    * says what it was — the counts alone cannot distinguish a preview from a run.
    */
-  dryRun: boolean;
+  dryRun!: boolean;
 
   /**
    * Everything the run could not do, in words, each naming the thing it is about
@@ -68,5 +68,5 @@ export interface LeaveBalanceGenerationReport {
    * unknown id — not by the number of employees, so it cannot grow with the
    * company.
    */
-  warnings: string[];
+  warnings!: string[];
 }

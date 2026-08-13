@@ -4,8 +4,10 @@ import {
 } from '../../../common/utils/date.util';
 import type { Prisma } from '../../../generated/prisma/client';
 import type {
+  AccountStatus,
   EmployeeStatus,
   SeniorityLevel,
+  UserRole,
 } from '../../../generated/prisma/enums';
 import type {
   DepartmentModel,
@@ -17,10 +19,14 @@ import type {
 /**
  * The related records an employee is returned with.
  *
- * Each is declared as a `Pick` of the owning module's row rather than as a
- * free-standing interface, so renaming a column in `schema.prisma` breaks the
- * build here instead of producing a nested object with a field that no longer
- * exists.
+ * Each `implements` a `Pick` of the owning module's row, so renaming a column
+ * in `schema.prisma` breaks the build here instead of producing a nested object
+ * with a field that no longer exists. Feature 038 turned these from `Pick`
+ * *aliases* into classes that are checked against the same `Pick`: an alias is
+ * erased at compile time and a documented schema needs something that exists at
+ * runtime to point at. The guarantee is identical; what changed is that the
+ * fields are now written out, which is also what lets each one carry the
+ * sentence explaining it.
  *
  * The user summary is the one that matters: it has no `passwordHash` for a
  * mapper to copy, which is the type-level half of the guarantee Feature 009
@@ -28,15 +34,23 @@ import type {
  * `createdAt` and `updatedAt`, which describe the account rather than the
  * person, and an employee payload has no use for them.
  */
-export type EmployeeDepartmentSummary = Pick<
+export class EmployeeDepartmentSummary implements Pick<
   DepartmentModel,
   'id' | 'code' | 'name'
->;
+> {
+  id!: string;
+  code!: string;
+  name!: string;
+}
 
-export type EmployeePositionSummary = Pick<
+export class EmployeePositionSummary implements Pick<
   PositionModel,
   'id' | 'code' | 'name'
->;
+> {
+  id!: string;
+  code!: string;
+  name!: string;
+}
 
 /**
  * The account behind an employee, as an employee record renders it.
@@ -46,10 +60,16 @@ export type EmployeePositionSummary = Pick<
  * somebody notices that a colleague hired last week has still not accepted their
  * invitation, and a boolean could not say so.
  */
-export type EmployeeUserSummary = Pick<
+export class EmployeeUserSummary implements Pick<
   UserModel,
   'id' | 'email' | 'username' | 'role' | 'status'
->;
+> {
+  id!: string;
+  email!: string;
+  username!: string | null;
+  role!: UserRole;
+  status!: AccountStatus;
+}
 
 /**
  * An employee as the API exposes it.
@@ -70,13 +90,13 @@ export type EmployeeUserSummary = Pick<
  * midnight: printing only the date would quietly assume a timezone this module
  * has no way to know.
  */
-export interface EmployeeEntity {
-  id: string;
-  employeeCode: string;
-  firstName: string;
-  lastName: string;
-  phone: string | null;
-  hireDate: string;
+export class EmployeeEntity {
+  id!: string;
+  employeeCode!: string;
+  firstName!: string;
+  lastName!: string;
+  phone!: string | null;
+  hireDate!: string;
   /**
    * The day the person left, or `null` while they still work here.
    *
@@ -85,15 +105,15 @@ export interface EmployeeEntity {
    * serving notice is `ACTIVE` and has a termination date — so a client renders
    * both rather than deriving one from the other.
    */
-  terminationDate: string | null;
-  seniority: SeniorityLevel;
-  status: EmployeeStatus;
-  canReplaceOthers: boolean;
-  department: EmployeeDepartmentSummary;
-  position: EmployeePositionSummary;
-  user: EmployeeUserSummary;
-  createdAt: string;
-  updatedAt: string;
+  terminationDate!: string | null;
+  seniority!: SeniorityLevel;
+  status!: EmployeeStatus;
+  canReplaceOthers!: boolean;
+  department!: EmployeeDepartmentSummary;
+  position!: EmployeePositionSummary;
+  user!: EmployeeUserSummary;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

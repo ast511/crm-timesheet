@@ -23,8 +23,8 @@ import type { ProjectMemberRosterEntry } from './project-member.entity';
  * one established meaning across the API, and `data.members.items` would be a
  * third level of nesting to say something the shape already says.
  */
-export interface ProjectRosterEntity {
-  project: ProjectEntity;
-  members: ProjectMemberRosterEntry[];
-  meta: PaginationMeta;
+export class ProjectRosterEntity {
+  project!: ProjectEntity;
+  members!: ProjectMemberRosterEntry[];
+  meta!: PaginationMeta;
 }

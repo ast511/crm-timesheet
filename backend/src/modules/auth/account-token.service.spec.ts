@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -216,7 +216,9 @@ describe('AccountTokenService', () => {
       await expect(
         service.resolve('a-token', AccountTokenType.ACTIVATION),
       ).rejects.toMatchObject({
-        status: 401,
+        // A `400`, not a `401`: the token is a body parameter proving email
+        // receipt, not a credential. See `invalidAccountToken`.
+        status: 400,
         response: {
           errorCode: 'ACCOUNT_TOKEN_INVALID',
           message: 'This link is no longer valid; please request a new one',
@@ -267,7 +269,7 @@ describe('AccountTokenService', () => {
           AccountTokenType.ACTIVATION,
           client as unknown as Parameters<typeof service.consume>[2],
         ),
-      ).rejects.toBeInstanceOf(UnauthorizedException);
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 

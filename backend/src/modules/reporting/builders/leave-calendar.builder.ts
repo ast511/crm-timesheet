@@ -4,7 +4,7 @@ import {
   ReportDataModel,
   ReportPeriod,
   ReportRow,
-} from '../renderers/report-data-model';
+} from '../entities/report-data-model.entity';
 import { LEAVE_ONLY_NOTE } from '../reporting.constants';
 import { ClassifiedDay, ClassifiedMonth } from '../reporting.types';
 import {

@@ -4,7 +4,7 @@ import {
   ReportNumberCell,
   ReportPeriod,
   ReportTextCell,
-} from '../renderers/report-data-model';
+} from '../entities/report-data-model.entity';
 import {
   ClassifiedDay,
   ClassifiedMonth,

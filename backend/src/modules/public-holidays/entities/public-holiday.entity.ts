@@ -20,19 +20,19 @@ import type { PublicHolidayModel } from '../../../generated/prisma/models';
  * module has no way to know. A client that wants "25 December" reads the first
  * ten characters of a UTC instant it was given as UTC.
  */
-export interface PublicHolidayEntity {
-  id: string;
-  name: string;
-  description: string | null;
-  type: HolidayType;
-  isNational: boolean;
-  validFromYear: number | null;
-  validToYear: number | null;
-  startDate: string;
-  endDate: string;
-  isRecurring: boolean;
-  createdAt: string;
-  updatedAt: string;
+export class PublicHolidayEntity {
+  id!: string;
+  name!: string;
+  description!: string | null;
+  type!: HolidayType;
+  isNational!: boolean;
+  validFromYear!: number | null;
+  validToYear!: number | null;
+  startDate!: string;
+  endDate!: string;
+  isRecurring!: boolean;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

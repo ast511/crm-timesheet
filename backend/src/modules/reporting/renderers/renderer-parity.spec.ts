@@ -12,7 +12,7 @@ import {
   ReportDataModel,
   ReportNumberCell,
   ReportPeriod,
-} from './report-data-model';
+} from '../entities/report-data-model.entity';
 
 const PERIOD: ReportPeriod = {
   month: 9,

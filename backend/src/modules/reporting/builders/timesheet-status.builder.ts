@@ -6,7 +6,7 @@ import {
   ReportDataModel,
   ReportPeriod,
   ReportRow,
-} from '../renderers/report-data-model';
+} from '../entities/report-data-model.entity';
 import {
   ALL_STATES_NOTE,
   FIXED_DAY_MARKERS,

@@ -394,7 +394,7 @@ POST /api/v1/users/:id/resend-activation # ADMIN | SUPERADMIN
 POST /api/v1/auth/activate
 { "token": "<43 chars from the link>", "password": "the one they choose" }
 → 200 { "success": true, "data": null }        # no session: they now log in
-→ 401 ACCOUNT_TOKEN_INVALID                    # unknown | expired | used | wrong purpose
+→ 400 ACCOUNT_TOKEN_INVALID                    # unknown | expired | used | wrong purpose
 
 POST /api/v1/auth/forgot-password
 { "email": "ana.pop@company.com" }
@@ -444,10 +444,18 @@ PATCH /api/v1/profile/me
 
 ### New error codes (Feature 033 catalog)
 
+> **Corrected by Feature 038.** `ACCOUNT_TOKEN_INVALID` shipped here as a `401`
+> and is now a **`400`**. A dead activation or reset link is an input error, not
+> an authentication failure — the token is a body parameter proving somebody
+> received an email, not a credential, and these routes are `@Public()` precisely
+> because there is nothing to authenticate. The code, message and `params` are
+> unchanged. See
+> [038 — the one mismatch where the code was wrong](038-api-documentation.md).
+
 | Code | Status | Means |
 | --- | --- | --- |
 | `AUTHORIZATION_ACCOUNT_ADMIN_REQUIRED` | 403 | not ADMIN/SUPERADMIN. **Distinct from `AUTHORIZATION_PERMISSION_DENIED`: there is nothing to grant**, so a frontend must not offer a "request access" link |
-| `ACCOUNT_TOKEN_INVALID` | 401 | a dead link — unknown, expired, used, or wrong purpose. `params.purpose` says which kind |
+| `ACCOUNT_TOKEN_INVALID` | 400 | a dead link — unknown, expired, used, or wrong purpose. `params.purpose` says which kind |
 | `ACCOUNT_NOT_PENDING_ACTIVATION` | 409 | resend/activate on an account in the wrong state. `params.status` |
 | `ACCOUNT_CURRENT_PASSWORD_INCORRECT` | 401 | wrong `currentPassword`. Distinct from `AUTH_INVALID_CREDENTIALS` because the caller is already authenticated, so there is no enumeration to protect |
 

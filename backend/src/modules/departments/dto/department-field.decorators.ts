@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
 
@@ -37,6 +38,13 @@ import {
  */
 export function IsDepartmentCode() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: DEPARTMENT_CODE_MAX_LENGTH,
+      pattern: DEPARTMENT_CODE_PATTERN,
+      example: 'IT',
+      description: 'Trimmed and upper-cased before it is stored or compared.',
+    }),
     Transform(({ value }: { value: unknown }) =>
       typeof value === 'string' ? value.trim().toUpperCase() : value,
     ),
@@ -53,6 +61,11 @@ export function IsDepartmentCode() {
 /** `name` — trimmed, non-empty, bounded. Case is preserved as typed. */
 export function IsDepartmentName() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: DEPARTMENT_NAME_MAX_LENGTH,
+      example: 'Information Technology',
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -71,6 +84,11 @@ export function IsDepartmentName() {
  */
 export function IsDepartmentDescription() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: DEPARTMENT_DESCRIPTION_MAX_LENGTH,
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     Transform(({ value }: { value: unknown }) => {
       if (typeof value !== 'string') {
         return value;

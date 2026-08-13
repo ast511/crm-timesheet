@@ -6,7 +6,15 @@ import {
   HttpStatus,
   Post,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import {
+  ApiOkEnvelope,
+  ApiOkNullEnvelope,
+} from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { EmailHealthResponseDto } from './dto/email-health-response.dto';
 import { TestEmailDto } from './dto/test-email.dto';
 import { EmailService } from './email.service';
@@ -37,6 +45,9 @@ import { EmailService } from './email.service';
  * being a single address is what keeps the exposure to "somebody could make the
  * server send a fixed test message".
  */
+@ApiTags(API_TAG.Email)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors()
 @Controller('email')
 export class EmailController {
   constructor(private readonly emailService: EmailService) {}
@@ -49,6 +60,12 @@ export class EmailController {
    * monitoring probe unable to distinguish "email is down" from "this endpoint
    * is down".
    */
+  @ApiOperation({
+    summary: 'Report whether email is configured and reachable',
+    description:
+      '**Always `200`, including when the connection failed**: the check succeeded in finding out that mail is broken, and the body says so. A `503` would leave a monitoring probe unable to distinguish "email is down" from "this endpoint is down". `configured` and `enabled` are two questions rather than one restated — the first is whether the environment names a mail server, the second whether this deployment may use it — and they come apart on a staging environment holding real addresses. `reason` names *which* setting is wrong without repeating the provider’s own text, which would publish a username or an internal hostname.',
+  })
+  @ApiOkEnvelope(EmailHealthResponseDto)
   @Get('health')
   checkHealth(): Promise<EmailHealthResponseDto> {
     return this.emailService.checkHealth();
@@ -66,6 +83,13 @@ export class EmailController {
    * A failure to send is an {@link EmailException} — a 500 carrying a written
    * message, with the provider's own error in the log.
    */
+  @ApiOperation({
+    summary: 'Send the fixed test message to one address',
+    description:
+      'The message is fixed and the body is a single address. There is deliberately **no endpoint that sends caller-supplied content**: an HTTP-callable "send this HTML to this address" is an open relay wearing the company’s `From` header, and no feature needs one. Answers `200` with `data: null` — the confirmation the caller is really after arrives in their inbox.',
+  })
+  @ApiOkNullEnvelope()
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Post('test')
   @HttpCode(HttpStatus.OK)
   sendTestEmail(@Body() dto: TestEmailDto): Promise<void> {

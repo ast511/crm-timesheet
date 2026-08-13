@@ -19,18 +19,18 @@ import type { PermissionPresetModel } from '../../../generated/prisma/models';
  * account that is not a super-admin. A client renders the cards under the role
  * heading and does not gate the button on it.
  */
-export interface PermissionPresetEntity {
-  id: string;
+export class PermissionPresetEntity {
+  id!: string;
   /** `HR_FULL_ACCESS` — what `apply-preset` quotes. */
-  key: string;
-  name: string;
-  description: string | null;
+  key!: string;
+  name!: string;
+  description!: string | null;
   /** Which role the preset was written for, and which heading it renders under. */
-  targetRole: UserRole;
+  targetRole!: UserRole;
   /** How many permissions the preset hands out. */
-  permissionCount: number;
-  createdAt: string;
-  updatedAt: string;
+  permissionCount!: number;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

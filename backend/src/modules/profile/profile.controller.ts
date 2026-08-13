@@ -1,6 +1,11 @@
-import { Body, Controller, Get, Patch } from '@nestjs/common';
+import { Body, Controller, Get, HttpStatus, Patch } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { ApiOkEnvelope } from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ProfileEntity } from './entities/profile.entity';
 import { ProfileService } from './profile.service';
@@ -46,6 +51,9 @@ import { ProfileService } from './profile.service';
  * it is one field; the table on that class says where each excluded field is
  * changed instead.
  */
+@ApiTags(API_TAG.Profile)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors()
 @Controller('profile')
 export class ProfileController {
   constructor(private readonly profileService: ProfileService) {}
@@ -57,6 +65,12 @@ export class ProfileController {
    * Never returns the password hash or any activation or reset token — see
    * `ProfileEntity`, where the `select` that guarantees it lives.
    */
+  @ApiOperation({
+    summary: 'Read my own profile',
+    description:
+      'The caller’s account plus their employment record, or `employee: null` when the account has none. **There is no `/profile/:id`** — a route that cannot name another person needs no ownership check, and this one has none because there is nothing to check. Never returns the password hash or any activation or reset token; the `select` that guarantees it is on `ProfileEntity`. This and the `PATCH` below are the two routes every authenticated caller may use, whatever their role.',
+  })
+  @ApiOkEnvelope(ProfileEntity)
   @Get('me')
   findOwn(@CurrentUser() user: CurrentUser): Promise<ProfileEntity> {
     return this.profileService.findOwn(user);
@@ -75,6 +89,13 @@ export class ProfileController {
    * Answers the whole profile rather than the employee record, so a client
    * re-renders the screen from one response.
    */
+  @ApiOperation({
+    summary: 'Update my own profile',
+    description:
+      'The body is whitelisted and the global pipe runs with `forbidNonWhitelisted`, so `role`, `email`, `positionId` or `employeeCode` in the payload is a `400` naming the offending property rather than a value quietly dropped — which is what makes "a user cannot smuggle a promotion into their profile update" a property of the type. **Password changes are not here**: they go through `POST /auth/change-password`, which asks for the current password first. Answers the whole profile, so a client re-renders the screen from one response.',
+  })
+  @ApiOkEnvelope(ProfileEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Patch('me')
   updateOwn(
     @CurrentUser() user: CurrentUser,

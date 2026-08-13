@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'crypto';
 
@@ -121,7 +121,7 @@ export class AccountTokenService {
   }
 
   /**
-   * The account a presented link belongs to, or a `401`.
+   * The account a presented link belongs to, or a `400`.
    *
    * **It does not consume the token** — {@link consume} does, inside the
    * transaction that sets the password. Splitting the two is what makes the
@@ -228,6 +228,27 @@ export class AccountTokenService {
  * code cannot drift between "expired", "already used", "unknown" and "wrong
  * kind" — the four situations that must be indistinguishable from outside.
  *
+ * ## Why a `400` and not a `401`
+ *
+ * It was a `401` until Feature 038's documentation sweep found that every
+ * description of these routes had always said `400` — and that the `400` was the
+ * right answer. **The token here is a body parameter proving somebody received
+ * an email, not a credential authenticating a caller.** `POST /auth/activate`
+ * and `POST /auth/reset-password` are `@Public()` precisely because there is no
+ * session to authenticate: the person has no password yet, or has forgotten it.
+ * Answering `401` told a client that authentication had failed on two routes
+ * whose whole purpose is that no authentication is possible, and it invited the
+ * one recovery that cannot work — refresh the token, then show the login screen,
+ * which is the screen they were already unable to use.
+ *
+ * A malformed, expired or spent value in a request body is an input error, and
+ * `400` is what every other rejected body field on this API answers. The
+ * `errorCode` is unchanged, so a frontend keying a translation on
+ * `ACCOUNT_TOKEN_INVALID` is unaffected — only the status a client branches on
+ * before reading it moves. `401` on a public route now means exactly one thing,
+ * on exactly two routes: login and refresh, where the credential in the body was
+ * refused.
+ *
  * `purpose` is in `params` and nothing else is. The client has just followed a
  * link of that kind and already knows which, so it reveals nothing, and it is
  * what lets the screen say "ask your administrator to resend your invitation"
@@ -235,8 +256,8 @@ export class AccountTokenService {
  */
 export function invalidAccountToken(
   type: AccountTokenType,
-): UnauthorizedException {
-  return new UnauthorizedException(
+): BadRequestException {
+  return new BadRequestException(
     codedError(
       ERROR_CODES.ACCOUNT_TOKEN_INVALID,
       INVALID_ACCOUNT_TOKEN_MESSAGE,

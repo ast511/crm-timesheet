@@ -20,12 +20,12 @@ import type { AccountStatus, UserRole } from '../../../generated/prisma/enums';
  * `UserEntity`'s, in full. Neither is any token: the tokens are the session, and
  * they live in {@link AuthSessionEntity} beside this rather than inside it.
  */
-export interface AuthUserEntity {
-  id: string;
-  email: string;
-  role: UserRole;
-  employeeId: string | null;
-  administrativeAccess: boolean;
+export class AuthUserEntity {
+  id!: string;
+  email!: string;
+  role!: UserRole;
+  employeeId!: string | null;
+  administrativeAccess!: boolean;
 }
 
 /**

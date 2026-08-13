@@ -4,7 +4,7 @@ import {
   ReportDataModel,
   ReportPeriod,
   ReportRow,
-} from '../renderers/report-data-model';
+} from '../entities/report-data-model.entity';
 import { APPROVED_WORK_ONLY_NOTE } from '../reporting.constants';
 import { ProjectEmployeeHours } from './project-employee-hours.aggregator';
 import { clientBadge, hoursCell, textCell, toCells } from './report-cells';

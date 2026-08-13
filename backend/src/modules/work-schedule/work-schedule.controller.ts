@@ -3,11 +3,22 @@ import {
   Controller,
   Delete,
   Get,
+  HttpStatus,
   Param,
   Post,
   Put,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import {
+  ApiCreatedEnvelope,
+  ApiOkArrayEnvelope,
+  ApiOkEnvelope,
+  ApiOkNullEnvelope,
+} from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { CreateTimesheetApprovalEmailDto } from './dto/create-timesheet-approval-email.dto';
 import { UpdateWorkScheduleDto } from './dto/update-work-schedule.dto';
 import { TimesheetApprovalEmailEntity } from './entities/timesheet-approval-email.entity';
@@ -43,11 +54,21 @@ import { WorkScheduleService } from './work-schedule.service';
  * Authentication and authorization are later features, and half of an access
  * check is worse than none — it reads as protection while providing none.
  */
+@ApiTags(API_TAG.WorkSchedule)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors()
 @Controller('work-schedule')
 export class WorkScheduleController {
   constructor(private readonly workScheduleService: WorkScheduleService) {}
 
   /** The configuration, or a 404 while none has been stored. */
+  @ApiOperation({
+    summary: 'Read the working schedule',
+    description:
+      '**The endpoint every client needs before it renders a single timestamp.** `timezone` is the company’s IANA zone, and it is the zone every date in this API should be formatted in — not the browser’s. A `404` means no configuration has been stored yet, which is a legitimate state on a fresh deployment.',
+  })
+  @ApiOkEnvelope(WorkScheduleEntity)
+  @ApiStandardErrors(HttpStatus.NOT_FOUND)
   @Get()
   find(): Promise<WorkScheduleEntity> {
     return this.workScheduleService.find();
@@ -60,17 +81,37 @@ export class WorkScheduleController {
    * which is exactly what this endpoint exists to spare it: the caller asked
    * for the schedule to *be* this, and it is.
    */
+  @ApiOperation({
+    summary: 'Store the working schedule',
+    description:
+      '`PUT` because the address is known before the resource exists, the body is complete, and sending it twice leaves the same state. Answers `200` whether it created or replaced — a `201` would let a client tell the two apart, which is exactly what this endpoint exists to spare it. `workingDays` is sorted into week order before it is stored, so the response may not echo the order that was sent.',
+  })
+  @ApiOkEnvelope(WorkScheduleEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Put()
   save(@Body() dto: UpdateWorkScheduleDto): Promise<WorkScheduleEntity> {
     return this.workScheduleService.save(dto);
   }
 
+  @ApiOperation({
+    summary: 'List the timesheet-approval addresses',
+    description:
+      'Unpaginated: the list is bounded by a configured maximum rather than by a page size.',
+  })
+  @ApiOkArrayEnvelope(TimesheetApprovalEmailEntity)
   @Get('emails')
   findEmails(): Promise<TimesheetApprovalEmailEntity[]> {
     return this.workScheduleService.findEmails();
   }
 
   /** Answers 201; Nest applies it to `@Post` without a `@HttpCode`. */
+  @ApiOperation({
+    summary: 'Add a timesheet-approval address',
+    description:
+      'The address is trimmed and lower-cased before the duplicate check, so `HR@company.com` and `hr@company.com` are the same entry.',
+  })
+  @ApiCreatedEnvelope(TimesheetApprovalEmailEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
   @Post('emails')
   addEmail(
     @Body() dto: CreateTimesheetApprovalEmailDto,
@@ -89,6 +130,12 @@ export class WorkScheduleController {
    * reject valid ones, and a malformed id simply matches no row and yields the
    * same 404 as an id that never existed.
    */
+  @ApiOperation({
+    summary: 'Remove a timesheet-approval address',
+    description: 'Answers `200` with `data: null` rather than `204`.',
+  })
+  @ApiOkNullEnvelope()
+  @ApiStandardErrors(HttpStatus.NOT_FOUND)
   @Delete('emails/:id')
   removeEmail(@Param('id') id: string): Promise<void> {
     return this.workScheduleService.removeEmail(id);

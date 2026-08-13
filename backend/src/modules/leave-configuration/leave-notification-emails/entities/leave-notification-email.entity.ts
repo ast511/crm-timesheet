@@ -14,11 +14,11 @@ import type { LeaveNotificationEmailModel } from '../../../../generated/prisma/m
  * the moment it was added. This one can be corrected, so "when was this address
  * last changed" is a question with an answer worth returning.
  */
-export interface LeaveNotificationEmailEntity {
-  id: string;
-  email: string;
-  createdAt: string;
-  updatedAt: string;
+export class LeaveNotificationEmailEntity {
+  id!: string;
+  email!: string;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

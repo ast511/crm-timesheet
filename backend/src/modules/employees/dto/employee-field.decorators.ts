@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsEnum,
@@ -44,6 +45,13 @@ import {
  */
 export function IsEmployeeCode() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: EMPLOYEE_CODE_MAX_LENGTH,
+      pattern: EMPLOYEE_CODE_PATTERN,
+      example: 'EMP-0001',
+      description: 'Trimmed and upper-cased before it is stored or compared.',
+    }),
     Transform(({ value }: { value: unknown }) =>
       typeof value === 'string' ? value.trim().toUpperCase() : value,
     ),
@@ -67,6 +75,11 @@ export function IsEmployeeCode() {
  */
 export function IsEmployeeName() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: EMPLOYEE_NAME_MAX_LENGTH,
+      example: 'Ștefan',
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -88,6 +101,12 @@ export function IsEmployeeName() {
  */
 export function IsEmployeePhone() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: EMPLOYEE_PHONE_MAX_LENGTH,
+      example: '+40 721 000 000',
+      description:
+        'Trimmed; a blank string is stored as `null`. No format check — the column holds whatever a person typed, in whichever national convention.',
+    }),
     Transform(({ value }: { value: unknown }) => {
       if (typeof value !== 'string') {
         return value;

@@ -15,7 +15,7 @@ import { ExportQueryDto } from './dto/export-query.dto';
 import { ReportQueryDto } from './dto/report-query.dto';
 import { ExcelReportRenderer } from './renderers/excel.renderer';
 import { PdfReportRenderer } from './renderers/pdf.renderer';
-import { ReportDataModel } from './renderers/report-data-model';
+import { ReportDataModel } from './entities/report-data-model.entity';
 import { ReportingSourceService } from './reporting-source.service';
 import {
   REPORT_DEFINITIONS,

@@ -1,6 +1,15 @@
 import { ConfigService } from '@nestjs/config';
 import { HelmetOptions } from 'helmet';
 
+/**
+ * Helmet's own Content-Security-Policy option shape, named here because the
+ * package exports the middleware but not its options type.
+ */
+export type ContentSecurityPolicyOptions = Exclude<
+  HelmetOptions['contentSecurityPolicy'],
+  boolean | undefined
+>;
+
 /** Environment variable that turns `Strict-Transport-Security` on. */
 export const HSTS_ENABLED_KEY = 'SECURITY_HSTS_ENABLED';
 
@@ -167,6 +176,51 @@ export function buildHelmetOptions(
           preload: false,
         }
       : false,
+  };
+}
+
+/**
+ * The policy served **on the documentation route only** (Feature 038).
+ *
+ * Feature 037 wrote a note for exactly this moment: Swagger UI would render
+ * blank under the strict policy, with CSP violations in the console, and the
+ * answer recorded there was to set `SECURITY_CSP_MODE=relaxed`. That would have
+ * worked, and it would have loosened the policy on **every** response in the
+ * deployment to fix one HTML page. This is the narrower version of the same
+ * fix: the relaxation is a separate middleware mounted at `/api/docs`, so every
+ * other route keeps whatever policy the environment configured — strict, by
+ * default and in production.
+ *
+ * **Exactly one directive is loosened, and it is not the one 037 predicted.**
+ * The UI's HTML carries two inline `<style>` blocks, so `style-src` needs
+ * `'unsafe-inline'`. Its *scripts* are all external files served from this same
+ * origin (`swagger-ui-bundle.js`, `swagger-ui-standalone-preset.js`,
+ * `swagger-ui-init.js`), which `script-src 'self'` already allows — so
+ * `script-src` is left alone, and inline script stays blocked on the one page
+ * in this application that renders any HTML at all. `'unsafe-eval'` is not
+ * granted, `script-src-attr` stays at `'none'`, and no third-party origin is
+ * added: the UI is served entirely from `swagger-ui-dist` inside this process,
+ * not from a CDN.
+ *
+ * Built on top of {@link buildDirectives} rather than beside it, so the docs
+ * page inherits every directive the deployment configured and differs from it
+ * in one line. A directive tightened in `BASE_DIRECTIVES` tightens here too.
+ *
+ * If a future version of Swagger UI does start emitting an inline `<script>`,
+ * the symptom is a blank page and the fix is one entry in this function — not a
+ * change to what every other response carries.
+ */
+export function buildDocsCspOptions(
+  configService: ConfigService,
+): ContentSecurityPolicyOptions {
+  const mode = readCspMode(configService.get<string>(CSP_MODE_KEY));
+
+  return {
+    useDefaults: false,
+    directives: {
+      ...buildDirectives(mode),
+      'style-src': [SELF, UNSAFE_INLINE],
+    },
   };
 }
 

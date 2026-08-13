@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsInt,
@@ -52,6 +53,12 @@ import {
  */
 export function IsTimesheetQueryMonth() {
   return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: TIMESHEET_MIN_MONTH,
+      maximum: TIMESHEET_MAX_MONTH,
+      example: 9,
+    }),
     CoerceNumber(),
     IsInt(),
     Min(TIMESHEET_MIN_MONTH),
@@ -62,6 +69,12 @@ export function IsTimesheetQueryMonth() {
 /** `year` — a plausible calendar year, in a query string. */
 export function IsTimesheetQueryYear() {
   return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: TIMESHEET_MIN_YEAR,
+      maximum: TIMESHEET_MAX_YEAR,
+      example: 2026,
+    }),
     CoerceNumber(),
     IsInt(),
     Min(TIMESHEET_MIN_YEAR),
@@ -78,6 +91,12 @@ export function IsTimesheetQueryYear() {
  */
 export function IsTimesheetBodyMonth() {
   return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: TIMESHEET_MIN_MONTH,
+      maximum: TIMESHEET_MAX_MONTH,
+      example: 9,
+    }),
     IsInt(),
     Min(TIMESHEET_MIN_MONTH),
     Max(TIMESHEET_MAX_MONTH),
@@ -87,6 +106,12 @@ export function IsTimesheetBodyMonth() {
 /** `year` — a plausible calendar year, in a JSON body. */
 export function IsTimesheetBodyYear() {
   return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: TIMESHEET_MIN_YEAR,
+      maximum: TIMESHEET_MAX_YEAR,
+      example: 2026,
+    }),
     IsInt(),
     Min(TIMESHEET_MIN_YEAR),
     Max(TIMESHEET_MAX_YEAR),
@@ -114,6 +139,14 @@ export function IsTimesheetBodyYear() {
  */
 export function IsTimesheetEntryHours() {
   return applyDecorators(
+    ApiProperty({
+      type: 'number',
+      minimum: 0,
+      exclusiveMinimum: true,
+      maximum: TIMESHEET_MAX_ENTRY_HOURS,
+      multipleOf: 10 ** -TIMESHEET_HOURS_DECIMAL_PLACES,
+      example: 8,
+    }),
     IsNumber({
       allowInfinity: false,
       allowNaN: false,
@@ -134,6 +167,11 @@ export function IsTimesheetEntryHours() {
  */
 export function IsTimesheetEntryDescription() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: TIMESHEET_ENTRY_DESCRIPTION_MAX_LENGTH,
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     TrimToNull(),
     IsString(),
     MaxLength(TIMESHEET_ENTRY_DESCRIPTION_MAX_LENGTH),
@@ -151,6 +189,11 @@ export function IsTimesheetEntryDescription() {
  */
 export function IsTimesheetRejectionReason() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: TIMESHEET_REJECTION_REASON_MAX_LENGTH,
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     TrimToNull(),
     IsString(),
     MaxLength(TIMESHEET_REJECTION_REASON_MAX_LENGTH),

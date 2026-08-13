@@ -4,11 +4,17 @@ import {
 } from '../../../common/utils/date.util';
 import type { Prisma } from '../../../generated/prisma/client';
 import type {
+  EmployeeStatus,
+  SeniorityLevel,
+} from '../../../generated/prisma/enums';
+import type {
   EmployeeModel,
   ProjectMemberModel,
   ProjectModel,
 } from '../../../generated/prisma/models';
-import type {
+// Value imports since Feature 038: both are classes, so a `$ref` in the
+// generated documentation has something to point at.
+import {
   EmployeeDepartmentSummary,
   EmployeePositionSummary,
 } from '../../employees/entities/employee.entity';
@@ -16,19 +22,26 @@ import type {
 /**
  * The project a membership points at, as a membership publishes it.
  *
- * A `Pick` of the owning module's row rather than a free-standing interface, so
- * renaming a column in `schema.prisma` breaks the build here instead of
- * producing a nested object with a field that no longer exists.
+ * Checked against a `Pick` of the owning module's row, so renaming a column in
+ * `schema.prisma` breaks the build here instead of producing a nested object
+ * with a field that no longer exists — see `EmployeeEntity` for why Feature 038
+ * turned these from aliases into classes checked against the same `Pick`.
  *
  * Deliberately *not* `ProjectEntity`: that resource carries the description,
  * the estimate, the lifecycle flags and its own timestamps, none of which say
  * anything about this person's membership. What a client renders next to a name
  * is a label and an accent colour, and that is what is published.
  */
-export type ProjectMemberProjectSummary = Pick<
+export class ProjectMemberProjectSummary implements Pick<
   ProjectModel,
   'id' | 'code' | 'name' | 'clientName' | 'color'
->;
+> {
+  id!: string;
+  code!: string;
+  name!: string;
+  clientName!: string;
+  color!: string | null;
+}
 
 /**
  * The employee a membership points at, with the two records that place them in
@@ -43,13 +56,19 @@ export type ProjectMemberProjectSummary = Pick<
  * works on a project, not about how they sign in, and an account is not
  * something a project roster has any use for.
  */
-export type ProjectMemberEmployeeSummary = Pick<
+export class ProjectMemberEmployeeSummary implements Pick<
   EmployeeModel,
   'id' | 'employeeCode' | 'firstName' | 'lastName' | 'seniority' | 'status'
-> & {
-  department: EmployeeDepartmentSummary;
-  position: EmployeePositionSummary;
-};
+> {
+  id!: string;
+  employeeCode!: string;
+  firstName!: string;
+  lastName!: string;
+  seniority!: SeniorityLevel;
+  status!: EmployeeStatus;
+  department!: EmployeeDepartmentSummary;
+  position!: EmployeePositionSummary;
+}
 
 /**
  * The membership itself: the columns that belong to neither side.
@@ -64,10 +83,10 @@ export type ProjectMemberEmployeeSummary = Pick<
  * `string` makes the type honest and routes the format through `toIsoTimestamp`,
  * the project's single definition of it.
  */
-export interface ProjectMembershipPeriod {
-  isProjectManager: boolean;
-  joinedAt: string;
-  leftAt: string | null;
+export class ProjectMembershipPeriod {
+  isProjectManager!: boolean;
+  joinedAt!: string;
+  leftAt!: string | null;
 }
 
 /**
@@ -77,8 +96,8 @@ export interface ProjectMembershipPeriod {
  * `GET /api/v1/projects/:projectId/members` returns for each member, where the
  * project is named by the URL and published once beside the list.
  */
-export interface ProjectMemberRosterEntry extends ProjectMembershipPeriod {
-  employee: ProjectMemberEmployeeSummary;
+export class ProjectMemberRosterEntry extends ProjectMembershipPeriod {
+  employee!: ProjectMemberEmployeeSummary;
 }
 
 /**
@@ -93,8 +112,8 @@ export interface ProjectMemberRosterEntry extends ProjectMembershipPeriod {
  * ask at runtime, while these two say at compile time exactly which side their
  * endpoint supplies.
  */
-export interface ProjectMemberAssignmentEntry extends ProjectMembershipPeriod {
-  project: ProjectMemberProjectSummary;
+export class ProjectMemberAssignmentEntry extends ProjectMembershipPeriod {
+  project!: ProjectMemberProjectSummary;
 }
 
 /**

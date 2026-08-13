@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -37,6 +38,11 @@ import {
 /** `subject` — the heading, trimmed first so `"   "` is rejected rather than stored. */
 export function IsNotificationSubject() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: NOTIFICATION_SUBJECT_MAX_LENGTH,
+      example: 'Planned maintenance on Saturday',
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -47,6 +53,10 @@ export function IsNotificationSubject() {
 /** `message` — the body, plain text. */
 export function IsNotificationMessage() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: NOTIFICATION_MESSAGE_MAX_LENGTH,
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -57,6 +67,11 @@ export function IsNotificationMessage() {
 /** `name` — what a reminder rule is called. Unique, which the service checks. */
 export function IsReminderName() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: REMINDER_NAME_MAX_LENGTH,
+      example: 'Monthly timesheet reminder',
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -76,6 +91,11 @@ export function IsReminderName() {
  */
 export function IsReminderDescription() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: REMINDER_DESCRIPTION_MAX_LENGTH,
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     TrimToNull(),
     IsString(),
     MaxLength(REMINDER_DESCRIPTION_MAX_LENGTH),
@@ -105,6 +125,11 @@ export function IsReminderDescription() {
  */
 export function IsCampaignEmployeeIds() {
   return applyDecorators(
+    ApiProperty({
+      minItems: CAMPAIGN_MIN_RECIPIENTS,
+      maxItems: CAMPAIGN_MAX_RECIPIENTS,
+      uniqueItems: true,
+    }),
     ArrayMinSize(CAMPAIGN_MIN_RECIPIENTS),
     ArrayMaxSize(CAMPAIGN_MAX_RECIPIENTS),
     ArrayUnique(),

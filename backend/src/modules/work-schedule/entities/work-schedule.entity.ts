@@ -21,32 +21,32 @@ import type { WorkScheduleModel } from '../../../generated/prisma/models';
  *   so publishing it would invite a client to address it — and every route in
  *   this module already addresses it without one.
  */
-export interface WorkScheduleEntity {
-  workingDays: Weekday[];
+export class WorkScheduleEntity {
+  workingDays!: Weekday[];
   /**
    * Which weekday a working week begins on. Added by Feature 030, which is the
    * first consumer that has to group days into weeks — see the schema comment on
    * the column for why it is configured rather than assumed.
    */
-  weekStartsOn: Weekday;
-  workStartTime: string;
-  workEndTime: string;
+  weekStartsOn!: Weekday;
+  workStartTime!: string;
+  workEndTime!: string;
   /**
    * The IANA zone the two wall-clock times above, and every calendar day in the
    * application, are read in. Published so a client can show the current value
    * and pre-fill the editor — without it the field would be writable through the
    * `PUT` and invisible to the form that has to send it back.
    */
-  timezone: string;
-  minHoursPerEntry: number;
-  maxHoursPerEntry: number;
-  maxHoursPerDay: number;
-  standardHoursPerDay: number;
-  standardHoursPerWeek: number;
+  timezone!: string;
+  minHoursPerEntry!: number;
+  maxHoursPerEntry!: number;
+  maxHoursPerDay!: number;
+  standardHoursPerDay!: number;
+  standardHoursPerWeek!: number;
   /** Recorded, published, and subtracted from nothing. See the module doc. */
-  lunchBreakHours: number;
-  createdAt: string;
-  updatedAt: string;
+  lunchBreakHours!: number;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

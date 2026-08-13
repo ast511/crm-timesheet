@@ -1,7 +1,23 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpStatus,
+  Param,
+  Patch,
+  Query,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentEmployeeId } from '../../common/decorators/current-employee-id.decorator';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
+import {
+  ApiOkEnvelope,
+  ApiOkPageEnvelope,
+} from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { LeaveRequestQueryDto } from './dto/leave-request-query.dto';
 import { UpdateLeaveRequestStatusDto } from './dto/update-leave-request-status.dto';
 import { LeaveRequestEntity } from './entities/leave-request.entity';
@@ -37,6 +53,9 @@ import { LeaveRequestsService } from './leave-requests.service';
  * reject valid ones, and a malformed id simply matches no row and yields the
  * same 404 as an id that never existed.
  */
+@ApiTags(API_TAG.LeaveRequests)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors()
 @Controller('leave-requests')
 export class LeaveRequestsController {
   constructor(private readonly leaveRequestsService: LeaveRequestsService) {}
@@ -48,6 +67,13 @@ export class LeaveRequestsController {
    * than here, so the service always receives a concrete year and there is never
    * more than one source for the parameter.
    */
+  @ApiOperation({
+    summary: 'List everybody’s leave requests',
+    description:
+      'The approver’s view: reads *across* people — "who is off in September", sorted by employee and narrowed by department. Defaults to the current year. Each row carries the requester and their department; `/me/leave-requests` answers the opposite question and carries neither.',
+  })
+  @ApiOkPageEnvelope(LeaveRequestEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Get()
   findAll(
     @Query() query: LeaveRequestQueryDto,
@@ -55,6 +81,9 @@ export class LeaveRequestsController {
     return this.leaveRequestsService.findAll(query);
   }
 
+  @ApiOperation({ summary: 'Read one leave request' })
+  @ApiOkEnvelope(LeaveRequestEntity)
+  @ApiStandardErrors(HttpStatus.NOT_FOUND)
   @Get(':id')
   findOne(@Param('id') id: string): Promise<LeaveRequestEntity> {
     return this.leaveRequestsService.findOne(id);
@@ -74,6 +103,18 @@ export class LeaveRequestsController {
    * authenticated account — so a client cannot sign somebody else's name to a
    * decision by putting an id in the body.
    */
+  @ApiOperation({
+    summary: 'Approve, refuse or cancel a request',
+    description:
+      '**The only write in this API that moves another module’s data**: approving deducts the days from the employee’s balances, in the same transaction. That is why it is a sub-resource rather than a field on a general `PATCH` — folding it in would have made "did this write touch the ledger" a question about which fields the body carried. Allowed only while the request is `PENDING`; anything else is a `409`. The decider is taken from the authenticated account’s employment record, never from the body, so nobody can sign somebody else’s name to a decision.',
+  })
+  @ApiOkEnvelope(LeaveRequestEntity)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Patch(':id/status')
   updateStatus(
     @CurrentEmployeeId() processedById: string,

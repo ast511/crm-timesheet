@@ -33,20 +33,20 @@ import type {
  * returning one would hand somebody's session the means to reset their own
  * password without knowing it.
  */
-export interface ProfileEntity {
-  account: ProfileAccount;
+export class ProfileEntity {
+  account!: ProfileAccount;
   /** `null` for an account with no employment record — a system super-admin. */
-  employee: ProfileEmployee | null;
+  employee!: ProfileEmployee | null;
 }
 
 /** The login half: who the caller is to the system. */
-export interface ProfileAccount {
-  id: string;
-  email: string;
-  username: string | null;
-  role: UserRole;
-  status: AccountStatus;
-  createdAt: string;
+export class ProfileAccount {
+  id!: string;
+  email!: string;
+  username!: string | null;
+  role!: UserRole;
+  status!: AccountStatus;
+  createdAt!: string;
 }
 
 /**
@@ -56,19 +56,19 @@ export interface ProfileAccount {
  * call `EmployeeEntity` makes: a profile screen renders the names, and sending
  * ids would mean two more requests to display somebody's own page.
  */
-export interface ProfileEmployee {
-  id: string;
-  employeeCode: string;
-  firstName: string;
-  lastName: string;
+export class ProfileEmployee {
+  id!: string;
+  employeeCode!: string;
+  firstName!: string;
+  lastName!: string;
   /** The one field `PATCH /profile/me` may change. */
-  phone: string | null;
-  hireDate: string;
-  terminationDate: string | null;
-  seniority: SeniorityLevel;
-  status: EmployeeStatus;
-  department: { id: string; code: string; name: string };
-  position: { id: string; code: string; name: string };
+  phone!: string | null;
+  hireDate!: string;
+  terminationDate!: string | null;
+  seniority!: SeniorityLevel;
+  status!: EmployeeStatus;
+  department!: { id: string; code: string; name: string };
+  position!: { id: string; code: string; name: string };
 }
 
 /**

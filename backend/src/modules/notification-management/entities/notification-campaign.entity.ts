@@ -28,10 +28,15 @@ import type {
  * should be free to publish something a leave request does not without one
  * feature editing the other's payload.
  */
-export type CampaignEmployeeSummary = Pick<
+export class CampaignEmployeeSummary implements Pick<
   EmployeeModel,
   'id' | 'employeeCode' | 'firstName' | 'lastName'
->;
+> {
+  id!: string;
+  employeeCode!: string;
+  firstName!: string;
+  lastName!: string;
+}
 
 /**
  * One audience entry, as the single-campaign endpoints expose it.
@@ -42,11 +47,11 @@ export type CampaignEmployeeSummary = Pick<
  * question the campaign did not ask. A client renders "All employees" from
  * `recipientType` rather than from a count.
  */
-export interface NotificationRecipientEntity {
-  id: string;
-  recipientType: CampaignRecipientType;
+export class NotificationRecipientEntity {
+  id!: string;
+  recipientType!: CampaignRecipientType;
   /** The person addressed, or null on the `ALL_EMPLOYEES` entry. */
-  employee: CampaignEmployeeSummary | null;
+  employee!: CampaignEmployeeSummary | null;
 }
 
 /**
@@ -63,24 +68,24 @@ export interface NotificationRecipientEntity {
  * that says "3 recipients". The single read is where the names belong, because
  * that is the screen that shows them.
  */
-export interface NotificationCampaignSummaryEntity {
-  id: string;
-  subject: string;
-  message: string;
-  severity: NotificationType;
-  priority: NotificationPriority;
-  sendEmail: boolean;
-  sendNotification: boolean;
-  status: NotificationCampaignStatus;
+export class NotificationCampaignSummaryEntity {
+  id!: string;
+  subject!: string;
+  message!: string;
+  severity!: NotificationType;
+  priority!: NotificationPriority;
+  sendEmail!: boolean;
+  sendNotification!: boolean;
+  status!: NotificationCampaignStatus;
   /** When the engine should send it, or null on a draft. */
-  scheduledAt: string | null;
+  scheduledAt!: string | null;
   /** When it stops being worth showing, or null. */
-  expiresAt: string | null;
+  expiresAt!: string | null;
   /** When the engine sent it. **Always null in this feature** — nothing sends. */
-  sentAt: string | null;
-  createdBy: CampaignEmployeeSummary;
+  sentAt!: string | null;
+  createdBy!: CampaignEmployeeSummary;
   /** How the audience was named: one person, several, or everybody. */
-  recipientType: CampaignRecipientType;
+  recipientType!: CampaignRecipientType;
   /**
    * How many `notification_recipients` rows the campaign holds.
    *
@@ -89,24 +94,25 @@ export interface NotificationCampaignSummaryEntity {
    * and nothing here knows how many people will be employed by then. A client
    * shows a number for `EMPLOYEE` and the words "All employees" for the other.
    */
-  recipientCount: number;
-  createdAt: string;
-  updatedAt: string;
+  recipientCount!: number;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**
  * The same campaign as the **single-campaign** endpoints expose it: everything
  * above, plus who it is actually for.
  *
- * An intersection rather than a second declaration, so the shared fields are
+ * Inheritance rather than a second declaration, so the shared fields are
  * written once and the two payloads cannot drift into disagreeing about what a
  * campaign is — the same call `LeaveRequestEntity` makes over
- * `MyLeaveRequestEntity`.
+ * `MyLeaveRequestEntity`, and it was an intersection type there too until
+ * Feature 038 needed a runtime value to generate a schema from.
  */
-export type NotificationCampaignEntity = NotificationCampaignSummaryEntity & {
+export class NotificationCampaignEntity extends NotificationCampaignSummaryEntity {
   /** At least one entry, always — the API refuses a campaign addressed to nobody. */
-  recipients: NotificationRecipientEntity[];
-};
+  recipients!: NotificationRecipientEntity[];
+}
 
 const EMPLOYEE_SUMMARY_SELECT = {
   id: true,

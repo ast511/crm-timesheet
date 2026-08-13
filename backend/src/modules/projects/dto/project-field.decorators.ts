@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsEnum,
@@ -51,6 +52,13 @@ import {
  */
 export function IsProjectCode() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: PROJECT_CODE_MAX_LENGTH,
+      pattern: PROJECT_CODE_PATTERN,
+      example: 'CRM-TS',
+      description: 'Trimmed and upper-cased before it is stored or compared.',
+    }),
     Transform(({ value }: { value: unknown }) =>
       typeof value === 'string' ? value.trim().toUpperCase() : value,
     ),
@@ -67,6 +75,11 @@ export function IsProjectCode() {
 /** `name` — trimmed, non-empty, bounded. Case is preserved as typed. */
 export function IsProjectName() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: PROJECT_NAME_MAX_LENGTH,
+      example: 'CRM TimeSheet',
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -85,6 +98,11 @@ export function IsProjectName() {
  */
 export function IsProjectClientName() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: PROJECT_CLIENT_NAME_MAX_LENGTH,
+      example: 'TechCorp Solutions',
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -103,6 +121,11 @@ export function IsProjectClientName() {
  */
 export function IsProjectDescription() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: PROJECT_DESCRIPTION_MAX_LENGTH,
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     Transform(({ value }: { value: unknown }) => {
       if (typeof value !== 'string') {
         return value;
@@ -128,6 +151,12 @@ export function IsProjectDescription() {
  */
 export function IsProjectEstimatedHours() {
   return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: PROJECT_MIN_ESTIMATED_HOURS,
+      maximum: PROJECT_MAX_ESTIMATED_HOURS,
+      example: 1200,
+    }),
     IsInt(),
     Min(PROJECT_MIN_ESTIMATED_HOURS),
     Max(PROJECT_MAX_ESTIMATED_HOURS),
@@ -149,6 +178,12 @@ export function IsProjectEstimatedHours() {
  */
 export function IsProjectColor() {
   return applyDecorators(
+    ApiProperty({
+      pattern: PROJECT_COLOR_PATTERN,
+      example: '#3B82F6',
+      description:
+        'Trimmed and upper-cased; a blank string is stored as `null`.',
+    }),
     Transform(({ value }: { value: unknown }) => {
       if (typeof value !== 'string') {
         return value;

@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
@@ -19,9 +20,23 @@ import { EMAIL_MAX_LENGTH } from '../constants/email.constants';
  * instead of being copied: nothing in the reasoning above is specific to a user
  * account, and a second copy would be the one that eventually stops folding the
  * case. It joins `@IsIsoDateString()`, which arrived here by the same route.
+ *
+ * The `@ApiProperty` (Feature 038) publishes the format and the RFC bound,
+ * which the schema generator cannot see through the function call. It also
+ * documents the lower-casing as the one thing here a client can observe: an
+ * address submitted as `HR@company.com` comes back as `hr@company.com`, and a
+ * form that compares what it sent with what it got would otherwise call that a
+ * bug. That is a *behaviour* of the field rather than prose about it, which is
+ * why it is stated here and not left to each DTO's JSDoc.
  */
 export function IsEmailAddress() {
   return applyDecorators(
+    ApiProperty({
+      format: 'email',
+      maxLength: EMAIL_MAX_LENGTH,
+      example: 'maria.popescu@company.com',
+      description: 'Trimmed and lower-cased before it is stored or compared.',
+    }),
     Transform(({ value }: { value: unknown }) =>
       typeof value === 'string' ? normalizeEmailAddress(value) : value,
     ),

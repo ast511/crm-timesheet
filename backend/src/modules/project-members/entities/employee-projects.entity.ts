@@ -20,8 +20,8 @@ import type { ProjectMemberAssignmentEntry } from './project-member.entity';
  * `meta` describes **`projects`**. There is only one employee, so there is
  * nothing else it could describe.
  */
-export interface EmployeeProjectsEntity {
-  employee: EmployeeEntity;
-  projects: ProjectMemberAssignmentEntry[];
-  meta: PaginationMeta;
+export class EmployeeProjectsEntity {
+  employee!: EmployeeEntity;
+  projects!: ProjectMemberAssignmentEntry[];
+  meta!: PaginationMeta;
 }

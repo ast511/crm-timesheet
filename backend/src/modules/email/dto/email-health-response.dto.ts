@@ -54,10 +54,11 @@ export enum EmailFailureReason {
 /**
  * Shape returned by `GET /api/v1/email/health`.
  *
- * Follows `HealthResponseDto` from the application's own health module: an
- * interface rather than a class, because nothing is validated on the way out —
- * it describes a response, and treating it as a public contract is what lets a
- * monitoring probe depend on it.
+ * Follows `HealthResponseDto` from the application's own health module, which
+ * since Feature 038 means a class that nothing validates and nothing
+ * constructs: it describes a response, and treating it as a public contract is
+ * what lets a monitoring probe depend on it. The class exists only so the
+ * generated documentation has a runtime value to read; the shape is unchanged.
  *
  * `configured` and `enabled` are two questions, not one restated: the first is
  * whether the environment names a mail server, the second whether this
@@ -65,19 +66,19 @@ export enum EmailFailureReason {
  * — a staging environment holding real employee addresses, which has perfectly
  * good credentials and must not mail anybody with them.
  */
-export interface EmailHealthResponseDto {
+export class EmailHealthResponseDto {
   /** Whether every required `SMTP_*` variable is present. */
-  readonly configured: boolean;
+  readonly configured!: boolean;
 
   /** Whether this instance would actually send: configured, and `SMTP_ENABLED`. */
-  readonly enabled: boolean;
+  readonly enabled!: boolean;
 
   /**
    * The result of the connection check. Reported even when `enabled` is false,
    * so "the credentials work, sending is switched off" is distinguishable from
    * "nothing was ever set up".
    */
-  readonly connection: EmailConnectionStatus;
+  readonly connection!: EmailConnectionStatus;
 
   /**
    * Why the check failed. Present only when `connection` is `FAILED`, so its

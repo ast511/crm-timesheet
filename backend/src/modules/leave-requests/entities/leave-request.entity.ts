@@ -17,24 +17,34 @@ import type {
 /**
  * A person, as a leave request names one.
  *
- * Declared as a `Pick` of the owning module's row rather than as a free-standing
- * interface, so renaming a column in `schema.prisma` breaks the build here
- * instead of producing a nested object with a field that no longer exists.
+ * `implements` a `Pick` of the owning module's row, so renaming a column in
+ * `schema.prisma` breaks the build here instead of producing a nested object
+ * with a field that no longer exists — see `EmployeeEntity` for why Feature 038
+ * turned these from aliases into classes checked against the same `Pick`.
  *
  * The same shape serves all three roles a person plays on a request — the
  * requester, each replacement, and whoever processed it — because a screen
  * renders them identically: a name and the code beside it. Three near-identical
  * types would only invite one of them to drift.
  */
-export type LeaveRequestEmployeeSummary = Pick<
+export class LeaveRequestEmployeeSummary implements Pick<
   EmployeeModel,
   'id' | 'employeeCode' | 'firstName' | 'lastName'
->;
+> {
+  id!: string;
+  employeeCode!: string;
+  firstName!: string;
+  lastName!: string;
+}
 
-export type LeaveRequestDepartmentSummary = Pick<
+export class LeaveRequestDepartmentSummary implements Pick<
   DepartmentModel,
   'id' | 'code' | 'name'
->;
+> {
+  id!: string;
+  code!: string;
+  name!: string;
+}
 
 /**
  * The requester, who carries their department and the others do not.
@@ -44,10 +54,13 @@ export type LeaveRequestDepartmentSummary = Pick<
  * it every page would need a second request per employee. A replacement is not
  * filtered on, so repeating their department would be publishing a fact nobody
  * asked for once per nomination.
+ *
+ * `extends` rather than an intersection, since Feature 038: the four shared
+ * fields are still declared once, on the class above.
  */
-export type LeaveRequestRequesterSummary = LeaveRequestEmployeeSummary & {
-  department: LeaveRequestDepartmentSummary;
-};
+export class LeaveRequestRequesterSummary extends LeaveRequestEmployeeSummary {
+  department!: LeaveRequestDepartmentSummary;
+}
 
 /**
  * The leave type, with the two presentation fields a requests table renders.
@@ -59,10 +72,16 @@ export type LeaveRequestRequesterSummary = LeaveRequestEmployeeSummary & {
  * the branch decided. Publishing both would let a client compare a live type
  * against a decision taken months ago and conclude the API contradicted itself.
  */
-export type LeaveRequestLeaveTypeSummary = Pick<
+export class LeaveRequestLeaveTypeSummary implements Pick<
   LeaveTypeModel,
   'id' | 'code' | 'label' | 'icon' | 'color'
->;
+> {
+  id!: string;
+  code!: string;
+  label!: string;
+  icon!: string;
+  color!: string | null;
+}
 
 /**
  * A leave request as the **employee's own** endpoints expose it.
@@ -85,13 +104,13 @@ export type LeaveRequestLeaveTypeSummary = Pick<
  *    act on. `LeaveRequestEntity` adds it for the HR list, where the rows are
  *    genuinely about different people.
  */
-export interface MyLeaveRequestEntity {
-  id: string;
-  leaveType: LeaveRequestLeaveTypeSummary;
-  startDate: string;
-  endDate: string;
+export class MyLeaveRequestEntity {
+  id!: string;
+  leaveType!: LeaveRequestLeaveTypeSummary;
+  startDate!: string;
+  endDate!: string;
   /** Derived, never stored. See `WorkingDaysService`. */
-  requestedWorkingDays: number;
+  requestedWorkingDays!: number;
   /**
    * Whether the absence covers half a working day. Added by Feature 030.
    *
@@ -102,13 +121,13 @@ export interface MyLeaveRequestEntity {
    * with work. Making the day count fractional is a decision with its own
    * migration, recorded in the feature document rather than taken quietly here.
    */
-  isHalfDay: boolean;
+  isHalfDay!: boolean;
   /** Which half, on a half-day absence; `null` on every whole-day one. */
-  halfDayPortion: LeaveHalfDayPortion | null;
-  reason: string | null;
-  status: LeaveRequestStatus;
+  halfDayPortion!: LeaveHalfDayPortion | null;
+  reason!: string | null;
+  status!: LeaveRequestStatus;
   /** At least one, always — the API refuses a request without cover. */
-  replacements: LeaveRequestEmployeeSummary[];
+  replacements!: LeaveRequestEmployeeSummary[];
   /**
    * Who decided, or `null`.
    *
@@ -116,24 +135,26 @@ export interface MyLeaveRequestEntity {
    * because its leave type requires no approval — there `processedAt` is set and
    * this is not, which is exactly how the two kinds of approval are told apart.
    */
-  processedBy: LeaveRequestEmployeeSummary | null;
-  processedAt: string | null;
-  decisionReason: string | null;
-  createdAt: string;
-  updatedAt: string;
+  processedBy!: LeaveRequestEmployeeSummary | null;
+  processedAt!: string | null;
+  decisionReason!: string | null;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**
  * The same request as the **HR/Admin** endpoints expose it: everything above,
  * plus whose leave it is.
  *
- * An intersection rather than a second declaration, so the shared fields are
+ * Inheritance rather than a second declaration, so the shared fields are
  * written once and the two payloads cannot drift into disagreeing about what a
- * leave request looks like.
+ * leave request looks like. It was an intersection type until Feature 038; the
+ * relationship it expresses is unchanged, and `extends` is the form of it that
+ * survives to runtime for the schema generator to read.
  */
-export type LeaveRequestEntity = MyLeaveRequestEntity & {
-  employee: LeaveRequestRequesterSummary;
-};
+export class LeaveRequestEntity extends MyLeaveRequestEntity {
+  employee!: LeaveRequestRequesterSummary;
+}
 
 /**
  * The columns the `/me` endpoints read.

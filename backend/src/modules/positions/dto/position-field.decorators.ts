@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
 
@@ -36,6 +37,13 @@ import {
  */
 export function IsPositionCode() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: POSITION_CODE_MAX_LENGTH,
+      pattern: POSITION_CODE_PATTERN,
+      example: 'DEV',
+      description: 'Trimmed and upper-cased before it is stored or compared.',
+    }),
     Transform(({ value }: { value: unknown }) =>
       typeof value === 'string' ? value.trim().toUpperCase() : value,
     ),
@@ -52,6 +60,11 @@ export function IsPositionCode() {
 /** `name` — trimmed, non-empty, bounded. Case is preserved as typed. */
 export function IsPositionName() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: POSITION_NAME_MAX_LENGTH,
+      example: 'Software Developer',
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -70,6 +83,11 @@ export function IsPositionName() {
  */
 export function IsPositionDescription() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: POSITION_DESCRIPTION_MAX_LENGTH,
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     Transform(({ value }: { value: unknown }) => {
       if (typeof value !== 'string') {
         return value;

@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   ArrayNotEmpty,
@@ -65,6 +66,12 @@ import {
  */
 export function IsWorkingDays() {
   return applyDecorators(
+    ApiProperty({
+      minItems: 1,
+      uniqueItems: true,
+      description:
+        'Sorted into week order before it is stored, so the response may not echo the order that was sent.',
+    }),
     Transform(({ value }: { value: unknown }) =>
       Array.isArray(value)
         ? [...(value as Weekday[])].sort(compareWeekdays)
@@ -111,6 +118,10 @@ export function IsWeekStartsOn() {
  */
 export function IsWorkTime() {
   return applyDecorators(
+    ApiProperty({
+      pattern: WORK_TIME_PATTERN,
+      example: '09:00',
+    }),
     Trim(),
     IsString(),
     Matches(WORK_TIME_PATTERN, {
@@ -137,7 +148,16 @@ export function IsWorkTime() {
  * other half. The name is the stable fact, which is why the column holds one.
  */
 export function IsTimezone() {
-  return applyDecorators(Trim(), IsString(), IsIanaTimezone());
+  return applyDecorators(
+    ApiProperty({
+      example: 'Europe/Bucharest',
+      description:
+        'An IANA timezone name. This is the zone every client should render this API’s timestamps in.',
+    }),
+    Trim(),
+    IsString(),
+    IsIanaTimezone(),
+  );
 }
 
 /**
@@ -187,6 +207,14 @@ function IsIanaTimezone(): PropertyDecorator {
  */
 export function IsHours(max: number = MAX_HOURS_PER_DAY) {
   return applyDecorators(
+    ApiProperty({
+      type: 'number',
+      minimum: 0,
+      exclusiveMinimum: true,
+      maximum: max,
+      multipleOf: 10 ** -HOURS_DECIMAL_PLACES,
+      example: 8,
+    }),
     IsNumber({
       allowInfinity: false,
       allowNaN: false,
@@ -211,6 +239,13 @@ export function IsWeeklyHours() {
  */
 export function IsLunchBreakHours() {
   return applyDecorators(
+    ApiProperty({
+      type: 'number',
+      minimum: 0,
+      maximum: MAX_HOURS_PER_DAY,
+      multipleOf: 10 ** -HOURS_DECIMAL_PLACES,
+      example: 1,
+    }),
     IsNumber({
       allowInfinity: false,
       allowNaN: false,

@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsInt,
@@ -46,6 +47,13 @@ import {
  */
 export function IsLeaveTypeCode() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: LEAVE_TYPE_CODE_MAX_LENGTH,
+      pattern: LEAVE_TYPE_CODE_PATTERN,
+      example: 'ANNUAL',
+      description: 'Trimmed and upper-cased before it is stored or compared.',
+    }),
     Transform(({ value }: { value: unknown }) =>
       typeof value === 'string' ? value.trim().toUpperCase() : value,
     ),
@@ -75,6 +83,13 @@ export function IsLeaveTypeCode() {
  */
 export function IsLeaveTypeReportMarker() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: LEAVE_TYPE_REPORT_MARKER_MAX_LENGTH,
+      pattern: LEAVE_TYPE_REPORT_MARKER_PATTERN,
+      example: 'CO',
+      description: 'Trimmed and upper-cased before it is stored or compared.',
+    }),
     Transform(({ value }: { value: unknown }) =>
       typeof value === 'string' ? value.trim().toUpperCase() : value,
     ),
@@ -97,6 +112,11 @@ export function IsLeaveTypeReportMarker() {
  */
 export function IsLeaveTypeLabel() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: LEAVE_TYPE_LABEL_MAX_LENGTH,
+      example: 'Concediu de odihnă',
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -121,6 +141,11 @@ export function IsLeaveTypeLabel() {
  */
 export function IsLeaveTypeIcon() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: LEAVE_TYPE_ICON_MAX_LENGTH,
+      example: 'beach_access',
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -143,6 +168,12 @@ export function IsLeaveTypeIcon() {
  */
 export function IsLeaveTypeColor() {
   return applyDecorators(
+    ApiProperty({
+      pattern: LEAVE_TYPE_COLOR_PATTERN,
+      example: '#22C55E',
+      description:
+        'Trimmed and upper-cased; a blank string is stored as `null`.',
+    }),
     Transform(({ value }: { value: unknown }) => {
       if (typeof value !== 'string') {
         return value;
@@ -170,6 +201,11 @@ export function IsLeaveTypeColor() {
  */
 export function IsLeaveTypeDescription() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: LEAVE_TYPE_DESCRIPTION_MAX_LENGTH,
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     Transform(({ value }: { value: unknown }) => {
       if (typeof value !== 'string') {
         return value;
@@ -200,6 +236,12 @@ export function IsLeaveTypeDescription() {
  */
 export function IsLeaveTypeAllocatedDays() {
   return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: LEAVE_TYPE_MIN_ALLOCATED_DAYS,
+      maximum: LEAVE_TYPE_MAX_ALLOCATED_DAYS,
+      example: 21,
+    }),
     IsInt(),
     Min(LEAVE_TYPE_MIN_ALLOCATED_DAYS),
     Max(LEAVE_TYPE_MAX_ALLOCATED_DAYS),
@@ -226,6 +268,12 @@ export function IsLeaveTypeAllocatedDays() {
  */
 export function IsLeaveTypeCarryOverDays() {
   return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: LEAVE_TYPE_MIN_ALLOCATED_DAYS,
+      maximum: LEAVE_TYPE_MAX_ALLOCATED_DAYS,
+      example: 5,
+    }),
     IsInt(),
     Min(LEAVE_TYPE_MIN_ALLOCATED_DAYS),
     Max(LEAVE_TYPE_MAX_ALLOCATED_DAYS),

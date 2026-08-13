@@ -15,14 +15,14 @@ import type { DepartmentModel } from '../../../generated/prisma/models';
  * Declaring them as `string` makes the type honest and routes the format
  * through `toIsoTimestamp`, the project's single definition of it.
  */
-export interface DepartmentEntity {
-  id: string;
-  code: string;
-  name: string;
-  description: string | null;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
+export class DepartmentEntity {
+  id!: string;
+  code!: string;
+  name!: string;
+  description!: string | null;
+  isActive!: boolean;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /** Maps a `departments` row onto the resource returned by the endpoints. */

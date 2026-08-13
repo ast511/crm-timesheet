@@ -43,24 +43,24 @@ import type { NotificationModel } from '../../../generated/prisma/models';
  * resource echoes what was stored: `POST` accepts it, so the response has to
  * confirm it.
  */
-export interface NotificationEntity {
-  id: string;
-  workspace: NotificationWorkspace;
-  recipientType: NotificationRecipientType;
+export class NotificationEntity {
+  id!: string;
+  workspace!: NotificationWorkspace;
+  recipientType!: NotificationRecipientType;
   /** Set only for `USER` notifications; null for role notifications and broadcasts. */
-  recipientUserId: string | null;
+  recipientUserId!: string | null;
   /** Set only for `ROLE` notifications; one of the three administrative roles. */
-  recipientRole: UserRole | null;
-  title: string;
-  message: string;
-  category: NotificationCategory;
-  type: NotificationType;
-  priority: NotificationPriority;
-  isRead: boolean;
+  recipientRole!: UserRole | null;
+  title!: string;
+  message!: string;
+  category!: NotificationCategory;
+  type!: NotificationType;
+  priority!: NotificationPriority;
+  isRead!: boolean;
   /** When it was read, or null while it is unread. Moves with `isRead`, never alone. */
-  readAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+  readAt!: string | null;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

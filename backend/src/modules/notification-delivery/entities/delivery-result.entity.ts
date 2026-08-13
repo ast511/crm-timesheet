@@ -31,12 +31,12 @@ export enum EmailDeliveryStatus {
  * is false — so a campaign that reached forty people by email and none in-app is
  * describable rather than looking like a partial failure.
  */
-export interface DeliveryResultEntity {
-  readonly source: DeliverySource;
+export class DeliveryResultEntity {
+  readonly source!: DeliverySource;
   /** The campaign that was sent, or null for a reminder or an event run. */
-  readonly campaignId: string | null;
+  readonly campaignId!: string | null;
   /** The reminder rule that fired, or null for a campaign or an event. */
-  readonly reminderId: string | null;
+  readonly reminderId!: string | null;
   /**
    * Which application event was announced — `timesheet_rejected` — or null for a
    * campaign or a reminder.
@@ -45,7 +45,7 @@ export interface DeliveryResultEntity {
    * is something that *happened* in another module, announced as it happened. The
    * key is what a log line and a template are both named by. Added by Feature 030.
    */
-  readonly eventKey: string | null;
+  readonly eventKey!: string | null;
   /**
    * How many people the audience resolved to at this moment.
    *
@@ -54,10 +54,10 @@ export interface DeliveryResultEntity {
    * reads, so there is no list of recipients to count. `notificationsCreated`
    * says `1` there, which together are the honest description.
    */
-  readonly recipientCount: number;
-  readonly notificationsCreated: number;
-  readonly emailsSent: number;
-  readonly emailStatus: EmailDeliveryStatus;
+  readonly recipientCount!: number;
+  readonly notificationsCreated!: number;
+  readonly emailsSent!: number;
+  readonly emailStatus!: EmailDeliveryStatus;
   /** When the run happened, ISO-8601. For a campaign this is its `sentAt`. */
-  readonly sentAt: string;
+  readonly sentAt!: string;
 }

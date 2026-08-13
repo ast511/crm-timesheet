@@ -1,7 +1,15 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
+import {
+  ApiOkEnvelope,
+  ApiOkPageEnvelope,
+} from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { PermissionQueryDto } from './dto/permission-query.dto';
 import { PresetQueryDto } from './dto/preset-query.dto';
@@ -49,6 +57,9 @@ import { PermissionService } from './permission.service';
  *
  * Every method is a one-line delegation on purpose.
  */
+@ApiTags(API_TAG.Permissions)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors()
 @Controller('permissions')
 export class PermissionController {
   constructor(private readonly permissions: PermissionService) {}
@@ -61,6 +72,13 @@ export class PermissionController {
    * the catalog. Fifty-five rows against a cap of 100 means `?limit=100` returns
    * the whole matrix in one request, which is what the screen asks for.
    */
+  @ApiOperation({
+    summary: 'Read the permission catalog',
+    description:
+      'Blocked by resource so the matrix renders without a client-side reduce. `page` and `limit` select **permissions**, not groups, so `total` describes the catalog: fifty-five rows against a cap of 100 means `?limit=100` returns the whole matrix in one request. Requires `PERMISSIONS.VIEW`. There is deliberately no `POST` — the catalog is seeded vocabulary, and a permission row nothing checks would be a cell on a screen that means nothing.',
+  })
+  @ApiOkPageEnvelope(PermissionResourceGroupEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.FORBIDDEN)
   @Get()
   @RequirePermission('PERMISSIONS.VIEW')
   findAll(
@@ -76,6 +94,13 @@ export class PermissionController {
    * `?targetRole=` narrows what is shown and not what may be used: a preset may
    * be applied to any account that is not a super-admin.
    */
+  @ApiOperation({
+    summary: 'Read the permission presets',
+    description:
+      'The quick-apply cards, each with the number of permissions it hands out and the role it is grouped under. `?targetRole=` narrows what is *shown* and not what may be *used*: a preset may be applied to any account that is not a super-admin. Requires `PERMISSIONS.VIEW`.',
+  })
+  @ApiOkPageEnvelope(PermissionPresetEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.FORBIDDEN)
   @Get('presets')
   @RequirePermission('PERMISSIONS.VIEW')
   findPresets(
@@ -103,6 +128,12 @@ export class PermissionController {
    * this call and drew every button now meets a real `403` on the request rather
    * than nothing at all, which is what Feature 035 changed about it.
    */
+  @ApiOperation({
+    summary: 'Read my own effective permissions',
+    description:
+      "**The endpoint a frontend gates its UI on** — a flat array of keys a client turns into a `Set` once and asks `has('TIMESHEET.CREATE')` of thereafter. **Deliberately not permission-gated, and it must not become so**: gating it would mean only an administrator could discover their own permissions, and every ordinary employee would get a `403` from the call whose entire purpose is to tell them what they may do. It answers about the caller alone and reveals nothing about anybody else; somebody else’s set is `GET /users/:id/permissions`, and that one *is* gated. This is soft gating — a client that skips the call and draws every button meets a real `403` on the request.",
+  })
+  @ApiOkEnvelope(EffectivePermissionsEntity)
   @Get('me/effective')
   findMyEffective(
     @CurrentUser() user: CurrentUser,

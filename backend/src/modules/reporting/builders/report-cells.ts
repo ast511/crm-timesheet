@@ -6,7 +6,7 @@ import {
   ReportMarkerCell,
   ReportNumberCell,
   ReportTextCell,
-} from '../renderers/report-data-model';
+} from '../entities/report-data-model.entity';
 import { ClassifiedMonth } from '../reporting.types';
 
 /**

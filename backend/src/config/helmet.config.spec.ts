@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 
 import {
+  buildDocsCspOptions,
   buildHelmetOptions,
   CSP_MODE_KEY,
   CspMode,
@@ -177,5 +178,103 @@ describe('buildHelmetOptions', () => {
 
       expect(directivesOf()['script-src']).toEqual(["'self'"]);
     });
+  });
+});
+
+/**
+ * The scoped relaxation Feature 038 mounts on `/api/docs`, and nowhere else.
+ *
+ * Feature 037 wrote a note saying Swagger UI would need `SECURITY_CSP_MODE=relaxed`.
+ * These tests pin the narrower fix that was shipped instead: one directive
+ * loosened, on one route, leaving every other response with whatever the
+ * deployment configured.
+ */
+describe('buildDocsCspOptions', () => {
+  const docsDirectivesOf = (env: Record<string, unknown> = {}) =>
+    (buildDocsCspOptions(new ConfigService(env)) as CspOptions).directives ??
+    {};
+
+  /** Merging Helmet's own defaults would drift with the dependency. */
+  it('serves exactly the listed directives', () => {
+    expect(
+      (buildDocsCspOptions(new ConfigService({})) as CspOptions).useDefaults,
+    ).toBe(false);
+  });
+
+  /**
+   * The one loosening, and the reason for the whole feature: Swagger UI's HTML
+   * carries two inline `<style>` blocks.
+   */
+  it('allows inline styles', () => {
+    expect(docsDirectivesOf()['style-src']).toEqual([
+      "'self'",
+      "'unsafe-inline'",
+    ]);
+  });
+
+  /**
+   * **And not the one Feature 037 predicted.** Every script the UI loads is an
+   * external file from this same origin — `swagger-ui-bundle.js`,
+   * `swagger-ui-standalone-preset.js`, `swagger-ui-init.js` — which
+   * `script-src 'self'` already allows. Inline script stays blocked on the one
+   * page in this application that renders any HTML at all.
+   */
+  it('does NOT allow inline script under the default mode', () => {
+    expect(docsDirectivesOf()['script-src']).toEqual(["'self'"]);
+  });
+
+  it('never allows eval', () => {
+    expect(JSON.stringify(docsDirectivesOf())).not.toContain('unsafe-eval');
+  });
+
+  /** Inline event handlers are needed by nothing and stay refused. */
+  it('keeps inline event handlers blocked', () => {
+    expect(docsDirectivesOf()['script-src-attr']).toEqual(["'none'"]);
+  });
+
+  /** The UI is served from inside this process, never from a CDN. */
+  it('adds no third-party origin', () => {
+    expect(JSON.stringify(docsDirectivesOf())).not.toMatch(/https?:\/\//);
+  });
+
+  /**
+   * Built on top of the base list rather than beside it, so a directive
+   * tightened for the API tightens here too.
+   */
+  it('inherits every other directive from the base policy', () => {
+    const docs = docsDirectivesOf();
+    const base = buildHelmetOptions(new ConfigService({}))
+      .contentSecurityPolicy as CspOptions;
+
+    for (const [name, sources] of Object.entries(base.directives ?? {})) {
+      if (name === 'style-src') {
+        continue;
+      }
+
+      expect(docs[name]).toEqual(sources);
+    }
+  });
+
+  /**
+   * A deployment that has already relaxed the policy globally — because it
+   * serves an SPA — gets that mode here too, plus the docs loosening on top.
+   */
+  it('respects the configured mode and loosens on top of it', () => {
+    const docs = docsDirectivesOf({ [CSP_MODE_KEY]: CspMode.Relaxed });
+
+    expect(docs['script-src']).toEqual(["'self'", "'unsafe-inline'"]);
+    expect(docs['style-src']).toEqual(["'self'", "'unsafe-inline'"]);
+  });
+
+  /** The API's own policy must be unaffected by anything the docs need. */
+  it('does not mutate the shared base list', () => {
+    docsDirectivesOf();
+
+    expect(
+      ((
+        buildHelmetOptions(new ConfigService({}))
+          .contentSecurityPolicy as CspOptions
+      ).directives ?? {})['style-src'],
+    ).toEqual(["'self'"]);
   });
 });

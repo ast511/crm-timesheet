@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsInt, IsString, Max, MaxLength, Min } from 'class-validator';
 
@@ -40,12 +41,32 @@ import {
  * and it is text either way.
  */
 export function IsReportMonth() {
-  return applyDecorators(IsInt(), Min(REPORT_MIN_MONTH), Max(REPORT_MAX_MONTH));
+  return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: REPORT_MIN_MONTH,
+      maximum: REPORT_MAX_MONTH,
+      example: 9,
+    }),
+    IsInt(),
+    Min(REPORT_MIN_MONTH),
+    Max(REPORT_MAX_MONTH),
+  );
 }
 
 /** `year` — a plausible calendar year, in a JSON body. */
 export function IsReportYear() {
-  return applyDecorators(IsInt(), Min(REPORT_MIN_YEAR), Max(REPORT_MAX_YEAR));
+  return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: REPORT_MIN_YEAR,
+      maximum: REPORT_MAX_YEAR,
+      example: 2026,
+    }),
+    IsInt(),
+    Min(REPORT_MIN_YEAR),
+    Max(REPORT_MAX_YEAR),
+  );
 }
 
 /**
@@ -63,6 +84,11 @@ export function IsReportYear() {
  */
 export function IsReportClientName() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: REPORT_CLIENT_NAME_MAX_LENGTH,
+      description:
+        'Trimmed; a blank value is treated as absent rather than as a filter on "".',
+    }),
     Transform(({ value }: { value: unknown }) => {
       if (typeof value !== 'string') {
         return value;

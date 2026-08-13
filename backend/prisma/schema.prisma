@@ -690,7 +690,7 @@ model Position {
 
   description String?
 
-  isActive Boolean @default(true)
+  isActive Boolean @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -708,7 +708,7 @@ model Department {
 
   description String?
 
-  isActive Boolean @default(true)
+  isActive Boolean @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -770,8 +770,8 @@ model Project {
 }
 
 model ProjectMember {
-  projectId  String
-  employeeId String
+  projectId  String @map("project_id")
+  employeeId String @map("employee_id")
 
   isProjectManager Boolean @default(false) @map("is_project_manager")
 

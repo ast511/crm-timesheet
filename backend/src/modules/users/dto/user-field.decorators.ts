@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEnum, IsString, MaxLength } from 'class-validator';
 
@@ -41,6 +42,12 @@ import { USER_USERNAME_MAX_LENGTH } from '../user.constants';
  */
 export function IsUserUsername() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: USER_USERNAME_MAX_LENGTH,
+      example: 'maria.popescu',
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     Transform(({ value }: { value: unknown }) => {
       if (typeof value !== 'string') {
         return value;

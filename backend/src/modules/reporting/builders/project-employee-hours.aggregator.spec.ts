@@ -1,8 +1,8 @@
 import {
   ReportDataModel,
   ReportNumberCell,
-} from '../renderers/report-data-model';
-import { ReportPeriod } from '../renderers/report-data-model';
+} from '../entities/report-data-model.entity';
+import { ReportPeriod } from '../entities/report-data-model.entity';
 import { ReportEmployee, ReportProject } from '../reporting.types';
 import { buildEmployeeHoursPerProject } from './employee-hours-per-project.builder';
 import {

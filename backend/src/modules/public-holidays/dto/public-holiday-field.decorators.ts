@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsEnum,
@@ -43,6 +44,11 @@ import {
  */
 export function IsPublicHolidayName() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: PUBLIC_HOLIDAY_NAME_MAX_LENGTH,
+      example: 'Ziua Națională',
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -59,6 +65,11 @@ export function IsPublicHolidayName() {
  */
 export function IsPublicHolidayDescription() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: PUBLIC_HOLIDAY_DESCRIPTION_MAX_LENGTH,
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     Transform(({ value }: { value: unknown }) => {
       if (typeof value !== 'string') {
         return value;
@@ -91,6 +102,12 @@ export function IsPublicHolidayDescription() {
  */
 export function IsPublicHolidayYear() {
   return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: PUBLIC_HOLIDAY_MIN_YEAR,
+      maximum: PUBLIC_HOLIDAY_MAX_YEAR,
+      example: 2026,
+    }),
     IsInt(),
     Min(PUBLIC_HOLIDAY_MIN_YEAR),
     Max(PUBLIC_HOLIDAY_MAX_YEAR),

@@ -23,9 +23,9 @@ import { AuthUserEntity } from './authenticated-user.entity';
  * and presents it until it is refused, and a countdown it would have to keep in
  * step with the server is a second source for one fact.
  */
-export interface AuthSessionEntity {
+export class AuthSessionEntity {
   /** Present as `Authorization: Bearer <accessToken>` on every other request. */
-  accessToken: string;
+  accessToken!: string;
 
   /**
    * Presented to `POST /auth/refresh`, once.
@@ -35,10 +35,10 @@ export interface AuthSessionEntity {
    * therefore has to *overwrite* what it stored, not append to it — the one
    * thing an integrator can get wrong here, and the reason it is said out loud.
    */
-  refreshToken: string;
+  refreshToken!: string;
 
   /** Always `Bearer`, so a client can build the header without knowing the scheme. */
-  tokenType: typeof BEARER_SCHEME;
+  tokenType!: typeof BEARER_SCHEME;
 
   /**
    * Seconds until `accessToken` expires — the standard OAuth 2 field, and the
@@ -50,10 +50,10 @@ export interface AuthSessionEntity {
    * because they describe *when something happened*; this describes how long
    * something has left.
    */
-  expiresIn: number;
+  expiresIn!: number;
 
   /** Who the session belongs to, so a client need not decode the token. */
-  user: AuthUserEntity;
+  user!: AuthUserEntity;
 }
 
 /** Assembles the response. One place, so login and refresh cannot drift. */

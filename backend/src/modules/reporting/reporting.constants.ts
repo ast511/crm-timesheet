@@ -18,6 +18,11 @@
  * configures.
  */
 
+// `import type`, and it has to be: `ReportDefinitionEntity` names `ReportType`
+// from this file, so a value import here would close a runtime cycle. A type
+// import is erased and closes nothing.
+import type { ReportDefinitionEntity } from './entities/report-definition.entity';
+
 /**
  * The five reports, as the URL names them.
  *
@@ -192,12 +197,7 @@ export const FIXED_DAY_MARKERS: Readonly<
  * counts**, because that is the one thing a person choosing between them cannot
  * infer from the title and the one thing that makes two of these numbers differ.
  */
-export const REPORT_DEFINITIONS: readonly {
-  readonly key: ReportType;
-  readonly name: string;
-  readonly romanianName: string;
-  readonly description: string;
-}[] = [
+export const REPORT_DEFINITIONS: readonly ReportDefinitionEntity[] = [
   {
     key: 'project-hours-per-employee',
     name: 'Project hours per employee',

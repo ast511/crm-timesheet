@@ -11,13 +11,23 @@ import {
   Res,
   StreamableFile,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 
+import {
+  ApiOkArrayEnvelope,
+  ApiOkEnvelope,
+  ApiOkFileResponse,
+} from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { ExportQueryDto } from './dto/export-query.dto';
 import { ReportQueryDto } from './dto/report-query.dto';
 import { ReportTypeParamsDto } from './dto/report-type-params.dto';
-import { ReportDataModel } from './renderers/report-data-model';
+import { ReportDataModel } from './entities/report-data-model.entity';
+import { ReportDefinitionEntity } from './entities/report-definition.entity';
 import { REPORT_DEFINITIONS } from './reporting.constants';
 import { ReportingService } from './reporting.service';
 
@@ -73,6 +83,9 @@ import { ReportingService } from './reporting.service';
  * eagerly, which is exactly wrong for a document regenerated from live data on
  * every request.
  */
+@ApiTags(API_TAG.Reporting)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors(HttpStatus.FORBIDDEN)
 @Controller('reports')
 export class ReportingController {
   constructor(private readonly reportingService: ReportingService) {}
@@ -83,6 +96,12 @@ export class ReportingController {
    * Static metadata, so no query runs. It is a `GET` because it genuinely reads
    * nothing and takes no parameters.
    */
+  @ApiOperation({
+    summary: 'List the available reports',
+    description:
+      'Static metadata, so no query runs. Each `description` states **which timesheet states the report counts** — the one thing a person choosing between two of them cannot infer from the title, and the one thing that makes two of these show different totals for the same month.',
+  })
+  @ApiOkArrayEnvelope(ReportDefinitionEntity)
   @Get()
   @RequirePermission('REPORTS.VIEW')
   findAll(): typeof REPORT_DEFINITIONS {
@@ -98,6 +117,13 @@ export class ReportingController {
    * body. A `201` would tell a client a resource now exists at some location, and
    * none does.
    */
+  @ApiOperation({
+    summary: 'Preview a report as JSON',
+    description:
+      'Exactly the data model the two exports are rendered from, which is what makes an export incapable of disagreeing with the screen it was downloaded from. Answers `200` rather than the `201` Nest gives a `POST` by default, because nothing was created: this is a read whose parameters happen to travel in a body — and they do so precisely so that the preview and the export take *identical* input. An unknown `:reportType` is refused with a message naming the five valid keys before any service is entered.',
+  })
+  @ApiOkEnvelope(ReportDataModel)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Post(':reportType/preview')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('REPORTS.VIEW')
@@ -126,6 +152,17 @@ export class ReportingController {
    * is streamed and then garbage-collected. No temporary file is created, so
    * there is nothing to clean up and a crashed request leaves nothing behind.
    */
+  @ApiOperation({
+    summary: 'Export a report as PDF or Excel',
+    description:
+      '**The one endpoint in this API whose response is not the `{ success, data }` envelope**, and it cannot be: the body is a spreadsheet or a PDF, and there is no reading of that envelope which can contain a binary file. Rendered from the same data model the preview returns, so the two can never disagree. Nothing is written to disk — the renderers resolve with a buffer, which is streamed and then garbage-collected — and `Cache-Control: no-store` is sent because a browser serving yesterday’s file for today’s request is the one failure that would make a report quietly wrong.',
+  })
+  @ApiOkFileResponse({
+    description:
+      'The rendered document. `Content-Type` is `application/pdf` or the Excel media type, depending on `?format=`.',
+    mediaType: 'application/octet-stream',
+  })
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Post(':reportType/export')
   @HttpCode(HttpStatus.OK)
   // Downloads are per-request documents built from live data. Without this a

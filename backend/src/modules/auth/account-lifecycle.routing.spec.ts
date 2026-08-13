@@ -361,7 +361,10 @@ describe('account lifecycle routing', () => {
       const response = await request(app.getHttpServer())
         .post(`${BASE}/auth/activate`)
         .send(body)
-        .expect(401);
+        // A `400`: the token is a body parameter proving the person received an
+        // email, not a credential, and this route has no session to
+        // authenticate. See `invalidAccountToken`.
+        .expect(400);
 
       expect(response.body.errorCode).toBe('ACCOUNT_TOKEN_INVALID');
     });
@@ -374,7 +377,7 @@ describe('account lifecycle routing', () => {
       await request(app.getHttpServer())
         .post(`${BASE}/auth/activate`)
         .send({ token: first.token, password: 'the one they chose' })
-        .expect(401);
+        .expect(400);
 
       await request(app.getHttpServer())
         .post(`${BASE}/auth/activate`)
@@ -393,14 +396,14 @@ describe('account lifecycle routing', () => {
       await request(app.getHttpServer())
         .post(`${BASE}/auth/activate`)
         .send({ token, password: 'the one they chose' })
-        .expect(401);
+        .expect(400);
     });
 
     it('refuses a token that was never issued', async () => {
       await request(app.getHttpServer())
         .post(`${BASE}/auth/activate`)
         .send({ token: 'B'.repeat(43), password: 'the one they chose' })
-        .expect(401);
+        .expect(400);
     });
 
     /**
@@ -413,7 +416,7 @@ describe('account lifecycle routing', () => {
       await request(app.getHttpServer())
         .post(`${BASE}/auth/activate`)
         .send({ token, password: 'the one they chose' })
-        .expect(401);
+        .expect(400);
     });
 
     it('enforces the password policy', async () => {
@@ -590,7 +593,7 @@ describe('account lifecycle routing', () => {
       await request(app.getHttpServer())
         .post(`${BASE}/auth/reset-password`)
         .send({ token, newPassword: 'yet another' })
-        .expect(401);
+        .expect(400);
     });
 
     /**
@@ -614,7 +617,7 @@ describe('account lifecycle routing', () => {
       await request(app.getHttpServer())
         .post(`${BASE}/auth/reset-password`)
         .send({ token, newPassword: 'a brand new secret' })
-        .expect(401);
+        .expect(400);
     });
 
     it('enforces the same password policy as activation', async () => {

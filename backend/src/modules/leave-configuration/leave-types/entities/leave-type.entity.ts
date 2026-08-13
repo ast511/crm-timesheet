@@ -20,29 +20,29 @@ import type { LeaveTypeModel } from '../../../../generated/prisma/models';
  * an icon rather than being one, so a client resolves it against whichever set
  * it ships and the API never has an opinion about how a leave type is drawn.
  */
-export interface LeaveTypeEntity {
-  id: string;
-  code: string;
-  label: string;
+export class LeaveTypeEntity {
+  id!: string;
+  code!: string;
+  label!: string;
   /**
    * The one-to-three character glyph a report grid prints for a day of this
    * leave — `C`, `M`, `S`. Unique across leave types, so a legend never lists
    * one marker twice. Added by Feature 031.
    */
-  reportMarker: string;
-  icon: string;
-  color: string | null;
-  description: string | null;
-  defaultAllocatedDays: number | null;
+  reportMarker!: string;
+  icon!: string;
+  color!: string | null;
+  description!: string | null;
+  defaultAllocatedDays!: number | null;
   /** Whether a year's remainder may still be taken in the next year. */
-  allowsCarryOver: boolean;
+  allowsCarryOver!: boolean;
   /** The ceiling on that remainder; `null` means no ceiling. */
-  maxCarryOverDays: number | null;
-  requiresApproval: boolean;
-  isPaid: boolean;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
+  maxCarryOverDays!: number | null;
+  requiresApproval!: boolean;
+  isPaid!: boolean;
+  isActive!: boolean;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

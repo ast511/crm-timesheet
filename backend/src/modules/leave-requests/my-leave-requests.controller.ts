@@ -3,14 +3,25 @@ import {
   Controller,
   Delete,
   Get,
+  HttpStatus,
   Param,
   Patch,
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentEmployeeId } from '../../common/decorators/current-employee-id.decorator';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
+import {
+  ApiCreatedEnvelope,
+  ApiOkEnvelope,
+  ApiOkNullEnvelope,
+  ApiOkPageEnvelope,
+} from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { CreateLeaveRequestDto } from './dto/create-leave-request.dto';
 import { MyLeaveRequestQueryDto } from './dto/leave-request-query.dto';
 import { UpdateLeaveRequestDto } from './dto/update-leave-request.dto';
@@ -50,11 +61,21 @@ import { LeaveRequestsService } from './leave-requests.service';
  * reject valid ones, and a malformed id simply matches no row and yields the
  * same 404 as an id that never existed.
  */
+@ApiTags(API_TAG.LeaveRequests)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors(HttpStatus.FORBIDDEN)
 @Controller('me/leave-requests')
 export class MyLeaveRequestsController {
   constructor(private readonly leaveRequestsService: LeaveRequestsService) {}
 
   /** Every row carries a computed `requestedWorkingDays`; none is stored. */
+  @ApiOperation({
+    summary: 'List my leave requests',
+    description:
+      '"Me" is the employment record of the authenticated account — there is no id in this path, which is what makes `/me` the one scope that cannot be aimed at somebody else. The payloads carry no `employee`, because a response must not repeat what the caller already stated. An account with no employment record gets a `403` carrying `AUTH_NO_EMPLOYEE_RECORD`. `requestedWorkingDays` is computed on every read from the schedule, the holidays and the span.',
+  })
+  @ApiOkPageEnvelope(MyLeaveRequestEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Get()
   findAll(
     @CurrentEmployeeId() employeeId: string,
@@ -64,6 +85,13 @@ export class MyLeaveRequestsController {
   }
 
   /** Somebody else's request answers the same 404 as one that does not exist. */
+  @ApiOperation({
+    summary: 'Read one of my leave requests',
+    description:
+      'Somebody else’s request answers the same `404` as one that does not exist, so this endpoint cannot be used to discover that a request exists.',
+  })
+  @ApiOkEnvelope(MyLeaveRequestEntity)
+  @ApiStandardErrors(HttpStatus.NOT_FOUND)
   @Get(':id')
   findOne(
     @CurrentEmployeeId() employeeId: string,
@@ -79,6 +107,13 @@ export class MyLeaveRequestsController {
    * type — a type that requires no approval is granted here and now, and its
    * days leave the balance in the same transaction.
    */
+  @ApiOperation({
+    summary: 'File a leave request',
+    description:
+      'The response’s `status` is `PENDING` or `APPROVED` depending on the leave type — a type that requires no approval is granted here and now, and its days leave the balance in the same transaction. At least one replacement is required: the API refuses a request with no cover. The span rules, the overlap check and the balance check are the service’s and answer `400`.',
+  })
+  @ApiCreatedEnvelope(MyLeaveRequestEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
   @Post()
   create(
     @CurrentEmployeeId() employeeId: string,
@@ -88,6 +123,17 @@ export class MyLeaveRequestsController {
   }
 
   /** Allowed only while the request is `PENDING`; otherwise a 409. */
+  @ApiOperation({
+    summary: 'Amend one of my leave requests',
+    description:
+      'Allowed only while the request is `PENDING`; once it has been decided on, it is a record of something that happened and answers `409`.',
+  })
+  @ApiOkEnvelope(MyLeaveRequestEntity)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Patch(':id')
   update(
     @CurrentEmployeeId() employeeId: string,
@@ -105,6 +151,13 @@ export class MyLeaveRequestsController {
    * response is not the envelope — Feature 006 chose the explicit `data: null`
    * so a client reads the same two fields whatever it called.
    */
+  @ApiOperation({
+    summary: 'Withdraw one of my leave requests',
+    description:
+      'A hard delete, and only while the request is `PENDING`. A decided request is not withdrawn but cancelled, which is the approver’s action. Answers `200` with `data: null` rather than `204`.',
+  })
+  @ApiOkNullEnvelope()
+  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
   @Delete(':id')
   remove(
     @CurrentEmployeeId() employeeId: string,

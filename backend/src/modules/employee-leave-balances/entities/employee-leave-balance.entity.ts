@@ -10,25 +10,35 @@ import type {
 /**
  * The related records a balance is returned with.
  *
- * Each is declared as a `Pick` of the owning module's row rather than as a
- * free-standing interface, so renaming a column in `schema.prisma` breaks the
- * build here instead of producing a nested object with a field that no longer
- * exists.
+ * Each `implements` a `Pick` of the owning module's row, so renaming a column
+ * in `schema.prisma` breaks the build here instead of producing a nested object
+ * with a field that no longer exists — see `EmployeeEntity` for why Feature 038
+ * turned these from aliases into classes checked against the same `Pick`.
  *
  * The employee summary carries the department, because `?departmentId=` filters
  * on it: a client that can narrow by department has to be able to show which
  * one each row belongs to, and without it every page would need a second
  * request per employee.
  */
-export type BalanceDepartmentSummary = Pick<
+export class BalanceDepartmentSummary implements Pick<
   DepartmentModel,
   'id' | 'code' | 'name'
->;
+> {
+  id!: string;
+  code!: string;
+  name!: string;
+}
 
-export type BalanceEmployeeSummary = Pick<
+export class BalanceEmployeeSummary implements Pick<
   EmployeeModel,
   'id' | 'employeeCode' | 'firstName' | 'lastName'
-> & { department: BalanceDepartmentSummary };
+> {
+  id!: string;
+  employeeCode!: string;
+  firstName!: string;
+  lastName!: string;
+  department!: BalanceDepartmentSummary;
+}
 
 /**
  * The leave type, with the two presentation fields a balances table renders.
@@ -39,10 +49,16 @@ export type BalanceEmployeeSummary = Pick<
  * `/api/v1/leave-types` — repeating them on every balance would publish the same
  * facts once per row and turn a change to a type into stale data everywhere.
  */
-export type BalanceLeaveTypeSummary = Pick<
+export class BalanceLeaveTypeSummary implements Pick<
   LeaveTypeModel,
   'id' | 'code' | 'label' | 'icon' | 'color'
->;
+> {
+  id!: string;
+  code!: string;
+  label!: string;
+  icon!: string;
+  color!: string | null;
+}
 
 /**
  * A leave balance as the API exposes it.
@@ -59,21 +75,21 @@ export type BalanceLeaveTypeSummary = Pick<
  *    read — see {@link computeRemainingDays} — which is what keeps the three
  *    stored numbers the single source of truth.
  */
-export interface EmployeeLeaveBalanceEntity {
-  id: string;
-  employee: BalanceEmployeeSummary;
-  leaveType: BalanceLeaveTypeSummary;
-  year: number;
-  allocatedDays: number;
-  carriedOverDays: number;
-  usedDays: number;
+export class EmployeeLeaveBalanceEntity {
+  id!: string;
+  employee!: BalanceEmployeeSummary;
+  leaveType!: BalanceLeaveTypeSummary;
+  year!: number;
+  allocatedDays!: number;
+  carriedOverDays!: number;
+  usedDays!: number;
   /** Days written off at a year-end by the leave type's carry-over policy. */
-  expiredDays: number;
+  expiredDays!: number;
   /** Derived, never stored. `allocated + carriedOver - used - expired`. */
-  remainingDays: number;
-  notes: string | null;
-  createdAt: string;
-  updatedAt: string;
+  remainingDays!: number;
+  notes!: string | null;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

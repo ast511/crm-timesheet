@@ -28,21 +28,21 @@ import type { ProjectModel } from '../../../generated/prisma/models';
  * `timestamp` and the seed writes UTC midnight, so printing only the date would
  * quietly assume a timezone this module has no way to know.
  */
-export interface ProjectEntity {
-  id: string;
-  code: string;
-  name: string;
-  clientName: string;
-  description: string | null;
-  estimatedHours: number;
-  color: string | null;
-  projectStatus: ProjectStatus;
-  projectPriority: ProjectPriority;
-  isArchived: boolean;
-  startDate: string | null;
-  endDate: string | null;
-  createdAt: string;
-  updatedAt: string;
+export class ProjectEntity {
+  id!: string;
+  code!: string;
+  name!: string;
+  clientName!: string;
+  description!: string | null;
+  estimatedHours!: number;
+  color!: string | null;
+  projectStatus!: ProjectStatus;
+  projectPriority!: ProjectPriority;
+  isArchived!: boolean;
+  startDate!: string | null;
+  endDate!: string | null;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

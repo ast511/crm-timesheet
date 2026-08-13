@@ -70,3 +70,4 @@ behaviour, record that in the new document and link back to the old one.
 | 035 | [Authorization Enforcement](035-authorization-enforcement.md) |
 | 036 | [Account Lifecycle](036-account-lifecycle.md) |
 | 037 | [Security Headers](037-security-headers.md) |
+| 038 | [API Documentation](038-api-documentation.md) |

@@ -3,13 +3,25 @@ import {
   Controller,
   Delete,
   Get,
+  HttpStatus,
   Param,
   Patch,
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
+import {
+  ApiCreatedEnvelope,
+  ApiOkArrayEnvelope,
+  ApiOkEnvelope,
+  ApiOkNullEnvelope,
+  ApiOkPageEnvelope,
+} from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { CreatePublicHolidayDto } from './dto/create-public-holiday.dto';
 import { MonthParamsDto } from './dto/month-params.dto';
 import { PublicHolidayQueryDto } from './dto/public-holiday-query.dto';
@@ -38,10 +50,20 @@ import { PublicHolidayService } from './public-holiday.service';
  * reject valid ones, and a malformed id simply matches no row and yields the
  * same 404 as an id that never existed.
  */
+@ApiTags(API_TAG.PublicHolidays)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors()
 @Controller('public-holidays')
 export class PublicHolidayController {
   constructor(private readonly publicHolidayService: PublicHolidayService) {}
 
+  @ApiOperation({
+    summary: 'List public holidays',
+    description:
+      'The stored *definitions*, paginated. A `FIXED` holiday is one row that recurs every year; the resolved calendar for a given year is the two routes below.',
+  })
+  @ApiOkPageEnvelope(PublicHolidayEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Get()
   findAll(
     @Query() query: PublicHolidayQueryDto,
@@ -58,6 +80,13 @@ export class PublicHolidayController {
    * Declaring them first states the intent instead, and `routing.spec.ts`
    * checks the resolution rather than trusting this comment.
    */
+  @ApiOperation({
+    summary: 'Resolve a year’s calendar',
+    description:
+      'Every holiday that actually falls in the year, with `FIXED` definitions expanded onto it and validity ranges applied. Unpaginated — a year holds a dozen or so entries.',
+  })
+  @ApiOkArrayEnvelope(PublicHolidayOccurrenceEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Get('calendar/:year')
   findYear(
     @Param() { year }: YearParamsDto,
@@ -65,6 +94,13 @@ export class PublicHolidayController {
     return this.publicHolidayService.findYear(year);
   }
 
+  @ApiOperation({
+    summary: 'Resolve a month’s calendar',
+    description:
+      'The same resolution narrowed to one month. `month` is `1`–`12`; January is `1`, not `0`.',
+  })
+  @ApiOkArrayEnvelope(PublicHolidayOccurrenceEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Get('calendar/:year/:month')
   findMonth(
     @Param() { year, month }: MonthParamsDto,
@@ -72,17 +108,38 @@ export class PublicHolidayController {
     return this.publicHolidayService.findMonth(year, month);
   }
 
+  @ApiOperation({ summary: 'Read one public-holiday definition' })
+  @ApiOkEnvelope(PublicHolidayEntity)
+  @ApiStandardErrors(HttpStatus.NOT_FOUND)
   @Get(':id')
   findOne(@Param('id') id: string): Promise<PublicHolidayEntity> {
     return this.publicHolidayService.findOne(id);
   }
 
   /** Answers 201; Nest applies it to `@Post` without a `@HttpCode`. */
+  @ApiOperation({
+    summary: 'Create a public holiday',
+    description:
+      'Three rules are the service’s rather than the validation pipe’s, because none is about a single field in isolation: `endDate` must be on or after `startDate`, `isRecurring` must agree with `type`, and the two duplicate rules. All three answer `400`.',
+  })
+  @ApiCreatedEnvelope(PublicHolidayEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
   @Post()
   create(@Body() dto: CreatePublicHolidayDto): Promise<PublicHolidayEntity> {
     return this.publicHolidayService.create(dto);
   }
 
+  @ApiOperation({
+    summary: 'Update a public holiday',
+    description:
+      'A partial update. The three cross-field rules are re-checked against the values already stored, not only against the ones in the body.',
+  })
+  @ApiOkEnvelope(PublicHolidayEntity)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Patch(':id')
   update(
     @Param('id') id: string,
@@ -98,6 +155,12 @@ export class PublicHolidayController {
    * response is not the envelope — Feature 006 chose the explicit `data: null`
    * so a client reads the same two fields whatever it called.
    */
+  @ApiOperation({
+    summary: 'Delete a public holiday',
+    description: 'Answers `200` with `data: null` rather than `204`.',
+  })
+  @ApiOkNullEnvelope()
+  @ApiStandardErrors(HttpStatus.NOT_FOUND)
   @Delete(':id')
   remove(@Param('id') id: string): Promise<void> {
     return this.publicHolidayService.remove(id);

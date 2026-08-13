@@ -19,19 +19,19 @@ import type { PermissionAuditLogModel } from '../../../generated/prisma/models';
  *
  * Null on the two summary actions — see {@link PermissionAuditLogEntity.action}.
  */
-export interface AuditPermissionSummary {
-  id: string;
-  key: string;
-  resource: PermissionResource;
-  action: PermissionAction;
-  label: string;
+export class AuditPermissionSummary {
+  id!: string;
+  key!: string;
+  resource!: PermissionResource;
+  action!: PermissionAction;
+  label!: string;
 }
 
 /** The preset a `PRESET_APPLIED` line names. Null on every other action. */
-export interface AuditPresetSummary {
-  id: string;
-  key: string;
-  name: string;
+export class AuditPresetSummary {
+  id!: string;
+  key!: string;
+  name!: string;
 }
 
 /**
@@ -48,10 +48,10 @@ export interface AuditPresetSummary {
  * published, and in particular nothing that would let this payload become a
  * second, unaudited way to read the users table.
  */
-export interface AuditUserSummary {
-  id: string;
-  email: string;
-  username: string | null;
+export class AuditUserSummary {
+  id!: string;
+  email!: string;
+  username!: string | null;
 }
 
 /**
@@ -69,22 +69,22 @@ export interface AuditUserSummary {
  * the rest as the lines under it; they share a `createdAt` to the millisecond,
  * because they are written in one transaction.
  */
-export interface PermissionAuditLogEntity {
-  id: string;
+export class PermissionAuditLogEntity {
+  id!: string;
   /**
    * What happened. The three per-permission transitions carry a `permission`;
    * the two summaries carry none, and `PRESET_APPLIED` carries a `preset`.
    */
-  action: PermissionAuditAction;
-  permission: AuditPermissionSummary | null;
-  preset: AuditPresetSummary | null;
+  action!: PermissionAuditAction;
+  permission!: AuditPermissionSummary | null;
+  preset!: AuditPresetSummary | null;
   /** The override state before the change, or null when there was none. */
-  previousEffect: PermissionEffect | null;
+  previousEffect!: PermissionEffect | null;
   /** The override state after it, or null when the exception was removed. */
-  newEffect: PermissionEffect | null;
+  newEffect!: PermissionEffect | null;
   /** The account that made the change — from `@CurrentUser()`, never hardcoded. */
-  changedBy: AuditUserSummary;
-  createdAt: string;
+  changedBy!: AuditUserSummary;
+  createdAt!: string;
 }
 
 const AUDIT_PERMISSION_SELECT = {

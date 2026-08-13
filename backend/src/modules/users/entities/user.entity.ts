@@ -27,11 +27,11 @@ import type { UserModel } from '../../../generated/prisma/models';
  * routes the format through `toIsoTimestamp`, the project's single definition
  * of it.
  */
-export interface UserEntity {
-  id: string;
-  email: string;
-  username: string | null;
-  role: UserRole;
+export class UserEntity {
+  id!: string;
+  email!: string;
+  username!: string | null;
+  role!: UserRole;
   /**
    * Where the account stands in its own life.
    *
@@ -46,9 +46,9 @@ export interface UserEntity {
    * A client that used to read `isActive` reads `status !== 'DISABLED'`, and a
    * client that filtered `?isActive=true` filters `?status=ACTIVE`.
    */
-  status: AccountStatus;
-  createdAt: string;
-  updatedAt: string;
+  status!: AccountStatus;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

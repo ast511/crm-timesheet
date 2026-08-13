@@ -41,6 +41,7 @@ Append new features to the end of this table.
 | 035 | [Authorization Enforcement](035-authorization-enforcement.md) | Completed | 2026-08-09 |
 | 036 | [Account Lifecycle](036-account-lifecycle.md) | Completed | 2026-08-09 |
 | 037 | [Security Headers](037-security-headers.md) | Completed | 2026-08-12 |
+| 038 | [API Documentation](038-api-documentation.md) | Completed | 2026-08-13 |
 
 **The authentication series (032–036) is complete.** Identity is proved rather
 than claimed (032), every failure carries a stable code (033), every route is
@@ -65,6 +66,19 @@ starts protecting something the day HTML and JavaScript are served, and 037
 records exactly which directives have to change when Swagger UI and the React
 frontend arrive.
 
+Feature 038 is the first whose output is not for this backend at all. Thirty-two
+features built 124 endpoints whose only description was the source code; this
+one generates the description — from the controllers, the DTOs and the entity
+classes — and serves it at `/api/docs`, with the raw OpenAPI document beside it
+at `/api/docs-json` as the contract the frontend will read and generate a typed
+client from. Nothing is hand-written, so nothing can drift.
+
+It also settles the note 037 left for it, and settles it more narrowly than that
+note proposed: Swagger UI needs `'unsafe-inline'` for styles, so it is granted on
+`/api/docs` alone rather than on every response in the deployment.
+`SECURITY_CSP_MODE` stays `strict`, and inline *script* stays blocked even on the
+documentation page.
+
 ## Amendments
 
 A change that extends an existing feature rather than adding one keeps that
@@ -77,3 +91,5 @@ feature that was never written.
 | 016 | [Work Schedule — company timezone](016-work-schedule-configuration.md) | Completed | 2026-08-07 |
 | 021 | [Leave Types — `reportMarker`](021-leave-configuration.md) | Completed | 2026-08-07 |
 | 003 | [Prisma — `timestamptz` for instants](003-prisma-orm-setup.md) | Completed | 2026-08-08 |
+| 038 | [API Documentation — a per-status error example](038-api-documentation.md) | Completed | 2026-08-13 |
+| 038 | [API Documentation — error statuses corrected against their throw sites](038-api-documentation.md) | Completed | 2026-08-13 |

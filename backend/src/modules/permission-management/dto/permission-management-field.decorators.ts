@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   ArrayUnique,
@@ -48,6 +49,11 @@ import {
  */
 export function IsPermissionKey() {
   return applyDecorators(
+    ApiProperty({
+      minLength: 1,
+      maxLength: PERMISSION_KEY_MAX_LENGTH,
+      example: 'TIMESHEET.APPROVE',
+    }),
     Trim(),
     IsString(),
     IsNotEmpty(),
@@ -79,6 +85,16 @@ export function IsPermissionKey() {
  */
 export function IsPermissionKeys() {
   return applyDecorators(
+    ApiProperty({
+      maxItems: MAX_PERMISSION_KEYS_PER_REQUEST,
+      uniqueItems: true,
+      items: {
+        type: 'string',
+        minLength: 1,
+        maxLength: PERMISSION_KEY_MAX_LENGTH,
+      },
+      example: ['TIMESHEET.APPROVE', 'REPORTS.VIEW'],
+    }),
     ArrayMaxSize(MAX_PERMISSION_KEYS_PER_REQUEST),
     ArrayUnique(),
     Trim(),

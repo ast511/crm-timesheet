@@ -9,19 +9,25 @@ import type {
 /**
  * The project a line was booked to, as a timesheet names one.
  *
- * Declared as a `Pick` of the owning module's row rather than as a free-standing
- * interface, so renaming a column in `schema.prisma` breaks the build here
- * instead of producing a nested object with a field that no longer exists.
+ * Checked against a `Pick` of the owning module's row, so renaming a column in
+ * `schema.prisma` breaks the build here instead of producing a nested object
+ * with a field that no longer exists — see `EmployeeEntity` for why Feature 038
+ * turned these from aliases into classes checked against the same `Pick`.
  *
  * `code`, `name` and `clientName` and nothing else: a timesheet row renders "what
  * was this, and who is it for". The status, the priority, the budget and the
  * colour belong to the project screen, and publishing them here would make every
  * column added to `projects` part of a timesheet's contract.
  */
-export type TimesheetProjectSummary = Pick<
+export class TimesheetProjectSummary implements Pick<
   ProjectModel,
   'id' | 'code' | 'name' | 'clientName'
->;
+> {
+  id!: string;
+  code!: string;
+  name!: string;
+  clientName!: string;
+}
 
 /**
  * One line of a timesheet, as the API exposes it.
@@ -38,14 +44,14 @@ export type TimesheetProjectSummary = Pick<
  *    directions because `decimal(5, 2)` tops out at `999.99`.
  * 3. **`isLocked` is here and is in no column.** See below.
  */
-export interface TimesheetEntryEntity {
-  id: string;
+export class TimesheetEntryEntity {
+  id!: string;
   /** The calendar day, ISO-8601 at UTC midnight. */
-  date: string;
-  type: TimesheetEntryType;
-  hours: number;
+  date!: string;
+  type!: TimesheetEntryType;
+  hours!: number;
   /** The project, or `null` on a `LEAVE` or `HOLIDAY` line — nobody was working. */
-  project: TimesheetProjectSummary | null;
+  project!: TimesheetProjectSummary | null;
   /**
    * The approved absence a `LEAVE` line is justified by; `null` on the other two.
    *
@@ -53,8 +59,8 @@ export interface TimesheetEntryEntity {
    * render a leave request — it renders that the day was leave. The id is what a
    * client follows to `GET /api/v1/me/leave-requests/:id` if somebody clicks.
    */
-  leaveRequestId: string | null;
-  description: string | null;
+  leaveRequestId!: string | null;
+  description!: string | null;
   /**
    * Whether this line is the fill-in engine's rather than the employee's.
    *
@@ -69,9 +75,9 @@ export interface TimesheetEntryEntity {
    * exists, a client that had hard-coded "leave and holiday are locked" would
    * silently offer an editable row the API then refuses.
    */
-  isLocked: boolean;
-  createdAt: string;
-  updatedAt: string;
+  isLocked!: boolean;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

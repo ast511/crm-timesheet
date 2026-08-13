@@ -25,21 +25,21 @@ import type { ReminderModel } from '../../../generated/prisma/models';
  * reminder and typed by where it ends up; a client rendering both resources
  * matches one vocabulary against one set of colours.
  */
-export interface ReminderEntity {
-  id: string;
-  name: string;
-  description: string | null;
-  enabled: boolean;
+export class ReminderEntity {
+  id!: string;
+  name!: string;
+  description!: string | null;
+  enabled!: boolean;
   /** Days before the deadline. `0` is the deadline itself. */
-  daysBeforeDeadline: number;
-  subject: string;
-  message: string;
-  severity: NotificationType;
-  priority: NotificationPriority;
-  sendEmail: boolean;
-  sendNotification: boolean;
-  createdAt: string;
-  updatedAt: string;
+  daysBeforeDeadline!: number;
+  subject!: string;
+  message!: string;
+  severity!: NotificationType;
+  priority!: NotificationPriority;
+  sendEmail!: boolean;
+  sendNotification!: boolean;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**

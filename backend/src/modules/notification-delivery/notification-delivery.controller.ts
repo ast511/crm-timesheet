@@ -1,5 +1,10 @@
 import { Controller, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import { ApiOkEnvelope } from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { DeliveryResultEntity } from './entities/delivery-result.entity';
 import { NotificationDispatcher } from './notification-dispatcher.service';
 
@@ -30,6 +35,9 @@ import { NotificationDispatcher } from './notification-dispatcher.service';
  * in this project: every rule, every refusal and every side effect is the
  * dispatcher's.
  */
+@ApiTags(API_TAG.NotificationDelivery)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors()
 @Controller('notification-delivery')
 export class NotificationDeliveryController {
   constructor(private readonly dispatcher: NotificationDispatcher) {}
@@ -58,6 +66,13 @@ export class NotificationDeliveryController {
    * would reject valid ones, and an id that matches nothing produces the same
    * `404` as one that never existed.
    */
+  @ApiOperation({
+    summary: 'Send a stored campaign now',
+    description:
+      '**For development and manual testing**, so the engine can be exercised without waiting for a schedule. A `DRAFT` campaign is sent as readily as a `SCHEDULED` one: this is somebody deliberately saying "send it now", and refusing a draft would mean scheduling an announcement for two minutes’ time in order to test it. Already `SENT`, `CANCELLED` or expired is a `409` naming the reason. Answers `200` rather than `201` because nothing was created — what comes back is a report of what happened: how many notifications were written, how many emails went out, and whether the mail server accepted them.',
+  })
+  @ApiOkEnvelope(DeliveryResultEntity)
+  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
   @Post('execute/:campaignId')
   @HttpCode(HttpStatus.OK)
   execute(

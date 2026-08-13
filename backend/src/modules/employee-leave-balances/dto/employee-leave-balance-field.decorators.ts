@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsInt, IsString, Max, MaxLength, Min } from 'class-validator';
 
@@ -35,6 +36,12 @@ import {
  */
 export function IsLeaveBalanceYear() {
   return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: LEAVE_BALANCE_MIN_YEAR,
+      maximum: LEAVE_BALANCE_MAX_YEAR,
+      example: 2026,
+    }),
     IsInt(),
     Min(LEAVE_BALANCE_MIN_YEAR),
     Max(LEAVE_BALANCE_MAX_YEAR),
@@ -52,6 +59,12 @@ export function IsLeaveBalanceYear() {
  */
 export function IsLeaveBalanceDays() {
   return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: LEAVE_BALANCE_MIN_DAYS,
+      maximum: LEAVE_BALANCE_MAX_DAYS,
+      example: 21,
+    }),
     IsInt(),
     Min(LEAVE_BALANCE_MIN_DAYS),
     Max(LEAVE_BALANCE_MAX_DAYS),
@@ -69,6 +82,11 @@ export function IsLeaveBalanceDays() {
  */
 export function IsLeaveBalanceNotes() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: LEAVE_BALANCE_NOTES_MAX_LENGTH,
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     Transform(({ value }: { value: unknown }) => {
       if (typeof value !== 'string') {
         return value;

@@ -20,9 +20,10 @@ import {
 /**
  * A person, as a timesheet names one — its owner, or whoever reviewed it.
  *
- * Declared as a `Pick` of the owning module's row rather than as a free-standing
- * interface, so renaming a column in `schema.prisma` breaks the build here
- * instead of producing a nested object with a field that no longer exists.
+ * Checked against a `Pick` of the owning module's row, so renaming a column in
+ * `schema.prisma` breaks the build here instead of producing a nested object
+ * with a field that no longer exists — see `EmployeeEntity` for why Feature 038
+ * turned these from aliases into classes checked against the same `Pick`.
  *
  * The same shape serves both roles, because a screen renders them identically: a
  * name and the code beside it. It is deliberately a second declaration rather
@@ -32,20 +33,33 @@ import {
  * not without one feature editing the other's payload. Feature 027 made the same
  * call for the same reason.
  */
-export type TimesheetEmployeeSummary = Pick<
+export class TimesheetEmployeeSummary implements Pick<
   EmployeeModel,
   'id' | 'employeeCode' | 'firstName' | 'lastName'
->;
+> {
+  id!: string;
+  employeeCode!: string;
+  firstName!: string;
+  lastName!: string;
+}
 
-export type TimesheetDepartmentSummary = Pick<
+export class TimesheetDepartmentSummary implements Pick<
   DepartmentModel,
   'id' | 'code' | 'name'
->;
+> {
+  id!: string;
+  code!: string;
+  name!: string;
+}
 
-export type TimesheetPositionSummary = Pick<
+export class TimesheetPositionSummary implements Pick<
   PositionModel,
   'id' | 'code' | 'name'
->;
+> {
+  id!: string;
+  code!: string;
+  name!: string;
+}
 
 /**
  * The owner, who carries their department and position and the reviewer does not.
@@ -55,10 +69,10 @@ export type TimesheetPositionSummary = Pick<
  * able to show it. A reviewer is neither filtered nor grouped on, so repeating
  * their department would be publishing a fact nobody asked for once per row.
  */
-export type TimesheetOwnerSummary = TimesheetEmployeeSummary & {
-  department: TimesheetDepartmentSummary;
-  position: TimesheetPositionSummary;
-};
+export class TimesheetOwnerSummary extends TimesheetEmployeeSummary {
+  department!: TimesheetDepartmentSummary;
+  position!: TimesheetPositionSummary;
+}
 
 /**
  * The hours a timesheet accounts for, split by what they were.
@@ -82,15 +96,15 @@ export type TimesheetOwnerSummary = TimesheetEmployeeSummary & {
  * the one figure that appears on every screen and three clients adding three
  * subtotals is three chances to forget one.
  */
-export interface TimesheetHours {
+export class TimesheetHours {
   /** `WORK` lines — the hours booked to projects. */
-  workedHours: number;
+  workedHours!: number;
   /** `LEAVE` lines — approved absence, at the configured rate for the day. */
-  leaveHours: number;
+  leaveHours!: number;
   /** `HOLIDAY` lines — days the company was closed. */
-  holidayHours: number;
+  holidayHours!: number;
   /** All three together. */
-  totalHours: number;
+  totalHours!: number;
 }
 
 /**
@@ -117,25 +131,25 @@ export interface TimesheetHours {
  *    it has changed none of their entries to make the point. See
  *    `TimesheetService.refreshStaleness`.
  */
-export interface TimesheetEntity extends TimesheetHours {
-  id: string;
-  employee: TimesheetOwnerSummary;
+export class TimesheetEntity extends TimesheetHours {
+  id!: string;
+  employee!: TimesheetOwnerSummary;
   /** `1`–`12`. January is `1`, not `0`. */
-  month: number;
-  year: number;
-  status: TimesheetStatus;
-  submittedAt: string | null;
-  reviewedAt: string | null;
+  month!: number;
+  year!: number;
+  status!: TimesheetStatus;
+  submittedAt!: string | null;
+  reviewedAt!: string | null;
   /** Who approved or refused it, or `null` while nobody has. */
-  reviewedBy: TimesheetEmployeeSummary | null;
+  reviewedBy!: TimesheetEmployeeSummary | null;
   /**
    * Why it was refused. Not cleared when the owner resubmits — the reason is what
    * they were asked to fix, and blanking it the moment they act on it would leave
    * the history of the month unable to say why it took two attempts.
    */
-  rejectionReason: string | null;
+  rejectionReason!: string | null;
   /** Something it was filled against has changed. Advisory; nothing was rewritten. */
-  isStale: boolean;
+  isStale!: boolean;
   /**
    * The working-day and hours context this month was approved against.
    *
@@ -144,11 +158,11 @@ export interface TimesheetEntity extends TimesheetHours {
    * be explained years later, when the live schedule no longer resembles the one
    * it was signed off under.
    */
-  scheduleSnapshot: Prisma.JsonValue | null;
+  scheduleSnapshot!: Prisma.JsonValue | null;
   /** Every line, in day order then insertion order. */
-  entries: TimesheetEntryEntity[];
-  createdAt: string;
-  updatedAt: string;
+  entries!: TimesheetEntryEntity[];
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 const EMPLOYEE_SUMMARY_SELECT = {

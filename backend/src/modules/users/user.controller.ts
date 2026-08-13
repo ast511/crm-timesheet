@@ -11,8 +11,19 @@ import {
   Query,
 } from '@nestjs/common';
 
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
+import {
+  ApiCreatedEnvelope,
+  ApiOkEnvelope,
+  ApiOkNullEnvelope,
+  ApiOkPageEnvelope,
+} from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserQueryDto } from './dto/user-query.dto';
@@ -69,11 +80,32 @@ import { UserService } from './user.service';
  * `id` is taken as a plain string: ids are cuids, so `ParseUUIDPipe` would
  * reject valid ones, and a malformed id simply matches no row and yields the
  * same 404 as an id that never existed.
+ *
+ * Every route here documents a `403`, and that is not boilerplate: it is the
+ * account-administrator boundary above, and it is the one refusal in this API
+ * that no permission can be granted to lift. The code is
+ * `AUTHORIZATION_ACCOUNT_ADMIN_REQUIRED`; a frontend that offered a "request
+ * access" link for it would be promising something no screen here can do.
+ *
+ * **No response on this controller carries `passwordHash`.** `UserEntity` has
+ * no such field for a mapper to copy and `USER_PUBLIC_SELECT` never reads the
+ * column, so the documented schema and the query agree by construction rather
+ * than by review — see `user.entity.ts`.
  */
+@ApiTags(API_TAG.Users)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors(HttpStatus.FORBIDDEN)
 @Controller('users')
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  @ApiOperation({
+    summary: 'List accounts',
+    description:
+      'Paginated, filterable and sortable. An account list is a list of everybody who can sign in and what authority each holds, which is why even the reads are ADMIN/SUPERADMIN only.',
+  })
+  @ApiOkPageEnvelope(UserEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Get()
   findAll(
     @CurrentUser() user: CurrentUser,
@@ -84,6 +116,9 @@ export class UserController {
     return this.userService.findAll(query);
   }
 
+  @ApiOperation({ summary: 'Read one account' })
+  @ApiOkEnvelope(UserEntity)
+  @ApiStandardErrors(HttpStatus.NOT_FOUND)
   @Get(':id')
   findOne(
     @CurrentUser() user: CurrentUser,
@@ -104,6 +139,13 @@ export class UserController {
    * Answers 201; Nest applies it to `@Post` without a `@HttpCode`. The body is
    * the account, which carries no token and no hash.
    */
+  @ApiOperation({
+    summary: 'Create an account and email its invitation',
+    description:
+      'The account is `PENDING_ACTIVATION` and unusable when this answers: no password exists for it anywhere, including for the administrator who created it. The body accepts no `password` and the response carries no token and no hash — the activation secret travels only by email.',
+  })
+  @ApiCreatedEnvelope(UserEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
   @Post()
   create(
     @CurrentUser() user: CurrentUser,
@@ -114,6 +156,17 @@ export class UserController {
     return this.userService.create(dto);
   }
 
+  @ApiOperation({
+    summary: 'Update an account',
+    description:
+      'A partial update of the address, the username and the role. `status` is deliberately not writable here — the three transitions below own it.',
+  })
+  @ApiOkEnvelope(UserEntity)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Patch(':id')
   update(
     @CurrentUser() user: CurrentUser,
@@ -137,6 +190,13 @@ export class UserController {
    * return: the token is in an email and must not be in a response body, where a
    * browser's history, a proxy log or a screenshot would keep it.
    */
+  @ApiOperation({
+    summary: 'Re-send an invitation link',
+    description:
+      'For an expired or lost one, and only for a `PENDING_ACTIVATION` account — an account whose owner has already activated gets a `409` carrying `ACCOUNT_NOT_PENDING_ACTIVATION` and its actual status in `params`, because what that person needs is a password reset, which is theirs to request. Issuing a new link invalidates the previous one. Answers `data: null`: the token is in an email and must not be in a response body, where a browser history, a proxy log or a screenshot would keep it.',
+  })
+  @ApiOkNullEnvelope()
+  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
   @Post(':id/resend-activation')
   @HttpCode(HttpStatus.OK)
   resendActivation(
@@ -156,6 +216,13 @@ export class UserController {
    * had a password cannot be made usable by flipping a state — the only thing
    * that activates one of those is its owner following an invitation link.
    */
+  @ApiOperation({
+    summary: 'Re-enable a disabled account',
+    description:
+      '**Administrative enable, not onboarding.** Moves `DISABLED → ACTIVE` and refuses `PENDING_ACTIVATION` with a `409`: an account that has never had a password cannot be made usable by flipping a state, and the only thing that activates one of those is its owner following an invitation link.',
+  })
+  @ApiOkEnvelope(UserEntity)
+  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
   @Post(':id/activate')
   @HttpCode(HttpStatus.OK)
   activate(
@@ -176,6 +243,13 @@ export class UserController {
    * tokens, which is what makes the disabling take effect within one access
    * token's lifetime rather than within a week.
    */
+  @ApiOperation({
+    summary: 'Disable an account and end its sessions',
+    description:
+      'The lifecycle action for somebody who has left or whose access is being suspended. The password and every record pointing at the account survive, so it can be turned back on; what does not survive is the account’s live refresh tokens, which is what makes the disabling take effect within one access token’s lifetime rather than within a week.',
+  })
+  @ApiOkEnvelope(UserEntity)
+  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
   @Post(':id/deactivate')
   @HttpCode(HttpStatus.OK)
   deactivate(
@@ -194,6 +268,13 @@ export class UserController {
    * response is not the envelope — Feature 006 chose the explicit `data: null`
    * so a client reads the same two fields whatever it called.
    */
+  @ApiOperation({
+    summary: 'Delete an account',
+    description:
+      'For an account created by mistake. Refused with a `409` while an employee is linked to it — the lifecycle action for somebody who has left is `deactivate`, and neither was repurposed into the other.',
+  })
+  @ApiOkNullEnvelope()
+  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
   @Delete(':id')
   remove(
     @CurrentUser() user: CurrentUser,

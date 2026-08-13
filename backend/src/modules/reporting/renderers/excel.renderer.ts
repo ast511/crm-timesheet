@@ -3,7 +3,11 @@ import { Workbook, Worksheet } from 'exceljs';
 
 import { toZonedTimestamp } from '../../../common/utils/date.util';
 import { REPORT_LOCALE } from '../reporting.constants';
-import { ReportCell, ReportDataModel, ReportRow } from './report-data-model';
+import {
+  ReportCell,
+  ReportDataModel,
+  ReportRow,
+} from '../entities/report-data-model.entity';
 
 /** How many header rows the grid carries: labels, then sub-labels. */
 const HEADER_ROWS = 2;

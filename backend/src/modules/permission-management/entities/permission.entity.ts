@@ -21,17 +21,17 @@ import type { PermissionModel } from '../../../generated/prisma/models';
  * seeded vocabulary that grows one migration at a time, that is a question an
  * administrator wondering why a cell is new will actually ask.
  */
-export interface PermissionEntity {
-  id: string;
+export class PermissionEntity {
+  id!: string;
   /** `RESOURCE.ACTION` — the name a body, an audit line and a future guard quote. */
-  key: string;
-  resource: PermissionResource;
-  action: PermissionAction;
+  key!: string;
+  resource!: PermissionResource;
+  action!: PermissionAction;
   /** What the cell says on the matrix. Seeded per pair, never derived. */
-  label: string;
-  description: string | null;
-  createdAt: string;
-  updatedAt: string;
+  label!: string;
+  description!: string | null;
+  createdAt!: string;
+  updatedAt!: string;
 }
 
 /**
@@ -53,10 +53,10 @@ export interface PermissionEntity {
  * resources, would have made `total` count twelve while `limit` counted
  * permissions, and no client could then have told how much of the catalog it had.
  */
-export interface PermissionResourceGroupEntity {
-  resource: PermissionResource;
+export class PermissionResourceGroupEntity {
+  resource!: PermissionResource;
   /** The permissions of this resource **on the current page**, in page order. */
-  permissions: PermissionEntity[];
+  permissions!: PermissionEntity[];
 }
 
 /**

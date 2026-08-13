@@ -673,6 +673,43 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsEnum(CspMode)
   readonly SECURITY_CSP_MODE?: CspMode;
+
+  // ---------------------------------------------------------------------------
+  // API documentation — read by `swagger.config.ts` (Feature 038) and by
+  // nothing else.
+  //
+  // One variable, and it is an exposure switch rather than a setting. The
+  // generated OpenAPI document is a complete map of this API — every route,
+  // every field, every permission a route requires — plus a form that submits
+  // real requests against the live service. That is exactly what a frontend
+  // developer needs and exactly what nobody needs to publish from a production
+  // deployment by accident.
+  //
+  // Optional and defaulted **in the reading code**, the arrangement the two
+  // security variables above use: unset means "on outside production", so a
+  // developer machine and a CI run get the documentation with nothing
+  // configured while a production deployment gets it only if somebody typed so.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Whether this deployment serves `/api/docs` and `/api/docs-json`. Defaults
+   * to `true` outside production and `false` in it.
+   *
+   * Set it to `true` in production deliberately — for an internal deployment
+   * behind a VPN, or a staging environment a frontend team generates a client
+   * against — and understand what it publishes: the shape of every payload and
+   * the existence of every endpoint. It does not weaken any of them. Every
+   * route stays authenticated, authorised and rate limited, and the document
+   * contains no credential; what it removes is the need to guess.
+   *
+   * An explicit flag rather than reading `NODE_ENV` alone, for the reason
+   * `SECURITY_HSTS_ENABLED` is one: the environment name is a label, and an
+   * exposure decision should be something somebody typed.
+   */
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  readonly SWAGGER_ENABLED?: boolean;
 }
 
 /**

@@ -17,6 +17,7 @@ import {
 import { UserService } from '../users/user.service';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { NotificationQueryDto } from './dto/notification-query.dto';
+import { NotificationBulkResult } from './entities/notification-bulk-result.entity';
 import {
   NotificationEntity,
   toNotificationEntity,
@@ -32,18 +33,6 @@ import {
   NotificationAudience,
   NotificationRepository,
 } from './notification.repository';
-
-/**
- * How many notifications a bulk operation touched.
- *
- * Returned by "mark all read" and by both "delete all" endpoints, because
- * `{ "data": null }` would leave a client unable to tell "nothing was unread"
- * from "the request did nothing" — and on a destructive operation that is
- * exactly the thing a person wants confirmed.
- */
-export interface NotificationBulkResult {
-  readonly affected: number;
-}
 
 /**
  * Every rule about notifications lives here; the two controllers only route and

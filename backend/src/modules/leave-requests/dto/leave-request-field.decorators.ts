@@ -1,4 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -55,6 +56,11 @@ import {
  */
 export function IsLeaveReplacementIds() {
   return applyDecorators(
+    ApiProperty({
+      minItems: LEAVE_REQUEST_MIN_REPLACEMENTS,
+      maxItems: LEAVE_REQUEST_MAX_REPLACEMENTS,
+      uniqueItems: true,
+    }),
     ArrayMinSize(LEAVE_REQUEST_MIN_REPLACEMENTS),
     ArrayMaxSize(LEAVE_REQUEST_MAX_REPLACEMENTS),
     ArrayUnique(),
@@ -73,6 +79,11 @@ export function IsLeaveReplacementIds() {
  */
 export function IsLeaveRequestReason() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: LEAVE_REQUEST_REASON_MAX_LENGTH,
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     TrimToNull(),
     IsString(),
     MaxLength(LEAVE_REQUEST_REASON_MAX_LENGTH),
@@ -90,6 +101,11 @@ export function IsLeaveRequestReason() {
  */
 export function IsLeaveDecisionReason() {
   return applyDecorators(
+    ApiProperty({
+      maxLength: LEAVE_REQUEST_DECISION_REASON_MAX_LENGTH,
+      description:
+        'Trimmed; a blank string is stored as `null` rather than as "".',
+    }),
     TrimToNull(),
     IsString(),
     MaxLength(LEAVE_REQUEST_DECISION_REASON_MAX_LENGTH),
@@ -123,6 +139,12 @@ export function IsLeaveHalfDayPortion() {
  */
 export function IsLeaveRequestQueryYear() {
   return applyDecorators(
+    ApiProperty({
+      type: 'integer',
+      minimum: LEAVE_REQUEST_MIN_YEAR,
+      maximum: LEAVE_REQUEST_MAX_YEAR,
+      example: 2026,
+    }),
     Transform(({ value }: { value: unknown }) =>
       typeof value === 'string' ? Number(value) : value,
     ),

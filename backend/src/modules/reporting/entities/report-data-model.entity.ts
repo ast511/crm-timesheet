@@ -1,3 +1,5 @@
+import { ApiExtraModels, ApiProperty, getSchemaPath } from '@nestjs/swagger';
+
 import { ReportType } from '../reporting.constants';
 
 /**
@@ -23,11 +25,11 @@ import { ReportType } from '../reporting.constants';
  * every cell already carries the text a renderer should print. A renderer that
  * needs to know what a report *means* is a renderer that will diverge.
  */
-export interface ReportDataModel {
-  readonly reportType: ReportType;
+export class ReportDataModel {
+  readonly reportType!: ReportType;
 
   /** `Collective attendance sheet` — the heading in English. */
-  readonly title: string;
+  readonly title!: string;
 
   /**
    * `Foaie colectivă de prezență` — the name the people who asked for these
@@ -37,15 +39,15 @@ export interface ReportDataModel {
    * printed documents are Romanian while every other string this API produces is
    * English. Both are in the model so the renderers do not have to choose.
    */
-  readonly romanianTitle: string;
+  readonly romanianTitle!: string;
 
   /** One line under the heading: what the grid shows, and for how many people. */
-  readonly subtitle: string;
+  readonly subtitle!: string;
 
-  readonly period: ReportPeriod;
+  readonly period!: ReportPeriod;
 
   /** When this was generated, ISO-8601 UTC. Rendered in the company's zone. */
-  readonly generatedAt: string;
+  readonly generatedAt!: string;
 
   /**
    * How a PDF page is turned.
@@ -55,7 +57,7 @@ export interface ReportDataModel {
    * a renderer holding a list of which types are landscape would be a second
    * place that has to learn about a sixth report.
    */
-  readonly orientation: ReportOrientation;
+  readonly orientation!: ReportOrientation;
 
   /**
    * Which timesheet states this report counted, in a sentence.
@@ -67,11 +69,27 @@ export interface ReportDataModel {
    * entirely are both correct and are not comparable, and the document should say
    * so on its face rather than in a wiki.
    */
-  readonly sourceNote: string;
+  readonly sourceNote!: string;
 
-  readonly kpis: readonly ReportKpi[];
+  /**
+   * The header strip above the grid.
+   *
+   * The five properties on this class that hold a `readonly T[]` each carry an
+   * explicit `@ApiProperty` (Feature 038), and they are the only ones in the
+   * project that do. The schema generator's plugin infers `T[]` from the type
+   * on its own but not `readonly T[]` — it emits no type at all — and a
+   * property with no type is reported, misleadingly, as a circular dependency
+   * when the document is built. Naming the type here is what keeps the arrays
+   * `readonly`: the alternative was to weaken the declarations to plain arrays
+   * to suit the generator, which would trade a real compile-time guarantee for
+   * a documentation tool's convenience.
+   */
+  @ApiProperty({ type: () => [ReportKpi] })
+  readonly kpis!: readonly ReportKpi[];
 
-  readonly columns: readonly ReportColumn[];
+  /** One entry per column of the grid, in the order they are printed. */
+  @ApiProperty({ type: () => [ReportColumn] })
+  readonly columns!: readonly ReportColumn[];
 
   /**
    * Every row in final order — data rows, client group bands and total rows
@@ -83,7 +101,8 @@ export interface ReportDataModel {
    * renderer would have to re-interleave them, and the three renderers would
    * eventually interleave them differently.
    */
-  readonly rows: readonly ReportRow[];
+  @ApiProperty({ type: () => [ReportRow] })
+  readonly rows!: readonly ReportRow[];
 
   /**
    * What the markers in the grid mean.
@@ -96,19 +115,20 @@ export interface ReportDataModel {
    * Empty on the reports that use no markers, which is how a renderer knows not
    * to draw a legend box at all.
    */
-  readonly legend: readonly ReportLegendItem[];
+  @ApiProperty({ type: () => [ReportLegendItem] })
+  readonly legend!: readonly ReportLegendItem[];
 }
 
 export type ReportOrientation = 'portrait' | 'landscape';
 
 /** The single month a report covers. */
-export interface ReportPeriod {
-  readonly month: number;
-  readonly year: number;
+export class ReportPeriod {
+  readonly month!: number;
+  readonly year!: number;
   /** `September 2026` — what a heading and a legend print. */
-  readonly label: string;
+  readonly label!: string;
   /** `2026-09` — what a filename carries. */
-  readonly key: string;
+  readonly key!: string;
   /**
    * The company's IANA zone, from the Work Schedule singleton.
    *
@@ -117,24 +137,24 @@ export interface ReportPeriod {
    * dates: a timesheet entry's `date` is a calendar day, not a moment, and
    * re-interpreting it through a zone would move it a column.
    */
-  readonly timezone: string;
+  readonly timezone!: string;
 }
 
 /** One figure in the header strip above the grid. */
-export interface ReportKpi {
-  readonly key: string;
-  readonly label: string;
-  readonly value: number;
+export class ReportKpi {
+  readonly key!: string;
+  readonly label!: string;
+  readonly value!: number;
   /** `hours`, `employees` — what the number counts, printed under it. */
-  readonly unit: string;
+  readonly unit!: string;
 }
 
 export type ReportColumnType = 'text' | 'number' | 'marker';
 
 /** One column of the grid. */
-export interface ReportColumn {
-  readonly key: string;
-  readonly label: string;
+export class ReportColumn {
+  readonly key!: string;
+  readonly label!: string;
   /**
    * The second line of a column header — an employee's code, or their
    * department.
@@ -143,10 +163,10 @@ export interface ReportColumn {
    * employee columns with the department, the employee report with the employee
    * code. Same data, same builder input, two presentations.
    */
-  readonly sublabel: string | null;
-  readonly type: ReportColumnType;
+  readonly sublabel!: string | null;
+  readonly type!: ReportColumnType;
   /** The right-hand total column, which renderers emphasise. */
-  readonly isTotal: boolean;
+  readonly isTotal!: boolean;
 }
 
 export type ReportRowKind =
@@ -157,12 +177,59 @@ export type ReportRowKind =
   /** A totals row, emphasised and never split from the grid by a page break. */
   | 'total';
 
+/**
+ * One cell, as a discriminated union.
+ *
+ * The discriminant is what keeps numbers numeric in the spreadsheet. An Excel
+ * export whose hour cells are strings looks identical on screen and is useless:
+ * `SUM` over the column returns zero, and sorting is alphabetical. So a cell
+ * carries its machine value *and* the text a renderer should print, and the
+ * Excel renderer writes the former while the PDF renderer writes the latter.
+ *
+ * The three variants are declared **above** `ReportRow` rather than below it,
+ * where they read more naturally, because `ReportRow.cells` names them in a
+ * decorator (Feature 038) and a decorator argument is evaluated when the class
+ * is defined. Below, they would not exist yet.
+ */
+export type ReportCell = ReportTextCell | ReportNumberCell | ReportMarkerCell;
+
+export class ReportTextCell {
+  readonly kind!: 'text';
+  readonly text!: string | null;
+}
+
+export class ReportNumberCell {
+  readonly kind!: 'number';
+  /**
+   * The number itself, or `null` for a cell with no value.
+   *
+   * `null` rather than `0`, and the distinction is load-bearing on the two hour
+   * matrices: a project an employee did not touch is blank, and writing `0`
+   * would turn a grid that is mostly empty into a wall of zeros while claiming
+   * somebody booked no hours to something they were never on.
+   */
+  readonly value!: number | null;
+  /** `140h`, `—`. What the PDF prints. */
+  readonly text!: string;
+}
+
+export class ReportMarkerCell {
+  readonly kind!: 'marker';
+  /** `C`, `S`, `L` — one to three characters. */
+  readonly marker!: string;
+  /** What the PDF prints, which may be richer than the marker. */
+  readonly text!: string;
+  /** Ties the cell to its {@link ReportLegendItem}. */
+  readonly legendKey!: string;
+}
+
 /** One row of the grid. */
-export interface ReportRow {
-  readonly key: string;
-  readonly kind: ReportRowKind;
+@ApiExtraModels(ReportTextCell, ReportNumberCell, ReportMarkerCell)
+export class ReportRow {
+  readonly key!: string;
+  readonly kind!: ReportRowKind;
   /** What a `group` or `total` row prints across its width. */
-  readonly label: string;
+  readonly label!: string;
   /**
    * A short badge before the label on a group band — `TEC` for `TechCorp
    * Solutions`.
@@ -172,56 +239,34 @@ export interface ReportRow {
    * `Project.clientName`, a free string. The badge is presentation and nothing
    * keys off it.
    */
-  readonly badge: string | null;
-  readonly cells: Readonly<Record<string, ReportCell>>;
-}
-
-/**
- * One cell, as a discriminated union.
- *
- * The discriminant is what keeps numbers numeric in the spreadsheet. An Excel
- * export whose hour cells are strings looks identical on screen and is useless:
- * `SUM` over the column returns zero, and sorting is alphabetical. So a cell
- * carries its machine value *and* the text a renderer should print, and the
- * Excel renderer writes the former while the PDF renderer writes the latter.
- */
-export type ReportCell = ReportTextCell | ReportNumberCell | ReportMarkerCell;
-
-export interface ReportTextCell {
-  readonly kind: 'text';
-  readonly text: string | null;
-}
-
-export interface ReportNumberCell {
-  readonly kind: 'number';
+  readonly badge!: string | null;
   /**
-   * The number itself, or `null` for a cell with no value.
+   * The row's cells, keyed by {@link ReportColumn.key}.
    *
-   * `null` rather than `0`, and the distinction is load-bearing on the two hour
-   * matrices: a project an employee did not touch is blank, and writing `0`
-   * would turn a grid that is mostly empty into a wall of zeros while claiming
-   * somebody booked no hours to something they were never on.
+   * Documented as a free-form map whose values are one of the three cell
+   * shapes. The keys are a *property* of the report — they are whatever
+   * `columns` declared, which differs per report and per month — so there is
+   * no fixed set of them to publish, and `additionalProperties` is the honest
+   * description rather than a limitation of the tooling.
    */
-  readonly value: number | null;
-  /** `140h`, `—`. What the PDF prints. */
-  readonly text: string;
-}
-
-export interface ReportMarkerCell {
-  readonly kind: 'marker';
-  /** `C`, `S`, `L` — one to three characters. */
-  readonly marker: string;
-  /** What the PDF prints, which may be richer than the marker. */
-  readonly text: string;
-  /** Ties the cell to its {@link ReportLegendItem}. */
-  readonly legendKey: string;
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: {
+      oneOf: [
+        { $ref: getSchemaPath(ReportTextCell) },
+        { $ref: getSchemaPath(ReportNumberCell) },
+        { $ref: getSchemaPath(ReportMarkerCell) },
+      ],
+    },
+  })
+  readonly cells!: Readonly<Record<string, ReportCell>>;
 }
 
 /** One entry in the legend under a grid. */
-export interface ReportLegendItem {
-  readonly key: string;
-  readonly marker: string;
-  readonly label: string;
+export class ReportLegendItem {
+  readonly key!: string;
+  readonly marker!: string;
+  readonly label!: string;
 }
 
 /** A blank cell, which every grid needs more of than any other kind. */

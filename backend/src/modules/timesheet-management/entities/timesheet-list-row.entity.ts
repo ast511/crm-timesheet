@@ -1,3 +1,5 @@
+import { OmitType } from '@nestjs/swagger';
+
 import type { Prisma } from '../../../generated/prisma/client';
 import {
   TIMESHEET_BASE_SELECT,
@@ -33,11 +35,18 @@ import {
  * `scheduleSnapshot` is absent. It is a JSON blob per row, read by nobody
  * triaging, and a hundred copies of a configuration would be the largest thing on
  * the page.
+ *
+ * `OmitType` rather than the `Omit<…>` alias this was until Feature 038, and it
+ * is the same subtraction: the helper produces a real class whose instance type
+ * is `Omit<TimesheetEntity, 'entries' | 'scheduleSnapshot'>` and whose schema
+ * the documentation can reference. Naming the two removed fields still fails the
+ * build if either is renamed on `TimesheetEntity`, which is the property that
+ * made the alias worth writing in the first place.
  */
-export type TimesheetListRowEntity = Omit<
-  TimesheetEntity,
-  'entries' | 'scheduleSnapshot'
->;
+export class TimesheetListRowEntity extends OmitType(TimesheetEntity, [
+  'entries',
+  'scheduleSnapshot',
+] as const) {}
 
 /**
  * What the administrative list reads: the header and its two joined records.

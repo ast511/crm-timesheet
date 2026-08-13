@@ -17,7 +17,7 @@ import {
 } from '../timesheet-management/timesheet.service';
 import { WorkScheduleService } from '../work-schedule/work-schedule.service';
 import { ReportQueryDto } from './dto/report-query.dto';
-import { ReportPeriod } from './renderers/report-data-model';
+import { ReportPeriod } from './entities/report-data-model.entity';
 import {
   FIXED_DAY_MARKERS,
   REPORT_MAX_EMPLOYEES,

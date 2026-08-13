@@ -3,14 +3,25 @@ import {
   Controller,
   Delete,
   Get,
+  HttpStatus,
   Param,
   Post,
   Put,
   Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
+import {
+  ApiCreatedEnvelope,
+  ApiOkEnvelope,
+  ApiOkNullEnvelope,
+  ApiOkPageEnvelope,
+} from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreateTimesheetDto } from './dto/create-timesheet.dto';
 import { RejectTimesheetDto } from './dto/reject-timesheet.dto';
@@ -89,6 +100,9 @@ import { TimesheetService } from './timesheet.service';
  * Every method is a one-line delegation on purpose, and `id` is taken as a plain
  * string: ids are cuids, so `ParseUUIDPipe` would reject valid ones.
  */
+@ApiTags(API_TAG.Timesheets)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors(HttpStatus.FORBIDDEN)
 @Controller('timesheets')
 export class TimesheetController {
   constructor(private readonly timesheets: TimesheetService) {}
@@ -110,6 +124,13 @@ export class TimesheetController {
    * Reading it also brings `isStale` up to date, so the person about to edit their
    * month is the one told that a dependency moved under it.
    */
+  @ApiOperation({
+    summary: 'Read my timesheet for a month',
+    description:
+      'Both `month` and `year` are required: a timesheet is one person’s account of *one* month, so "my timesheet" without a period names nothing. A `404` means the month has not been opened yet rather than that something is wrong — the client’s answer to it is `POST /timesheets/me`. Reading also brings `isStale` up to date, so the person about to edit their month is the one told that a dependency moved under it.',
+  })
+  @ApiOkEnvelope(TimesheetEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.NOT_FOUND)
   @Get('me')
   findOwn(
     @CurrentUser() user: CurrentUser,
@@ -134,6 +155,13 @@ export class TimesheetController {
    * on the second call too, which is the one place this idempotence is visible —
    * the body is what matters, and it is the same timesheet.
    */
+  @ApiOperation({
+    summary: 'Open my timesheet for a month',
+    description:
+      '**Idempotent**: a second call for the same month returns the existing timesheet rather than a duplicate or a `409`, which the `(employee_id, month, year)` unique constraint makes a guarantee rather than an expectation — so a client may call it unconditionally instead of probing with a `GET` first. The new draft already carries the approved leave and the public holidays for the month; the employee fills in the days that are theirs. It answers `201` on the second call too, which is the one place the idempotence is visible: the body is what matters, and it is the same timesheet.',
+  })
+  @ApiCreatedEnvelope(TimesheetEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Post('me')
   openOwn(
     @CurrentUser() user: CurrentUser,
@@ -154,6 +182,17 @@ export class TimesheetController {
    * Allowed only while the timesheet is `DRAFT` or `REJECTED`; a `409` naming the
    * status otherwise, and a `403` if it is not the caller's.
    */
+  @ApiOperation({
+    summary: 'Replace my timesheet’s lines',
+    description:
+      'A `PUT` on a sub-resource rather than a `PATCH` on the timesheet, because the body is the **complete** entry set: a day omitted is a day cleared, and the same body sent twice leaves the same month. Allowed only while the timesheet is `DRAFT` or `REJECTED` — anything else is a `409` naming the status — and a `403` if it is not the caller’s. Every offending day is reported at once rather than one at a time.',
+  })
+  @ApiOkEnvelope(TimesheetEntity)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Put('me/:id/entries')
   setOwnEntries(
     @CurrentUser() user: CurrentUser,
@@ -183,6 +222,17 @@ export class TimesheetController {
    * The full validation runs here, against the calendar as it is now. Every
    * offending day is reported at once.
    */
+  @ApiOperation({
+    summary: 'Submit my timesheet for review',
+    description:
+      '`DRAFT → SUBMITTED` and `REJECTED → SUBMITTED` are the same operation and the same endpoint: resubmitting a refused month is not a different act, and the rules it must satisfy do not depend on whether somebody has already looked at it. The full validation runs here, against the calendar as it is *now*, and every offending day is reported at once.',
+  })
+  @ApiOkEnvelope(TimesheetEntity)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Post('me/:id/submit')
   submitOwn(
     @CurrentUser() user: CurrentUser,
@@ -209,6 +259,13 @@ export class TimesheetController {
    * page of a hundred months would otherwise be three thousand nested objects to
    * render a table.
    */
+  @ApiOperation({
+    summary: 'List the review queue',
+    description:
+      '**Never returns a draft**, whatever is asked for: a half-finished month is private to the person filling it in, so `?status=DRAFT` answers an empty page rather than a `400`. Each row carries the four hour figures — worked, leave, holiday and total — because that is what makes a row triageable without opening it, and it carries no entries: a page of a hundred months would otherwise be three thousand nested objects to render a table.',
+  })
+  @ApiOkPageEnvelope(TimesheetListRowEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Get()
   findAll(
     @CurrentUser() user: CurrentUser,
@@ -224,6 +281,13 @@ export class TimesheetController {
    * answers the same `404` as a timesheet that does not exist, so the endpoint
    * cannot be used to discover that a colleague has started their month.
    */
+  @ApiOperation({
+    summary: 'Read one timesheet in full',
+    description:
+      'The header and every line — the "see how it was filled" view the list deliberately omits. A `DRAFT` answers the same `404` as a timesheet that does not exist, so this endpoint cannot be used to discover that a colleague has started their month.',
+  })
+  @ApiOkEnvelope(TimesheetEntity)
+  @ApiStandardErrors(HttpStatus.NOT_FOUND)
   @Get(':id')
   findOne(
     @CurrentUser() user: CurrentUser,
@@ -247,6 +311,13 @@ export class TimesheetController {
    * The month is immutable afterwards, and its `scheduleSnapshot` records the
    * rules it was judged by.
    */
+  @ApiOperation({
+    summary: 'Approve a submitted timesheet',
+    description:
+      '**No body**, deliberately: an approval carries nothing a client could state, and an optional note would be stored as a caveat on a month that was approved without qualification. Requires the `TIMESHEET.APPROVE` permission *and* an administrative role — the gate can narrow that set but not widen it below the administrative roles. Guarded on `SUBMITTED` inside the update itself, so two administrators acting at the same moment cannot produce a month that is both approved and rejected: the second gets a `409` telling them to reload. The month is immutable afterwards, and its `scheduleSnapshot` records the rules it was judged by.',
+  })
+  @ApiOkEnvelope(TimesheetEntity)
+  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
   @Post(':id/approve')
   @RequirePermission('TIMESHEET.APPROVE')
   approve(
@@ -266,6 +337,17 @@ export class TimesheetController {
    * Guarded on `SUBMITTED` in the same way as the approval, and against the same
    * race.
    */
+  @ApiOperation({
+    summary: 'Reject a submitted timesheet, with a reason',
+    description:
+      'The reason is **required**, which is why this transition has a body and the approval does not. It reaches the owner in the notification and is stored on the timesheet, where it survives the resubmission. Same permission, same `SUBMITTED` guard and same race protection as the approval.',
+  })
+  @ApiOkEnvelope(TimesheetEntity)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Post(':id/reject')
   @RequirePermission('TIMESHEET.APPROVE')
   reject(
@@ -286,6 +368,13 @@ export class TimesheetController {
    * Answers 200 with `{ "success": true, "data": null }` rather than 204, the call
    * Feature 006 made so a client reads the same two fields whatever it called.
    */
+  @ApiOperation({
+    summary: 'Delete a timesheet',
+    description:
+      'A `409` on an approved one: that is the record of what the company agreed somebody worked. The lines go with the header, by the cascade on their foreign key. Answers `200` with `data: null` rather than `204`.',
+  })
+  @ApiOkNullEnvelope()
+  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
   @Delete(':id')
   remove(
     @CurrentUser() user: CurrentUser,

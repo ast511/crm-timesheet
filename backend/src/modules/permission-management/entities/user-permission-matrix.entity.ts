@@ -4,8 +4,10 @@ import type {
   PermissionResource,
   UserRole,
 } from '../../../generated/prisma/enums';
-import type { PermissionEntity, PermissionRow } from './permission.entity';
-import { toPermissionEntity } from './permission.entity';
+import type { PermissionRow } from './permission.entity';
+// A value import rather than `import type`: since Feature 038 `PermissionEntity`
+// is a class, and a class being extended is a value at runtime.
+import { PermissionEntity, toPermissionEntity } from './permission.entity';
 
 /**
  * Why a cell of the matrix reads the way it does.
@@ -43,11 +45,11 @@ export const PERMISSION_SOURCES = [
 export type PermissionSource = (typeof PERMISSION_SOURCES)[number];
 
 /** One catalog permission, resolved for one user. */
-export interface PermissionMatrixCell extends PermissionEntity {
+export class PermissionMatrixCell extends PermissionEntity {
   /** Whether the user effectively holds it. */
-  granted: boolean;
+  granted!: boolean;
   /** Why — see {@link PERMISSION_SOURCES}. */
-  source: PermissionSource;
+  source!: PermissionSource;
 }
 
 /**
@@ -60,9 +62,9 @@ export interface PermissionMatrixCell extends PermissionEntity {
  * with a `filter` — deriving the long list from the short one is impossible,
  * while the reverse is one line. One method, one shape, two readers.
  */
-export interface EffectiveResolution {
-  userId: string;
-  role: UserRole;
+export class EffectiveResolution {
+  userId!: string;
+  role!: UserRole;
   /**
    * Whether the matrix may be written at all.
    *
@@ -71,8 +73,8 @@ export interface EffectiveResolution {
    * the rule from `role` — and so that the rule lives in the resolution method
    * rather than in a client's copy of it.
    */
-  readOnly: boolean;
-  permissions: PermissionMatrixCell[];
+  readOnly!: boolean;
+  permissions!: PermissionMatrixCell[];
 }
 
 /**
@@ -83,21 +85,21 @@ export interface EffectiveResolution {
  * every client write the same `reduce`. Unlike the catalog this one is never
  * paginated — a matrix is meaningless in pieces, and it is fifty-five rows.
  */
-export interface UserPermissionMatrixEntity {
-  userId: string;
-  role: UserRole;
+export class UserPermissionMatrixEntity {
+  userId!: string;
+  role!: UserRole;
   /** `true` for a super-admin target: the screen renders it but cannot write it. */
-  readOnly: boolean;
+  readOnly!: boolean;
   /** How many of the catalog's permissions this person effectively holds. */
-  grantedCount: number;
+  grantedCount!: number;
   /** How many permissions the catalog holds, so a client can render "10 of 55". */
-  totalCount: number;
-  resources: PermissionMatrixResourceEntity[];
+  totalCount!: number;
+  resources!: PermissionMatrixResourceEntity[];
 }
 
-export interface PermissionMatrixResourceEntity {
-  resource: PermissionResource;
-  permissions: PermissionMatrixCell[];
+export class PermissionMatrixResourceEntity {
+  resource!: PermissionResource;
+  permissions!: PermissionMatrixCell[];
 }
 
 /**
@@ -123,15 +125,15 @@ export interface PermissionMatrixResourceEntity {
  * caller alone, and gating it would mean an ordinary employee could not discover
  * their own permissions. See `PermissionController`.
  */
-export interface EffectivePermissionsEntity {
-  userId: string;
-  role: UserRole;
+export class EffectivePermissionsEntity {
+  userId!: string;
+  role!: UserRole;
   /** `true` for a super-admin — every key, and none of them stored. */
-  readOnly: boolean;
+  readOnly!: boolean;
   /** The granted keys, in catalog order. */
-  permissions: string[];
+  permissions!: string[];
   /** How many, so a client renders a count without measuring the array. */
-  total: number;
+  total!: number;
 }
 
 /**

@@ -3,13 +3,24 @@ import {
   Controller,
   Delete,
   Get,
+  HttpStatus,
   Param,
   Patch,
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { PaginatedResult } from '../../common/interfaces/pagination.interface';
+import {
+  ApiCreatedEnvelope,
+  ApiOkEnvelope,
+  ApiOkNullEnvelope,
+  ApiOkPageEnvelope,
+} from '../../common/swagger/api-envelope-response.decorator';
+import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
+import { API_TAG } from '../../config/swagger-tags';
+import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
 import { CreateReminderDto } from './dto/create-reminder.dto';
 import { ReminderQueryDto } from './dto/reminder-query.dto';
 import { UpdateReminderDto } from './dto/update-reminder.dto';
@@ -51,10 +62,20 @@ import { ReminderService } from './reminder.service';
  * composes and sends once. The feature document records the whole rule — nothing
  * in this file enforces any of it today.
  */
+@ApiTags(API_TAG.NotificationManagement)
+@ApiBearerAuth(BEARER_AUTH_NAME)
+@ApiStandardErrors()
 @Controller('reminders')
 export class ReminderController {
   constructor(private readonly reminderService: ReminderService) {}
 
+  @ApiOperation({
+    summary: 'List reminder rules',
+    description:
+      'How long before a deadline people should be reminded, and by which channels. **Nothing here fires a reminder** — the Notification Delivery Engine reads this configuration and decides when a deadline is near.',
+  })
+  @ApiOkPageEnvelope(ReminderEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
   @Get()
   findAll(
     @Query() query: ReminderQueryDto,
@@ -62,12 +83,22 @@ export class ReminderController {
     return this.reminderService.findAll(query);
   }
 
+  @ApiOperation({ summary: 'Read one reminder rule' })
+  @ApiOkEnvelope(ReminderEntity)
+  @ApiStandardErrors(HttpStatus.NOT_FOUND)
   @Get(':id')
   findOne(@Param('id') id: string): Promise<ReminderEntity> {
     return this.reminderService.findOne(id);
   }
 
   /** Answers 201; Nest applies it to `@Post` without a `@HttpCode`. */
+  @ApiOperation({
+    summary: 'Create a reminder rule',
+    description:
+      'The name is unique. A rule fires against every employee on a schedule nobody re-approves, which is why this resource is administrator-only in intent — see the feature document.',
+  })
+  @ApiCreatedEnvelope(ReminderEntity)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
   @Post()
   create(@Body() dto: CreateReminderDto): Promise<ReminderEntity> {
     return this.reminderService.create(dto);
@@ -83,6 +114,17 @@ export class ReminderController {
    * `PATCH /:id/read` is the contrasting case — marking read also writes a
    * timestamp from the server's clock, which the caller cannot state.
    */
+  @ApiOperation({
+    summary: 'Edit a reminder rule, or switch it off',
+    description:
+      'Switching it off is `{ "enabled": false }`. There is deliberately no `POST /reminders/:id/disable`: `enabled` is a *property* of the rule rather than an event in its life, so a sub-resource would be a second way to write one column.',
+  })
+  @ApiOkEnvelope(ReminderEntity)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Patch(':id')
   update(
     @Param('id') id: string,
@@ -98,6 +140,12 @@ export class ReminderController {
    * response is not the envelope — Feature 006 chose the explicit `data: null`
    * so a client reads the same two fields whatever it called.
    */
+  @ApiOperation({
+    summary: 'Delete a reminder rule',
+    description: 'Answers `200` with `data: null` rather than `204`.',
+  })
+  @ApiOkNullEnvelope()
+  @ApiStandardErrors(HttpStatus.NOT_FOUND)
   @Delete(':id')
   remove(@Param('id') id: string): Promise<void> {
     return this.reminderService.remove(id);
