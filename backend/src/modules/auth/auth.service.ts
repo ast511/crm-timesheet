@@ -24,7 +24,7 @@ import {
 } from './auth.constants';
 import { LoginDto } from './dto/login.dto';
 import {
-  AuthSessionEntity,
+  IssuedSession,
   toAuthSessionEntity,
 } from './entities/auth-session.entity';
 import {
@@ -41,7 +41,7 @@ import {
   REFRESH_TOKEN_SELECT,
   StoredRefreshToken,
 } from './entities/refresh-token.entity';
-import { TokenService } from './token.service';
+import { IssuedRefreshToken, TokenService } from './token.service';
 
 /**
  * What a client told us about itself, recorded beside an issued token.
@@ -67,6 +67,12 @@ export interface ClientContext {
  * token** is a row, so it can be ended — and every mechanism this feature has
  * for ending a session acts on that row. The whole design follows from that
  * split; `RefreshToken` in `schema.prisma` argues it at length.
+ *
+ * How each of them *travels* is not this service's business and is not decided
+ * here. It takes a refresh token as a string and hands one back as a string;
+ * that the string arrives in an `HttpOnly` cookie as of Feature 040, rather than
+ * in a JSON body, is `AuthController`'s and `RefreshTokenCookie`'s. Nothing in
+ * this file changed when the transport did, which is what the split was for.
  *
  * ## Rotation, and what it detects
  *
@@ -150,10 +156,7 @@ export class AuthService {
    * address exists but has never been activated" measurable in milliseconds,
    * which during an onboarding week is a list of exactly who has just joined.
    */
-  async login(
-    dto: LoginDto,
-    context: ClientContext,
-  ): Promise<AuthSessionEntity> {
+  async login(dto: LoginDto, context: ClientContext): Promise<IssuedSession> {
     const user: CredentialsRow | null = await this.prisma.user.findUnique({
       where: { email: dto.email },
       select: CREDENTIALS_SELECT,
@@ -205,7 +208,7 @@ export class AuthService {
   async refresh(
     presentedToken: string,
     context: ClientContext,
-  ): Promise<AuthSessionEntity> {
+  ): Promise<IssuedSession> {
     const userId = await this.tokenService.verifyRefreshToken(presentedToken);
     const tokenHash = this.tokenService.hash(presentedToken);
 
@@ -270,7 +273,7 @@ export class AuthService {
       });
     });
 
-    return this.completeSession(user, issued.token);
+    return this.completeSession(user, issued);
   }
 
   /**
@@ -414,7 +417,7 @@ export class AuthService {
   private async issueSession(
     user: AuthenticatedUserRow,
     context: ClientContext,
-  ): Promise<AuthSessionEntity> {
+  ): Promise<IssuedSession> {
     const issued = await this.tokenService.issueRefreshToken(user.id);
 
     await this.prisma.refreshToken.create({
@@ -427,7 +430,7 @@ export class AuthService {
       select: { id: true },
     });
 
-    return this.completeSession(user, issued.token);
+    return this.completeSession(user, issued);
   }
 
   /**
@@ -435,17 +438,26 @@ export class AuthService {
    *
    * Shared by login and refresh so the two cannot drift — the body a client
    * parses is built once, whichever endpoint produced it.
+   *
+   * The refresh token and its expiry come back **beside** the entity rather than
+   * inside it, which is Feature 040's shape: the entity is what the interceptor
+   * serialises, so a field it does not have is a field that cannot be leaked
+   * into a body by a later edit. `AuthController` takes the two extra values
+   * straight to the cookie.
    */
   private async completeSession(
     user: AuthenticatedUserRow,
-    refreshToken: string,
-  ): Promise<AuthSessionEntity> {
-    return toAuthSessionEntity(
-      await this.tokenService.issueAccessToken(user.id),
-      refreshToken,
-      this.tokenService.accessTtlSeconds,
-      toAuthUserEntity(user),
-    );
+    issued: IssuedRefreshToken,
+  ): Promise<IssuedSession> {
+    return {
+      session: toAuthSessionEntity(
+        await this.tokenService.issueAccessToken(user.id),
+        this.tokenService.accessTtlSeconds,
+        toAuthUserEntity(user),
+      ),
+      refreshToken: issued.token,
+      refreshTokenExpiresAt: issued.expiresAt,
+    };
   }
 
   /**

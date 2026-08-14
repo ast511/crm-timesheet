@@ -560,4 +560,123 @@ describe('validateEnvironment', () => {
       },
     );
   });
+
+  /**
+   * The refresh cookie (Feature 040).
+   *
+   * Every one of the four is optional, and every one of them fails *silently*
+   * when it is wrong: a browser that will not parse a cookie name, or will not
+   * send a cookie whose path does not cover the route, says nothing to anybody
+   * — the symptom is a session that ends at the first refresh, which looks
+   * exactly like a bug in the token check. That is what this block is for.
+   */
+  describe('the refresh cookie', () => {
+    it('leaves every attribute unset when the environment says nothing', () => {
+      const config = validateWith();
+
+      expect(config.AUTH_REFRESH_COOKIE_NAME).toBeUndefined();
+      expect(config.AUTH_REFRESH_COOKIE_PATH).toBeUndefined();
+      expect(config.AUTH_REFRESH_COOKIE_SECURE).toBeUndefined();
+      expect(config.AUTH_REFRESH_COOKIE_SAME_SITE).toBeUndefined();
+    });
+
+    it.each(['refresh_token', 'rt', '__Host-refresh'])(
+      'accepts %p as a cookie name',
+      (name) => {
+        expect(
+          validateWith({ AUTH_REFRESH_COOKIE_NAME: name })
+            .AUTH_REFRESH_COOKIE_NAME,
+        ).toBe(name);
+      },
+    );
+
+    /** Each of these produces a `Set-Cookie` the browser discards in silence. */
+    it.each(['refresh token', 'refresh=token', 'refresh;token', 'a,b', '"rt"'])(
+      'rejects %p as a cookie name',
+      (name) => {
+        expect(() => validateWith({ AUTH_REFRESH_COOKIE_NAME: name })).toThrow(
+          /AUTH_REFRESH_COOKIE_NAME/,
+        );
+      },
+    );
+
+    it.each(['/', '/api/v1/auth'])('accepts %p as a cookie path', (path) => {
+      expect(
+        validateWith({ AUTH_REFRESH_COOKIE_PATH: path })
+          .AUTH_REFRESH_COOKIE_PATH,
+      ).toBe(path);
+    });
+
+    it.each(['api/v1/auth', '/auth?x=1', '/auth#f', '/two words'])(
+      'rejects %p as a cookie path',
+      (path) => {
+        expect(() => validateWith({ AUTH_REFRESH_COOKIE_PATH: path })).toThrow(
+          /AUTH_REFRESH_COOKIE_PATH/,
+        );
+      },
+    );
+
+    it('converts the Secure flag to a real boolean', () => {
+      expect(
+        validateWith({ AUTH_REFRESH_COOKIE_SECURE: 'true' })
+          .AUTH_REFRESH_COOKIE_SECURE,
+      ).toBe(true);
+      expect(
+        validateWith({ AUTH_REFRESH_COOKIE_SECURE: 'false' })
+          .AUTH_REFRESH_COOKIE_SECURE,
+      ).toBe(false);
+    });
+
+    it.each(['lax', 'strict'])('accepts SameSite=%p on its own', (value) => {
+      expect(
+        validateWith({ AUTH_REFRESH_COOKIE_SAME_SITE: value })
+          .AUTH_REFRESH_COOKIE_SAME_SITE,
+      ).toBe(value);
+    });
+
+    it.each(['Lax', 'no', 'same-site', 'true'])(
+      'rejects SameSite=%p',
+      (value) => {
+        expect(() =>
+          validateWith({ AUTH_REFRESH_COOKIE_SAME_SITE: value }),
+        ).toThrow(/AUTH_REFRESH_COOKIE_SAME_SITE/);
+      },
+    );
+
+    /**
+     * **A browser rule rather than an opinion.** `SameSite=None` without
+     * `Secure` is discarded outright, so the combination does not produce a
+     * weaker cookie — it produces no cookie, and a login whose session lasts one
+     * access token. Refusing it at startup is the only place the mistake is
+     * visible.
+     */
+    it('refuses SameSite=none unless Secure is explicitly on', () => {
+      expect(() =>
+        validateWith({ AUTH_REFRESH_COOKIE_SAME_SITE: 'none' }),
+      ).toThrow(/AUTH_REFRESH_COOKIE_SECURE/);
+
+      expect(() =>
+        validateWith({
+          AUTH_REFRESH_COOKIE_SAME_SITE: 'none',
+          AUTH_REFRESH_COOKIE_SECURE: 'false',
+        }),
+      ).toThrow(/AUTH_REFRESH_COOKIE_SECURE/);
+    });
+
+    /**
+     * And demands it be *typed*, not inherited from `NODE_ENV`: a split-domain
+     * deployment is the one making that decision, and a production default that
+     * happened to be right would leave the same configuration broken in staging.
+     */
+    it('accepts SameSite=none together with Secure', () => {
+      const config = validateWith({
+        NODE_ENV: NodeEnvironment.Production,
+        AUTH_REFRESH_COOKIE_SAME_SITE: 'none',
+        AUTH_REFRESH_COOKIE_SECURE: 'true',
+      });
+
+      expect(config.AUTH_REFRESH_COOKIE_SAME_SITE).toBe('none');
+      expect(config.AUTH_REFRESH_COOKIE_SECURE).toBe(true);
+    });
+  });
 });

@@ -4,6 +4,7 @@ import {
   VersioningType,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
 import { AllExceptionsFilter } from '../common/filters/all-exceptions.filter';
@@ -40,6 +41,26 @@ export function configureApp(app: INestApplication): void {
   // options themselves live in `helmet.config.ts`, next to `cors.config.ts`,
   // because they are this deployment's decisions rather than this function's.
   app.use(helmet(buildHelmetOptions(app.get(ConfigService))));
+
+  // Parses the `Cookie` header into `request.cookies` (Feature 040). Express
+  // does not do this on its own, so without it the refresh token — which now
+  // travels as an `HttpOnly` cookie rather than in a JSON body — could not be
+  // read off a request at all.
+  //
+  // Registered here rather than in `AuthModule` for the reason everything else
+  // in this function is: bootstrap and the e2e suite both call it, so a spec
+  // exercises the same request object the server builds instead of a second
+  // wiring that can drift. It is global while exactly one module reads a
+  // cookie, which is the honest trade — middleware that only some requests pass
+  // through would make "is a cookie parsed here" a question about routing.
+  //
+  // **No signing secret.** `cookieParser(secret)` would add an HMAC over the
+  // cookie's value, and there is nothing here for it to protect: the value is
+  // already a signed JWS whose SHA-256 must match a row in `refresh_tokens`, so
+  // a tampered or invented cookie is refused by the token check either way. A
+  // second secret would be a second thing to rotate and a second way to log
+  // everybody out by getting it wrong.
+  app.use(cookieParser());
 
   app.setGlobalPrefix(API_PREFIX);
 

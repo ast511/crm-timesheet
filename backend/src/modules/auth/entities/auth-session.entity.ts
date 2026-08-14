@@ -12,30 +12,28 @@ import { AuthUserEntity } from './authenticated-user.entity';
  * One shape also means the frontend has one function that stores a session
  * rather than two that must agree.
  *
- * **Both tokens are in the body rather than in cookies**, and that is the
- * feature's most visible trade-off. See the module documentation in
- * `auth.module.ts` for the argument in full; the short version is that this is
- * an API-first backend with a token-bearing WebSocket beside it, and a cookie
- * that the socket cannot use would mean shipping both mechanisms.
+ * **The refresh token is no longer here** — as of Feature 040 it travels as an
+ * `HttpOnly` cookie, which is the whole of that feature. Feature 032 put both
+ * tokens in the body and argued the trade-off on this class; the argument it
+ * made was about the *access* token, which a token-bearing WebSocket needs to be
+ * able to read and which therefore stays exactly where it was. The refresh token
+ * had no such requirement: nothing but `POST /auth/refresh` ever presents it, so
+ * nothing is lost by putting it somewhere JavaScript cannot look. See
+ * `refresh-token.cookie.ts`.
  *
- * Nothing derived is included. There is no `user.permissions`, no menu, no
- * expiry for the *refresh* token in seconds — a client stores the refresh token
- * and presents it until it is refused, and a countdown it would have to keep in
- * step with the server is a second source for one fact.
+ * A client therefore stores **nothing durable**. The access token lives in
+ * memory for as long as the tab does, the refresh token lives in the browser's
+ * cookie jar where the page cannot reach it, and a reload is a call to
+ * `POST /auth/refresh` with no argument.
+ *
+ * Nothing derived is included. There is no `user.permissions`, no menu, and no
+ * expiry for the refresh token — a client no longer holds it, cannot count down
+ * to its expiry and does not need to: it calls refresh and is either given a
+ * session or told to sign in.
  */
 export class AuthSessionEntity {
   /** Present as `Authorization: Bearer <accessToken>` on every other request. */
   accessToken!: string;
-
-  /**
-   * Presented to `POST /auth/refresh`, once.
-   *
-   * Rotation makes this single-use: the response to a refresh contains its
-   * replacement, and presenting this one again is treated as theft. A client
-   * therefore has to *overwrite* what it stored, not append to it — the one
-   * thing an integrator can get wrong here, and the reason it is said out loud.
-   */
-  refreshToken!: string;
 
   /** Always `Bearer`, so a client can build the header without knowing the scheme. */
   tokenType!: typeof BEARER_SCHEME;
@@ -56,16 +54,34 @@ export class AuthSessionEntity {
   user!: AuthUserEntity;
 }
 
+/**
+ * A session as the *application* holds it: the body above, plus the refresh
+ * token and the instant it dies.
+ *
+ * The two extra fields never reach a client as JSON. They are what
+ * `AuthController` needs in order to write the cookie — the value, and the
+ * expiry the cookie's `Max-Age` is derived from — and they are returned beside
+ * the entity rather than on it precisely so that they cannot be serialised by
+ * accident: `AuthSessionEntity` is what the interceptor wraps, and it has no
+ * field for a refresh token to hide in.
+ */
+export interface IssuedSession {
+  /** The body of the response. */
+  readonly session: AuthSessionEntity;
+  /** The raw refresh token, bound for the cookie and nowhere else. */
+  readonly refreshToken: string;
+  /** When that token stops being valid — the cookie's lifetime. */
+  readonly refreshTokenExpiresAt: Date;
+}
+
 /** Assembles the response. One place, so login and refresh cannot drift. */
 export function toAuthSessionEntity(
   accessToken: string,
-  refreshToken: string,
   expiresIn: number,
   user: AuthUserEntity,
 ): AuthSessionEntity {
   return {
     accessToken,
-    refreshToken,
     tokenType: BEARER_SCHEME,
     expiresIn,
     user,

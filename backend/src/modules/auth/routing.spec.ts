@@ -6,8 +6,10 @@ import {
   ValidationPipe,
   VersioningType,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
+import cookieParser from 'cookie-parser';
 import request from 'supertest';
 
 import { ERROR_CODES } from '../../common/constants/error-codes.constants';
@@ -27,6 +29,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { DEFAULT_REFRESH_COOKIE_NAME } from './refresh-cookie.config';
+import { RefreshTokenCookie } from './refresh-token.cookie';
 
 /**
  * A stand-in for the eighteen modules that read the caller through the seam.
@@ -65,9 +69,9 @@ const CALLER: CurrentUser = {
   administrativeAccess: true,
 };
 
+/** The body login and refresh answer with — no refresh token anywhere in it. */
 const SESSION = {
   accessToken: 'new-access-token',
-  refreshToken: 'new-refresh-token',
   tokenType: 'Bearer' as const,
   expiresIn: 900,
   user: {
@@ -79,8 +83,41 @@ const SESSION = {
   },
 };
 
+const ISSUED_REFRESH_TOKEN = 'i'.repeat(64);
+
+/**
+ * What `AuthService.login` and `.refresh` now return: the body, plus the two
+ * values the controller needs in order to write the cookie.
+ */
+const ISSUED = {
+  session: SESSION,
+  refreshToken: ISSUED_REFRESH_TOKEN,
+  refreshTokenExpiresAt: new Date(Date.now() + 604_800_000),
+};
+
 const VALID_TOKEN = 'a-valid-access-token';
 const REFRESH_TOKEN = 'r'.repeat(64);
+
+/** A refresh cookie on a request, as a browser would send it. */
+const refreshCookie = (token: string): string =>
+  `${DEFAULT_REFRESH_COOKIE_NAME}=${token}`;
+
+/** The `Set-Cookie` entries a response carried, as a plain array. */
+const setCookies = (response: request.Response): string[] => {
+  const header: unknown = response.headers['set-cookie'];
+
+  if (header === undefined) {
+    return [];
+  }
+
+  return Array.isArray(header) ? (header as string[]) : [String(header)];
+};
+
+/** The one `Set-Cookie` naming the refresh cookie, or `undefined`. */
+const refreshSetCookie = (response: request.Response): string | undefined =>
+  setCookies(response).find((cookie) =>
+    cookie.startsWith(`${DEFAULT_REFRESH_COOKIE_NAME}=`),
+  );
 
 describe('auth routing', () => {
   let app: INestApplication;
@@ -94,8 +131,8 @@ describe('auth routing', () => {
   };
 
   const auth = {
-    login: jest.fn().mockResolvedValue(SESSION),
-    refresh: jest.fn().mockResolvedValue(SESSION),
+    login: jest.fn().mockResolvedValue(ISSUED),
+    refresh: jest.fn().mockResolvedValue(ISSUED),
     logout: jest.fn().mockResolvedValue(undefined),
     describeSelf: jest.fn().mockResolvedValue(SESSION.user),
     // Refuses exactly as the real service does, code included — otherwise this
@@ -128,6 +165,13 @@ describe('auth routing', () => {
         // `account-lifecycle/routing.spec.ts`, and this file is about the guard,
         // the header parsing and the identity seam.
         { provide: AccountPasswordService, useValue: passwords },
+        // The real cookie writer (Feature 040), against an empty
+        // `ConfigService` — so what is asserted below is the *default* cookie
+        // every deployment gets when it configures nothing, rather than a set of
+        // attributes invented by this spec. `refresh-cookie.config.spec.ts`
+        // covers what each variable changes.
+        { provide: ConfigService, useValue: new ConfigService({}) },
+        RefreshTokenCookie,
         // The guard as the application registers it, so what is exercised here
         // is the wiring the server actually has.
         { provide: APP_GUARD, useClass: JwtAuthGuard },
@@ -135,6 +179,12 @@ describe('auth routing', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
+
+    // `configureApp` registers this globally; the routes below cannot read a
+    // cookie without it, which is precisely what a request with no parser looks
+    // like — so a spec that forgot it would fail with 401s rather than silently
+    // testing nothing.
+    app.use(cookieParser());
 
     app.setGlobalPrefix(API_PREFIX);
     app.enableVersioning({
@@ -173,11 +223,69 @@ describe('auth routing', () => {
         .expect(({ body }) => {
           expect(body.data).toMatchObject({
             accessToken: SESSION.accessToken,
-            refreshToken: SESSION.refreshToken,
             tokenType: 'Bearer',
             expiresIn: 900,
           });
         });
+    });
+
+    /**
+     * **Feature 040, in one assertion.** The access token is in the body where
+     * it has always been, and the refresh token is not in the body at all — it
+     * is in a cookie a script cannot read.
+     */
+    it('puts the refresh token in an HttpOnly cookie and not in the body', async () => {
+      const response = await login()
+        .send({ email: 'maria.ionescu@company.com', password: 'a password' })
+        .expect(200);
+
+      expect(response.body.data.accessToken).toBe(SESSION.accessToken);
+      expect(response.body.data).not.toHaveProperty('refreshToken');
+      expect(JSON.stringify(response.body)).not.toContain(ISSUED_REFRESH_TOKEN);
+
+      const cookie = refreshSetCookie(response);
+
+      expect(cookie).toContain(
+        `${DEFAULT_REFRESH_COOKIE_NAME}=${ISSUED_REFRESH_TOKEN}`,
+      );
+      expect(cookie).toContain('HttpOnly');
+    });
+
+    /**
+     * The default attributes, spelled out. `Path` keeps the credential off
+     * every other route, `SameSite=Lax` is what stops another site causing a
+     * refresh, and `Max-Age` is the token's own lifetime rather than a second
+     * reading of `JWT_REFRESH_TTL`.
+     *
+     * `Secure` is **absent** here, and that is the development default rather
+     * than an omission: set against `http://localhost` it would produce a cookie
+     * the browser stores and never sends back. `NODE_ENV=production` turns it
+     * on, which is asserted in `refresh-cookie.config.spec.ts`.
+     */
+    it('scopes the cookie to the auth routes and expires it with the token', async () => {
+      const response = await login()
+        .send({ email: 'maria.ionescu@company.com', password: 'a password' })
+        .expect(200);
+
+      const cookie = refreshSetCookie(response) ?? '';
+
+      expect(cookie).toContain('Path=/api/v1/auth');
+      expect(cookie).toContain('SameSite=Lax');
+      expect(cookie).not.toContain('Secure');
+      expect(cookie).toMatch(/Max-Age=6047\d\d/);
+    });
+
+    /**
+     * The envelope is the interceptor's, and `@Res({ passthrough: true })` is
+     * what keeps it that way — without the passthrough the handler would own the
+     * response, the wrapper would never run, and a `POST` would answer `201`.
+     */
+    it('still answers through the envelope with the cookie set', async () => {
+      const response = await login()
+        .send({ email: 'maria.ionescu@company.com', password: 'a password' })
+        .expect(200);
+
+      expect(response.body).toEqual({ success: true, data: SESSION });
     });
 
     /** The endpoint that issues a token cannot require one. */
@@ -280,9 +388,12 @@ describe('auth routing', () => {
      * `@Public()` at the authentication level only: this endpoint is protected
      * by a *different* credential. Requiring an access token as well would make
      * a session unrecoverable in the exact situation refresh exists for.
+     *
+     * As of Feature 040 that credential is the cookie, and the request carries
+     * no body at all.
      */
-    it('authenticates with the refresh token rather than an access token', async () => {
-      await refresh().send({ refreshToken: REFRESH_TOKEN }).expect(200);
+    it('authenticates with the refresh cookie rather than an access token', async () => {
+      await refresh().set('Cookie', refreshCookie(REFRESH_TOKEN)).expect(200);
 
       expect(auth.authenticate).not.toHaveBeenCalled();
       expect(auth.refresh).toHaveBeenCalledWith(
@@ -291,10 +402,26 @@ describe('auth routing', () => {
       );
     });
 
-    /** A copy-paste artefact from a terminal is not part of the credential. */
-    it('trims the token, so a stray newline is not a revoked session', async () => {
+    /** The successor replaces the cookie, so the client holds nothing to update. */
+    it('writes the new token back as a fresh cookie', async () => {
+      const response = await refresh()
+        .set('Cookie', refreshCookie(REFRESH_TOKEN))
+        .expect(200);
+
+      expect(refreshSetCookie(response)).toContain(
+        `${DEFAULT_REFRESH_COOKIE_NAME}=${ISSUED_REFRESH_TOKEN}`,
+      );
+      expect(response.body.data).not.toHaveProperty('refreshToken');
+    });
+
+    /**
+     * The bounds and the trim used to be `RefreshDto`'s and are now
+     * `RefreshTokenCookie.read`'s, because the `ValidationPipe` never sees a
+     * cookie. A copy-paste artefact is still not part of the credential.
+     */
+    it('trims the cookie, so a stray space is not a revoked session', async () => {
       await refresh()
-        .send({ refreshToken: `\n  ${REFRESH_TOKEN}  ` })
+        .set('Cookie', refreshCookie(`  ${REFRESH_TOKEN}  `))
         .expect(200);
 
       expect(auth.refresh).toHaveBeenCalledWith(
@@ -303,65 +430,147 @@ describe('auth routing', () => {
       );
     });
 
-    it('rejects a missing token', async () => {
-      await refresh().send({}).expect(400);
-
-      expect(auth.refresh).not.toHaveBeenCalled();
-    });
-
-    it('rejects a token far too short or far too long to be one', async () => {
-      await refresh().send({ refreshToken: 'short' }).expect(400);
+    /**
+     * **The existing code, not a new one.** A browser holding no cookie sends no
+     * header, so there is nothing for a missing-field `400` to describe; the
+     * answer is the `401` an unusable refresh token has always produced.
+     */
+    it('answers the existing coded 401 when no cookie is sent', async () => {
       await refresh()
-        .send({ refreshToken: 'x'.repeat(2000) })
-        .expect(400);
+        .expect(401)
+        .expect(({ body }) => {
+          expect(body.errorCode).toBe('AUTH_REFRESH_TOKEN_INVALID');
+        });
 
       expect(auth.refresh).not.toHaveBeenCalled();
     });
 
-    it('never puts a token in the URL', async () => {
+    /**
+     * A cookie is whatever the client wrote under that name, so the shape check
+     * survives the move — it is what keeps an anonymous caller from pushing an
+     * arbitrary string into a SHA-256 and a JWT parse.
+     */
+    it.each([
+      ['far too short', 'short'],
+      ['far too long', 'x'.repeat(2000)],
+    ])('refuses a cookie value %s to be a token', async (_case, value) => {
+      await refresh()
+        .set('Cookie', refreshCookie(value))
+        .expect(401)
+        .expect(({ body }) => {
+          expect(body.errorCode).toBe('AUTH_REFRESH_TOKEN_INVALID');
+        });
+
+      expect(auth.refresh).not.toHaveBeenCalled();
+    });
+
+    /** The cookie is the only source. Neither the URL nor a body is read. */
+    it('reads the token from nowhere but the cookie', async () => {
       await request(app.getHttpServer())
         .post(`/api/v1/auth/refresh?refreshToken=${REFRESH_TOKEN}`)
         .send({ refreshToken: REFRESH_TOKEN })
-        .expect(200);
+        .expect(401);
 
-      // The query string is not read; only the body is.
-      expect(auth.refresh).toHaveBeenCalledWith(
-        REFRESH_TOKEN,
-        expect.anything(),
+      expect(auth.refresh).not.toHaveBeenCalled();
+    });
+
+    /**
+     * A spent token has just revoked every session the account had, so the
+     * cookie in the browser is a credential that can never work again. Leaving
+     * it there would put a dead token on every subsequent request for a week.
+     */
+    it('clears the cookie when the token is refused', async () => {
+      auth.refresh.mockRejectedValueOnce(
+        new UnauthorizedException(
+          codedError(
+            ERROR_CODES.AUTH_REFRESH_TOKEN_REUSED,
+            'This session has been ended for security reasons',
+          ),
+        ),
       );
+
+      const response = await refresh()
+        .set('Cookie', refreshCookie(REFRESH_TOKEN))
+        .expect(401);
+
+      expect(response.body.errorCode).toBe('AUTH_REFRESH_TOKEN_REUSED');
+      expect(refreshSetCookie(response)).toContain(
+        `${DEFAULT_REFRESH_COOKIE_NAME}=;`,
+      );
+    });
+
+    /**
+     * The other half of that rule, and the reason it is not "clear on any
+     * error": a `429` or a `500` says nothing about the token, and signing
+     * somebody out because their refresh landed during an incident turns a blip
+     * into a support ticket.
+     */
+    it('leaves the cookie alone when the failure is not about the token', async () => {
+      auth.refresh.mockRejectedValueOnce(new Error('the database blinked'));
+
+      const response = await refresh()
+        .set('Cookie', refreshCookie(REFRESH_TOKEN))
+        .expect(500);
+
+      expect(refreshSetCookie(response)).toBeUndefined();
     });
   });
 
   describe('POST /auth/logout', () => {
-    /** Both credentials: the access token proves who, the refresh token what. */
-    it('requires an access token as well as the refresh token', async () => {
-      await request(app.getHttpServer())
-        .post('/api/v1/auth/logout')
-        .send({ refreshToken: REFRESH_TOKEN })
-        .expect(401);
+    const logout = () =>
+      request(app.getHttpServer()).post('/api/v1/auth/logout');
+
+    /** Both credentials: the access token proves who, the cookie proves what. */
+    it('requires an access token as well as the refresh cookie', async () => {
+      await logout().set('Cookie', refreshCookie(REFRESH_TOKEN)).expect(401);
 
       expect(auth.logout).not.toHaveBeenCalled();
     });
 
-    it('revokes the presented token for the authenticated caller', async () => {
-      await request(app.getHttpServer())
-        .post('/api/v1/auth/logout')
+    it('revokes the cookie’s token for the authenticated caller', async () => {
+      const response = await logout()
         .set(bearer)
-        .send({ refreshToken: REFRESH_TOKEN })
-        .expect(200)
-        .expect(({ body }) => {
-          expect(body).toEqual({ success: true, data: null });
-        });
+        .set('Cookie', refreshCookie(REFRESH_TOKEN))
+        .expect(200);
 
+      expect(response.body).toEqual({ success: true, data: null });
       expect(auth.logout).toHaveBeenCalledWith(CALLER, REFRESH_TOKEN);
+      expect(refreshSetCookie(response)).toContain(
+        `${DEFAULT_REFRESH_COOKIE_NAME}=;`,
+      );
     });
 
-    it('rejects a logout that names no session', async () => {
-      await request(app.getHttpServer())
-        .post('/api/v1/auth/logout')
+    /**
+     * The cookie must be cleared with the attributes it was set with — a cookie
+     * is identified by name **and** path, so a `Set-Cookie` at `/` would leave
+     * the real one exactly where it was while claiming to have removed it.
+     */
+    it('clears the cookie at the path it was scoped to', async () => {
+      const response = await logout()
         .set(bearer)
-        .send({})
-        .expect(400);
+        .set('Cookie', refreshCookie(REFRESH_TOKEN))
+        .expect(200);
+
+      expect(refreshSetCookie(response)).toContain('Path=/api/v1/auth');
+      expect(refreshSetCookie(response)).toContain('HttpOnly');
+    });
+
+    /**
+     * **The one behaviour Feature 040 changed here**, and deliberately: a
+     * logout naming no session used to be a `400` from the `ValidationPipe`.
+     * There is no cookie equivalent of a missing field, and answering `400`
+     * would mean a client whose cookie had already expired could not sign out
+     * cleanly — which is exactly when it wants to. The route has always been
+     * idempotent and silent about what it found.
+     */
+    it('still clears the cookie and answers 200 when none was sent', async () => {
+      const response = await logout().set(bearer).expect(200);
+
+      expect(response.body).toEqual({ success: true, data: null });
+      expect(auth.logout).not.toHaveBeenCalled();
+      expect(refreshSetCookie(response)).toContain(
+        `${DEFAULT_REFRESH_COOKIE_NAME}=;`,
+      );
     });
   });
 

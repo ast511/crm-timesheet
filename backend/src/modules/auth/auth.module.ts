@@ -8,6 +8,7 @@ import { AccountTokenService } from './account-token.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { RefreshTokenCookie } from './refresh-token.cookie';
 import { TokenService } from './token.service';
 
 /**
@@ -90,6 +91,19 @@ import { TokenService } from './token.service';
  * signing a token — and `AccountTokenService`, which mints the link secrets, is
  * exported only so the users module can *ask for* one, never to hash or verify.
  *
+ * `RefreshTokenCookie` is not exported either, for a sharper version of the same
+ * reason: it is the only class that writes the refresh cookie, and a second
+ * writer somewhere else would be a second answer to what the cookie's attributes
+ * are — which is the failure mode where a `clear` silently removes nothing
+ * because it disagreed about the path. `AuthController` is its one consumer.
+ *
+ * The `cookie-parser` middleware it reads through is **not** registered here.
+ * It is global, and it is registered in `configureApp` beside Helmet and the
+ * validation pipe, so bootstrap and every spec that boots through that function
+ * get the same request object. A module registering global middleware for its
+ * own benefit would make "is a cookie parsed" depend on which module happened to
+ * be imported.
+ *
  * ## What this does not do
  *
  * It authorises nothing. An authenticated caller is known to be who their token
@@ -111,6 +125,7 @@ import { TokenService } from './token.service';
     AccountTokenService,
     AccountEmailService,
     AccountPasswordService,
+    RefreshTokenCookie,
   ],
   exports: [
     AuthService,

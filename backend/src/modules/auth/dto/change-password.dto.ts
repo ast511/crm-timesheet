@@ -1,12 +1,7 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsString, MaxLength } from 'class-validator';
 
-import { Trim } from '../../../common/decorators/trim.decorator';
 import { MAX_PASSWORD_BYTES } from '../../../common/password/password.hasher';
 import { IsPassword } from '../../../common/password/password.policy';
-import {
-  REFRESH_TOKEN_MAX_LENGTH,
-  REFRESH_TOKEN_MIN_LENGTH,
-} from '../auth.constants';
 
 /**
  * Body of `POST /api/v1/auth/change-password` — the only password change made by
@@ -36,6 +31,24 @@ import {
  * eventually ships with the ownership check missing. Nobody can change another
  * person's password through this API at all; an administrator's lever is
  * deactivation, and a locked-out person's is `POST /auth/forgot-password`.
+ *
+ * No `refreshToken` either, **as of Feature 040**, and this class is down to the
+ * two fields it should always have had. It used to carry an optional refresh
+ * token naming the session to keep alive — every *other* session of the account
+ * is revoked by a password change, and without it the person would be signed out
+ * of the very page they were on. That is still exactly what happens; the session
+ * to spare is now read from the `HttpOnly` cookie the request already carries,
+ * in `AuthController`.
+ *
+ * It belonged in a body even less than it appeared to. The field was never a
+ * credential and proved nothing — the access token had already said who was
+ * calling and the current password had already been verified — it was only ever
+ * used to *exclude* one row from a revocation. A client cannot read its own
+ * refresh token any more, so a field asking for one would be a field nobody
+ * could fill. The safe default is unchanged and unchanged in direction: no
+ * cookie spares nothing, every session ends including this one, and the cost of
+ * being wrong is one extra sign-in rather than a session that should have died
+ * and did not.
  */
 export class ChangePasswordDto {
   @IsString()
@@ -44,33 +57,4 @@ export class ChangePasswordDto {
 
   @IsPassword()
   readonly newPassword!: string;
-
-  /**
-   * The caller's own refresh token — the session **not** to end.
-   *
-   * Changing a password revokes the account's other sessions, which is the half
-   * of the feature that matters when somebody suspects their password is known.
-   * This field is what keeps the person doing it signed in on the machine they
-   * are sitting at; without it they would change their password and be thrown
-   * back to the login screen, which reads as a failure and teaches people to
-   * avoid the feature.
-   *
-   * **Optional, and the default is the safe direction.** An absent or unrecognised
-   * token spares nothing, so every session ends including this one. The cost of
-   * being wrong is one extra sign-in; the cost of the opposite default — sparing
-   * a session that was not really the caller's — would be leaving the very
-   * session this change was meant to evict.
-   *
-   * It is not a second credential and proves nothing: the access token has
-   * already said who is calling and the current password has already been
-   * verified. It is only ever used to *exclude* a row from a revocation, so a
-   * value belonging to somebody else spares one of their sessions and touches
-   * nothing of theirs otherwise.
-   */
-  @IsOptional()
-  @Trim()
-  @IsString()
-  @MinLength(REFRESH_TOKEN_MIN_LENGTH)
-  @MaxLength(REFRESH_TOKEN_MAX_LENGTH)
-  readonly refreshToken?: string;
 }

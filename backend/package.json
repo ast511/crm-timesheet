@@ -40,6 +40,7 @@
     "bcryptjs": "^3.0.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "cookie-parser": "^1.4.7",
     "exceljs": "^4.4.0",
     "helmet": "^8.3.0",
     "nodemailer": "^9.0.4",
@@ -52,6 +53,7 @@
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.0",
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.0",
@@ -84,7 +86,9 @@
         "ts-jest",
         {
           "astTransformers": {
-            "before": ["<rootDir>/../swagger-plugin.transformer.js"]
+            "before": [
+              "<rootDir>/../swagger-plugin.transformer.js"
+            ]
           }
         }
       ]

@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { createHash } from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
+import cookieParser from 'cookie-parser';
 import request from 'supertest';
 
 import { AllExceptionsFilter } from '../../common/filters/all-exceptions.filter';
@@ -32,6 +33,8 @@ import { PASSWORD_RESET_REQUESTED_MESSAGE } from './auth.constants';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { DEFAULT_REFRESH_COOKIE_NAME } from './refresh-cookie.config';
+import { RefreshTokenCookie } from './refresh-token.cookie';
 import { TestAuthentication } from './testing/authentication.testing';
 
 const BASE = `/${API_PREFIX}/${API_VERSION_PREFIX}${API_DEFAULT_VERSION}`;
@@ -228,6 +231,11 @@ describe('account lifecycle routing', () => {
 
         return values[key];
       }),
+      // Everything `RefreshTokenCookie` reads is optional, so a stub that knows
+      // nothing gives it the defaults — which is what this spec wants: the
+      // cookie it sends below is the one a deployment that configured nothing
+      // would receive.
+      get: jest.fn(() => undefined),
     };
 
     const authService = {
@@ -262,11 +270,15 @@ describe('account lifecycle routing', () => {
           },
         },
         { provide: AuthService, useValue: authService },
+        RefreshTokenCookie,
         { provide: APP_GUARD, useClass: JwtAuthGuard },
       ],
     }).compile();
 
     app = moduleRef.createNestApplication();
+    // `configureApp` registers this globally (Feature 040); change-password
+    // reads the session to spare out of the refresh cookie.
+    app.use(cookieParser());
     app.setGlobalPrefix(API_PREFIX);
     app.enableVersioning({
       type: VersioningType.URI,
@@ -692,8 +704,71 @@ describe('account lifecycle routing', () => {
      * The caller stays signed in where they are; every *other* session goes,
      * which is the half that matters when somebody suspects their password is
      * known.
+     *
+     * **The session to spare comes from the refresh cookie** as of Feature 040,
+     * where it used to be an optional `refreshToken` in the body. The behaviour
+     * is identical and the reasoning is better: the session to keep is by
+     * definition the one making the request, and a client can no longer read its
+     * own refresh token in order to name it.
      */
-    it('keeps the session that presented its refresh token', async () => {
+    it('keeps the session whose refresh cookie the request carries', async () => {
+      const { hashPassword } =
+        await import('../../common/password/password.hasher');
+
+      await givenAccount(
+        AccountStatus.ACTIVE,
+        await hashPassword('what it was'),
+      );
+
+      await request(app.getHttpServer())
+        .post(`${BASE}/auth/change-password`)
+        .set(auth.as({ userId: 'usr-1' }))
+        .set('Cookie', `${DEFAULT_REFRESH_COOKIE_NAME}=${'r'.repeat(64)}`)
+        .send({
+          currentPassword: 'what it was',
+          newPassword: 'what it will be',
+        })
+        .expect(200);
+
+      expect(db.revoked).toEqual([
+        { userId: 'usr-1', exceptToken: 'r'.repeat(64) },
+      ]);
+    });
+
+    /**
+     * No cookie spares nothing, so every session ends including this one — the
+     * safe direction to be wrong in, and unchanged from the day the field was
+     * optional. The cost of being wrong is one extra sign-in; the cost of the
+     * opposite default would be leaving live the very session the change was
+     * meant to evict.
+     */
+    it('revokes every session, its own included, when no cookie is sent', async () => {
+      const { hashPassword } =
+        await import('../../common/password/password.hasher');
+
+      await givenAccount(
+        AccountStatus.ACTIVE,
+        await hashPassword('what it was'),
+      );
+
+      await request(app.getHttpServer())
+        .post(`${BASE}/auth/change-password`)
+        .set(auth.as({ userId: 'usr-1' }))
+        .send({
+          currentPassword: 'what it was',
+          newPassword: 'what it will be',
+        })
+        .expect(200);
+
+      expect(db.revoked).toEqual([{ userId: 'usr-1', exceptToken: undefined }]);
+    });
+
+    /**
+     * The field is gone rather than ignored. `forbidNonWhitelisted` is what
+     * makes that a `400` naming the property, so a client still sending it is
+     * told rather than left believing a session was spared.
+     */
+    it('rejects the refreshToken body field the cookie replaced', async () => {
       const { hashPassword } =
         await import('../../common/password/password.hasher');
 
@@ -710,11 +785,7 @@ describe('account lifecycle routing', () => {
           newPassword: 'what it will be',
           refreshToken: 'r'.repeat(64),
         })
-        .expect(200);
-
-      expect(db.revoked).toEqual([
-        { userId: 'usr-1', exceptToken: 'r'.repeat(64) },
-      ]);
+        .expect(400);
     });
   });
 });

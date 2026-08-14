@@ -22,6 +22,10 @@ import {
 } from 'class-validator';
 
 import { ToBoolean } from '../common/decorators/to-boolean.decorator';
+import {
+  REFRESH_COOKIE_SAME_SITE,
+  RefreshCookieSameSite,
+} from '../modules/auth/refresh-cookie.config';
 import { ANY_ORIGIN, parseOrigins } from './cors.config';
 import { CspMode } from './helmet.config';
 import {
@@ -41,6 +45,25 @@ const ORIGIN_PATTERN = /^https?:\/\/[^/?#\s:]+(:\d{1,5})?$/;
 
 /** Connection strings PostgreSQL accepts; anything else is a typo. */
 const POSTGRES_URL_PATTERN = /^postgres(ql)?:\/\//;
+
+/**
+ * A cookie name, per RFC 6265 — an HTTP token.
+ *
+ * Everything a browser will parse and nothing it will not. The excluded
+ * characters are the ones that mean something in the header's own grammar —
+ * `=`, `;`, `,`, whitespace, quotes and the other separators — so a name
+ * containing one produces a `Set-Cookie` the browser discards without
+ * complaining to anybody.
+ */
+const COOKIE_NAME_PATTERN = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/;
+
+/**
+ * An absolute cookie path — a leading slash and no `?`, `#`, `;` or whitespace.
+ *
+ * The characters excluded are again the ones that would end the attribute early
+ * or corrupt the header rather than being carried in it.
+ */
+const COOKIE_PATH_PATTERN = /^\/[^\s;?#]*$/;
 
 /**
  * Floor for any timeout expressed in milliseconds.
@@ -239,6 +262,40 @@ class IsDistinctSecretConstraint implements ValidatorConstraintInterface {
 }
 
 /**
+ * Refuses `SameSite=None` on a cookie that is not `Secure`.
+ *
+ * **A browser rule, not a preference.** `Set-Cookie: …; SameSite=None` without
+ * `Secure` is rejected outright by every current browser, so the configuration
+ * does not produce a weaker cookie — it produces no cookie at all, and the
+ * symptom is a login that appears to succeed and a session that ends at the
+ * first refresh, with nothing in any server log to explain it. Exactly the class
+ * of failure `IsTrustProxyConstraint` exists for: silent, remote, and invisible
+ * from the side that could fix it.
+ *
+ * The check demands an **explicit** `true` rather than accepting the
+ * `NODE_ENV`-derived default, because `SameSite=None` is a deliberate
+ * split-domain decision and the deployment making it is the one that knows
+ * whether TLS is really in front of this process. A production default that
+ * happened to be right would leave the same environment broken in staging.
+ */
+@ValidatorConstraint({ name: 'isSecureWhenCrossSite', async: false })
+class IsSecureWhenCrossSiteConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown, { object }: ValidationArguments): boolean {
+    if (value !== REFRESH_COOKIE_SAME_SITE.None) {
+      return true;
+    }
+
+    const secure = (object as EnvironmentVariables).AUTH_REFRESH_COOKIE_SECURE;
+
+    return secure === true;
+  }
+
+  defaultMessage({ property }: ValidationArguments): string {
+    return `${property}="${REFRESH_COOKIE_SAME_SITE.None}" requires AUTH_REFRESH_COOKIE_SECURE=true — browsers discard a SameSite=None cookie that is not Secure`;
+  }
+}
+
+/**
  * `@IsEmail()`, except that a variable set to nothing is treated as not set.
  *
  * `SMTP_FROM_EMAIL=` is how a placeholder is cleared, and the email module
@@ -372,6 +429,93 @@ export class EnvironmentVariables {
   @Min(MIN_REFRESH_TTL_SECONDS)
   @Max(MAX_REFRESH_TTL_SECONDS)
   readonly JWT_REFRESH_TTL: number = DEFAULT_REFRESH_TTL_SECONDS;
+
+  // ---------------------------------------------------------------------------
+  // The refresh cookie — read by `refresh-cookie.config.ts` (Feature 040) and
+  // by nothing else.
+  //
+  // The refresh token travels as an `HttpOnly` cookie rather than in a JSON
+  // body, so that a script injected into the frontend cannot read it. These four
+  // variables are the cookie's attributes, and all four are optional: every one
+  // has a value that is right on a developer machine and right in production
+  // without anybody typing it. What this contract adds is that a variable which
+  // *is* set has to make sense — a cookie whose name a browser will not accept,
+  // or a path the cookie is never sent to, fails silently and looks exactly like
+  // a session that keeps ending.
+  //
+  // `Secure` is defaulted in the reading code from `NODE_ENV`, the arrangement
+  // `SWAGGER_ENABLED` uses, so nothing has to be set for a production deployment
+  // to get a `Secure` cookie or for `npm run start:dev` to work over plain HTTP.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Name of the refresh cookie. Defaults to `refresh_token`.
+   *
+   * Constrained to the characters RFC 6265 allows in a cookie name, because a
+   * value outside them is not rejected by anything downstream: Express writes
+   * the header, the browser refuses to parse it, and the symptom is a login
+   * whose session lasts exactly one access token.
+   */
+  @IsOptional()
+  @Matches(COOKIE_NAME_PATTERN, {
+    message:
+      "AUTH_REFRESH_COOKIE_NAME must be a valid cookie name — letters, digits and !#$%&'*+-.^_`|~ with no spaces, quotes, commas, semicolons or equals signs",
+  })
+  readonly AUTH_REFRESH_COOKIE_NAME?: string;
+
+  /**
+   * Path the cookie is scoped to. Defaults to `/api/v1/auth`.
+   *
+   * A browser attaches a cookie to every request underneath its path, so this is
+   * what keeps the refresh token off every other call the frontend makes. It has
+   * to start with `/` and cover the auth routes; setting it to something the
+   * refresh endpoint is not under is the one mistake here that produces no error
+   * anywhere — the cookie is set, never sent, and everybody is signed out at the
+   * next rotation.
+   */
+  @IsOptional()
+  @Matches(COOKIE_PATH_PATTERN, {
+    message:
+      'AUTH_REFRESH_COOKIE_PATH must be an absolute path such as /api/v1/auth (no query, no fragment, no spaces)',
+  })
+  readonly AUTH_REFRESH_COOKIE_PATH?: string;
+
+  /**
+   * Whether the cookie carries `Secure`. Defaults to `true` in production and
+   * `false` everywhere else.
+   *
+   * `Secure` stops the browser sending the cookie over plain HTTP. Left on
+   * against a development server on `http://localhost`, the cookie is set and
+   * then never sent back — a login that appears to work and a refresh that
+   * silently does not. Turned off in a real deployment, the refresh token
+   * crosses the network in the clear, which is the whole thing this feature
+   * exists to protect.
+   *
+   * An explicit `false` in production is permitted rather than refused, because
+   * a deployment terminating TLS at a proxy this process cannot see is a real
+   * topology and this file cannot tell it apart from a mistake.
+   */
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  readonly AUTH_REFRESH_COOKIE_SECURE?: boolean;
+
+  /**
+   * When the browser attaches the cookie to a cross-site request. One of `lax`
+   * (the default), `strict` or `none`.
+   *
+   * **This is the CSRF defence**, and `lax` is what has it: a page on another
+   * site cannot cause a request that carries this cookie. `none` gives that up
+   * and is the only value that works when the frontend is served from a
+   * different site than this API — so it is allowed, and it is refused unless
+   * `AUTH_REFRESH_COOKIE_SECURE` is explicitly `true`, which is a browser
+   * requirement rather than an opinion: `SameSite=None` without `Secure` is
+   * discarded outright, leaving no refresh cookie at all.
+   */
+  @IsOptional()
+  @IsEnum(REFRESH_COOKIE_SAME_SITE)
+  @Validate(IsSecureWhenCrossSiteConstraint)
+  readonly AUTH_REFRESH_COOKIE_SAME_SITE?: RefreshCookieSameSite;
 
   // ---------------------------------------------------------------------------
   // Account lifecycle — read by the activation and password-reset links

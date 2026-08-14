@@ -1126,18 +1126,73 @@ describe('API documentation (e2e)', () => {
     });
 
     /**
-     * The session response *does* carry tokens, and it must — they are the
-     * credentials being issued. What it must not carry is a stored hash.
+     * The session response carries the access token, and it must — that is the
+     * credential being issued. What it must not carry is a stored hash.
+     *
+     * **Nor a refresh token, as of Feature 040.** That one moved into an
+     * `HttpOnly` cookie, and the schema is where the move is provable: a field
+     * that is not in the documented response is a field the entity has no room
+     * for, so no future edit can put the long-lived credential back into a body
+     * without this failing.
      */
-    it('documents the issued tokens but no stored hash', () => {
+    it('documents the access token, and neither a refresh token nor a hash', () => {
       const session = document.components?.schemas?.AuthSessionEntity as {
         properties?: Record<string, unknown>;
       };
 
-      expect(Object.keys(session.properties ?? {})).toEqual(
-        expect.arrayContaining(['accessToken', 'refreshToken']),
-      );
+      expect(Object.keys(session.properties ?? {}).sort()).toEqual([
+        'accessToken',
+        'expiresIn',
+        'tokenType',
+        'user',
+      ]);
       expect(JSON.stringify(session)).not.toMatch(/hash/i);
+      expect(JSON.stringify(session)).not.toMatch(/refreshToken/);
+    });
+
+    /**
+     * The other half: the request bodies no longer ask for one either. A client
+     * cannot read its own refresh token any more, so a documented field asking
+     * for one would be a field nobody could fill — on `refresh` and `logout`,
+     * which now take no body at all, and on `change-password`, whose optional
+     * `refreshToken` named the session to keep and is now read from the cookie.
+     */
+    it('asks for a refresh token in no request body', () => {
+      const requestBodies = operations()
+        .filter(({ path }) => path.includes('/auth/'))
+        .map(({ method, path, operation }) => ({
+          where: `${method} ${path}`,
+          body: JSON.stringify(operation.requestBody ?? null),
+        }));
+
+      expect(requestBodies.length).toBeGreaterThan(0);
+
+      for (const { where, body } of requestBodies) {
+        expect(`${where}: ${String(body.includes('refreshToken'))}`).toBe(
+          `${where}: false`,
+        );
+      }
+    });
+
+    /**
+     * And the cookie *is* documented, because it is otherwise invisible: a
+     * reader comparing the login response to Feature 032's would otherwise
+     * conclude the refresh token had simply been withdrawn from this API.
+     */
+    it('documents the Set-Cookie that login and refresh answer with', () => {
+      for (const path of ['/auth/login', '/auth/refresh']) {
+        const operation = (
+          document.paths[`${API_BASE_PATH}${path}`] as Record<
+            string,
+            { responses: Record<string, { headers?: Record<string, unknown> }> }
+          >
+        ).post;
+
+        const header = operation.responses['200'].headers?.['Set-Cookie'] as
+          { description?: string } | undefined;
+
+        expect(`${path}: ${String(header?.description)}`).toContain('HttpOnly');
+      }
     });
   });
 

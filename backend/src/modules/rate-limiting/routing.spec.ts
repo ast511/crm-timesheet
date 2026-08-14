@@ -9,6 +9,7 @@ import {
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
+import cookieParser from 'cookie-parser';
 import request from 'supertest';
 
 import { ERROR_CODES } from '../../common/constants/error-codes.constants';
@@ -31,6 +32,8 @@ import { AuthController } from '../auth/auth.controller';
 import { AuthService } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../auth/decorators/public.decorator';
+import { DEFAULT_REFRESH_COOKIE_NAME } from '../auth/refresh-cookie.config';
+import { RefreshTokenCookie } from '../auth/refresh-token.cookie';
 import { RATE_LIMIT_KEYS } from './rate-limiting.config';
 import {
   RATE_LIMIT_EXCEEDED_MESSAGE,
@@ -55,7 +58,6 @@ const CALLER: CurrentUser = {
 
 const SESSION = {
   accessToken: 'new-access-token',
-  refreshToken: 'new-refresh-token',
   tokenType: 'Bearer' as const,
   expiresIn: 900,
   user: {
@@ -122,9 +124,17 @@ async function createApp(options: AppOptions = {}): Promise<INestApplication> {
     delete process.env[key];
   }
 
+  // What `AuthService` hands the controller as of Feature 040: the body, plus
+  // the refresh token bound for the cookie and the instant it expires.
+  const issued = {
+    session: SESSION,
+    refreshToken: 'i'.repeat(64),
+    refreshTokenExpiresAt: new Date(Date.now() + 604_800_000),
+  };
+
   const auth = {
-    login: jest.fn().mockResolvedValue(SESSION),
-    refresh: jest.fn().mockResolvedValue(SESSION),
+    login: jest.fn().mockResolvedValue(issued),
+    refresh: jest.fn().mockResolvedValue(issued),
     logout: jest.fn().mockResolvedValue(undefined),
     describeSelf: jest.fn().mockResolvedValue(SESSION.user),
     authenticate: jest.fn((token: string) => {
@@ -167,6 +177,11 @@ async function createApp(options: AppOptions = {}): Promise<INestApplication> {
           changePassword: jest.fn().mockResolvedValue(undefined),
         },
       },
+      // The controller's third collaborator as of Feature 040, real rather than
+      // stubbed because it is cheap and because a stub would not prove that the
+      // limiter counts a refresh the same way now that the credential arrives
+      // in a cookie.
+      RefreshTokenCookie,
       // The two global guards in the order `app.module.ts` declares them: the
       // limiter first, so a request is counted before its credentials are
       // judged.
@@ -177,6 +192,7 @@ async function createApp(options: AppOptions = {}): Promise<INestApplication> {
 
   const app = moduleRef.createNestApplication();
 
+  app.use(cookieParser());
   app.setGlobalPrefix(API_PREFIX);
   app.enableVersioning({
     type: VersioningType.URI,
@@ -454,7 +470,7 @@ describe('rate limiting', () => {
         request(app.getHttpServer())
           .post(`${BASE}/auth/refresh`)
           .set(caller)
-          .send({ refreshToken: REFRESH_TOKEN });
+          .set('Cookie', `${DEFAULT_REFRESH_COOKIE_NAME}=${REFRESH_TOKEN}`);
 
       for (let attempt = 0; attempt < AUTH_LIMIT; attempt++) {
         await refresh().expect(200);
@@ -478,7 +494,7 @@ describe('rate limiting', () => {
       await request(app.getHttpServer())
         .post(`${BASE}/auth/refresh`)
         .set(caller)
-        .send({ refreshToken: REFRESH_TOKEN })
+        .set('Cookie', `${DEFAULT_REFRESH_COOKIE_NAME}=${REFRESH_TOKEN}`)
         .expect(200);
     });
 

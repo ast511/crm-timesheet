@@ -1,5 +1,10 @@
 import { HttpStatus, Type, applyDecorators } from '@nestjs/common';
-import { ApiExtraModels, ApiResponse, getSchemaPath } from '@nestjs/swagger';
+import {
+  ApiExtraModels,
+  ApiResponse,
+  ApiResponseOptions,
+  getSchemaPath,
+} from '@nestjs/swagger';
 import {
   ReferenceObject,
   SchemaObject,
@@ -13,6 +18,20 @@ interface EnvelopeOptions {
   description?: string;
   /** Overrides the status code. Defaults to 200, or 201 for `ApiCreated…`. */
   status?: HttpStatus;
+  /**
+   * Response headers worth documenting, in OpenAPI's own shape.
+   *
+   * Added by Feature 040 for the one thing in this API that a client receives
+   * and the schema cannot describe: the `Set-Cookie` carrying the refresh
+   * token. A body schema says nothing about it, and without this the
+   * documentation for `POST /auth/login` would describe a response missing its
+   * most important half.
+   *
+   * Deliberately not typed more tightly than `ResponseObject['headers']` — it is
+   * passed straight through to `@ApiResponse`, and a second local shape for
+   * something OpenAPI already defines would be one more thing to keep in step.
+   */
+  headers?: ApiResponseOptions['headers'];
 }
 
 /**
@@ -52,7 +71,7 @@ export function ApiOkEnvelope<T>(
     { $ref: getSchemaPath(type) },
     [type],
     options.status ?? HttpStatus.OK,
-    options.description,
+    options,
   );
 }
 
@@ -65,7 +84,7 @@ export function ApiCreatedEnvelope<T>(
     { $ref: getSchemaPath(type) },
     [type],
     options.status ?? HttpStatus.CREATED,
-    options.description,
+    options,
   );
 }
 
@@ -84,7 +103,7 @@ export function ApiOkArrayEnvelope<T>(
     { type: 'array', items: { $ref: getSchemaPath(type) } },
     [type],
     options.status ?? HttpStatus.OK,
-    options.description,
+    options,
   );
 }
 
@@ -111,7 +130,7 @@ export function ApiOkPageEnvelope<T>(
     },
     [type, PaginationMeta],
     options.status ?? HttpStatus.OK,
-    options.description,
+    options,
   );
 }
 
@@ -133,7 +152,7 @@ export function ApiOkNullEnvelope(
     },
     [],
     options.status ?? HttpStatus.OK,
-    options.description,
+    options,
   );
 }
 
@@ -178,13 +197,14 @@ function envelopeResponse(
   data: SchemaObject | ReferenceObject,
   models: Type<unknown>[],
   status: HttpStatus,
-  description?: string,
+  options: EnvelopeOptions,
 ): MethodDecorator & ClassDecorator {
   return applyDecorators(
     ApiExtraModels(...models),
     ApiResponse({
       status,
-      description,
+      description: options.description,
+      headers: options.headers,
       schema: {
         type: 'object',
         required: ['success', 'data'],

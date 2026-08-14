@@ -21,6 +21,25 @@ const ORIGIN_SEPARATOR = ',';
  * default — a misconfigured environment fails closed instead of silently
  * exposing the API to every site. Non-browser clients (curl, Postman,
  * server-to-server calls) send no `Origin` header and are unaffected.
+ *
+ * ## `credentials` became load-bearing in Feature 040
+ *
+ * It was already `true` for an explicit allowlist, and it was already correct;
+ * what changed is what depends on it. The refresh token now travels as a cookie,
+ * and a browser applies two separate rules to a credentialed cross-origin
+ * request: it will not *send* the cookie unless the caller asked for it
+ * (`credentials: 'include'`, or `withCredentials: true`), and it will not
+ * *accept* the response — nor store a `Set-Cookie` from it — unless the response
+ * carries `Access-Control-Allow-Credentials: true`. Both halves are required, so
+ * a frontend that forgets its half sees a login that appears to succeed and a
+ * refresh that fails a quarter of an hour later.
+ *
+ * The wildcard branch is the sharp edge, and it is why `credentials` is derived
+ * rather than fixed: `Access-Control-Allow-Origin: *` and
+ * `Access-Control-Allow-Credentials: true` are a combination browsers refuse
+ * outright, so `CORS_ORIGINS=*` is not "the permissive setting" for a cookie —
+ * it is the setting under which the cookie never works at all. A deployment
+ * whose frontend is on another origin must name that origin here.
  */
 export function buildCorsOptions(configService: ConfigService): CorsOptions {
   const origins = parseOrigins(configService.get<string>(CORS_ORIGINS_KEY));

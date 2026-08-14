@@ -43,6 +43,7 @@ Append new features to the end of this table.
 | 037 | [Security Headers](037-security-headers.md) | Completed | 2026-08-12 |
 | 038 | [API Documentation](038-api-documentation.md) | Completed | 2026-08-13 |
 | 039 | [User UI Preferences](039-user-ui-preferences.md) | Completed | 2026-08-13 |
+| 040 | [Refresh Token via HttpOnly Cookie](040-refresh-cookie.md) | Completed | 2026-08-14 |
 
 **The authentication series (032–036) is complete.** Identity is proved rather
 than claimed (032), every failure carries a stable code (033), every route is
@@ -90,6 +91,34 @@ was already the route by which somebody changes things about themselves, and
 `UpdateProfileDto` had recorded — back in 036 — where a preference would go and
 on what day it would join the whitelist. Light and dark are the one thing it
 declines to store: that is the device's answer, not the account's.
+
+Feature 040 reopens the authentication series to change exactly one thing: which
+part of an HTTP message carries the refresh token. It is now an `HttpOnly`
+cookie rather than a field in a JSON body, which means a script injected into the
+frontend can no longer read it — and the refresh token is the half of a session
+worth stealing, because it lasts a week and renews itself indefinitely while an
+access token lasts fifteen minutes and cannot.
+
+It is careful about what that is worth. A script on the page can still *use* the
+session while the tab is open — the browser will attach the cookie for it — it
+simply cannot copy the credential out to a machine its owner cannot reach. The
+feature document says so rather than claiming XSS immunity.
+
+Nothing else moved, and the shape of the change is the point: `AuthService` was
+not edited except for its return type, because it takes a refresh token as a
+string and hands one back as a string and never knew what carried it. Rotation,
+reuse detection, family revocation, expiry and the strict rate-limit tier are
+byte-for-byte Feature 032's. `schema.prisma` is untouched. What did change is a
+contract — `AuthSessionEntity` has no `refreshToken` field any more, `refresh`
+and `logout` take no body at all, and `change-password` reads the session to
+spare from the cookie instead of from a field a client can no longer fill.
+
+The one thing it declines to add is a CSRF token, and it argues the case rather
+than deferring it: `SameSite=Lax` blocks the cross-site `POST`, two of the three
+cookie routes also require a Bearer token no attacker can attach, and forging the
+third achieves nothing an attacker can read. It also names the deployment that
+invalidates all of that — a frontend on a different site, which needs
+`SameSite=None` — and leaves that note where whoever configures it will find it.
 
 ## Amendments
 

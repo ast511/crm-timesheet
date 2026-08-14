@@ -108,7 +108,7 @@ describe('AuthService', () => {
     it('issues both tokens and the caller’s own account', async () => {
       prisma.user.findUnique.mockResolvedValue(account());
 
-      const session = await service.login(
+      const { session } = await service.login(
         { email: 'maria.ionescu@company.com', password: PASSWORD },
         CLIENT,
       );
@@ -125,6 +125,32 @@ describe('AuthService', () => {
       await expect(tokens.verifyAccessToken(session.accessToken)).resolves.toBe(
         'usr-1',
       );
+    });
+
+    /**
+     * **The shape Feature 040 turns on.** The refresh token comes back beside
+     * the body rather than in it, and the body has nowhere to put one — so the
+     * thing `AuthController` writes to the cookie is a field the interceptor
+     * never sees. The expiry travels with it, which is what lets the cookie's
+     * `Max-Age` be the token's own lifetime rather than a second reading of
+     * `JWT_REFRESH_TTL`.
+     */
+    it('hands the refresh token back beside the body, never inside it', async () => {
+      prisma.user.findUnique.mockResolvedValue(account());
+
+      const issued = await service.login(
+        { email: 'maria.ionescu@company.com', password: PASSWORD },
+        CLIENT,
+      );
+
+      await expect(
+        tokens.verifyRefreshToken(issued.refreshToken),
+      ).resolves.toBe('usr-1');
+      expect(issued.refreshTokenExpiresAt.getTime()).toBeGreaterThan(
+        Date.now(),
+      );
+      expect(JSON.stringify(issued.session)).not.toContain(issued.refreshToken);
+      expect(issued.session).not.toHaveProperty('refreshToken');
     });
 
     /**
@@ -147,7 +173,7 @@ describe('AuthService', () => {
     it('stores a hash of the refresh token rather than the token', async () => {
       prisma.user.findUnique.mockResolvedValue(account());
 
-      const session = await service.login(
+      const { refreshToken } = await service.login(
         { email: 'maria.ionescu@company.com', password: PASSWORD },
         CLIENT,
       );
@@ -156,8 +182,8 @@ describe('AuthService', () => {
         data: Record<string, unknown>;
       };
 
-      expect(data.tokenHash).toBe(tokens.hash(session.refreshToken));
-      expect(JSON.stringify(data)).not.toContain(session.refreshToken);
+      expect(data.tokenHash).toBe(tokens.hash(refreshToken));
+      expect(JSON.stringify(data)).not.toContain(refreshToken);
     });
 
     it('records what the client said about itself, for an incident later', async () => {
@@ -282,12 +308,12 @@ describe('AuthService', () => {
     it('issues a new pair and spends the one presented', async () => {
       const presented = await liveSession();
 
-      const session = await service.refresh(presented, CLIENT);
+      const issued = await service.refresh(presented, CLIENT);
 
-      expect(session.refreshToken).not.toBe(presented);
-      await expect(tokens.verifyAccessToken(session.accessToken)).resolves.toBe(
-        'usr-1',
-      );
+      expect(issued.refreshToken).not.toBe(presented);
+      await expect(
+        tokens.verifyAccessToken(issued.session.accessToken),
+      ).resolves.toBe('usr-1');
 
       // The successor is created first and the old row then points at it, so
       // the chain a reuse detection walks is always complete.
@@ -425,7 +451,7 @@ describe('AuthService', () => {
         account({ role: UserRole.USER }),
       );
 
-      const session = await service.refresh(presented, CLIENT);
+      const { session } = await service.refresh(presented, CLIENT);
 
       expect(session.user.role).toBe(UserRole.USER);
       expect(session.user.administrativeAccess).toBe(false);
