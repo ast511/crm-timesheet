@@ -48,8 +48,33 @@ import { ProfileService } from './profile.service';
  * one thing an unattended laptop must not be able to do.
  *
  * **Everything an administrator owns.** `UpdateProfileDto` is the whitelist and
- * it is one field; the table on that class says where each excluded field is
+ * it is three fields; the table on that class says where each excluded field is
  * changed instead.
+ *
+ * ## The UI preferences, and where a frontend reads them
+ *
+ * Feature 039 put two personalisation columns on `users` — `colorScheme` and
+ * `cornerRadius` — and **this endpoint is the only place the API sends or
+ * accepts them.** They are on `GET /profile/me` and in the `PATCH` whitelist, on
+ * a route that is already scoped to one person and already the thing a profile
+ * screen calls.
+ *
+ * They were deliberately *not* added to `GET /auth/me` or the login response,
+ * although those are the other candidates for session hydration. The query
+ * behind them, `AUTHENTICATED_USER_SELECT`, runs on **every authenticated
+ * request** — `JwtAuthGuard` resolves the caller from the database each time —
+ * so a column added there is a column read on every call in the application, and
+ * these two decide nothing: no guard branches on a colour. That seam carries what
+ * the application needs to make decisions, which is the same sentence `AuthService`
+ * already uses to explain why `email` is not in `CurrentUser`.
+ *
+ * So the contract for a frontend is one sentence: **call `GET /profile/me` on
+ * load and apply `account.colorScheme` and `account.cornerRadius` from it**, and
+ * write them back with `PATCH /profile/me`. That is a call a profile-aware client
+ * makes anyway — it is where the person's name, department and position come from
+ * — so the preferences cost no extra request. Light and dark are not among them
+ * and never will be: the frontend keeps that locally, following the system
+ * setting. See `UpdateProfileDto` and [UiColorScheme] in `schema.prisma`.
  */
 @ApiTags(API_TAG.Profile)
 @ApiBearerAuth(BEARER_AUTH_NAME)
@@ -68,7 +93,7 @@ export class ProfileController {
   @ApiOperation({
     summary: 'Read my own profile',
     description:
-      'The caller’s account plus their employment record, or `employee: null` when the account has none. **There is no `/profile/:id`** — a route that cannot name another person needs no ownership check, and this one has none because there is nothing to check. Never returns the password hash or any activation or reset token; the `select` that guarantees it is on `ProfileEntity`. This and the `PATCH` below are the two routes every authenticated caller may use, whatever their role.',
+      'The caller’s account plus their employment record, or `employee: null` when the account has none. **There is no `/profile/:id`** — a route that cannot name another person needs no ownership check, and this one has none because there is nothing to check. Never returns the password hash or any activation or reset token; the `select` that guarantees it is on `ProfileEntity`. This and the `PATCH` below are the two routes every authenticated caller may use, whatever their role.\n\n**This is where a frontend reads the UI preferences.** `account.colorScheme` and `account.cornerRadius` are on this payload and on no other — `GET /auth/me` deliberately does not carry them, because the query behind it runs on every authenticated request and nothing authorises on a colour. Call this on load and apply both. Light/dark is not among them: the frontend keeps that locally, following the system setting.',
   })
   @ApiOkEnvelope(ProfileEntity)
   @Get('me')
@@ -92,7 +117,7 @@ export class ProfileController {
   @ApiOperation({
     summary: 'Update my own profile',
     description:
-      'The body is whitelisted and the global pipe runs with `forbidNonWhitelisted`, so `role`, `email`, `positionId` or `employeeCode` in the payload is a `400` naming the offending property rather than a value quietly dropped — which is what makes "a user cannot smuggle a promotion into their profile update" a property of the type. **Password changes are not here**: they go through `POST /auth/change-password`, which asks for the current password first. Answers the whole profile, so a client re-renders the screen from one response.',
+      'The body is whitelisted and the global pipe runs with `forbidNonWhitelisted`, so `role`, `email`, `positionId` or `employeeCode` in the payload is a `400` naming the offending property rather than a value quietly dropped — which is what makes "a user cannot smuggle a promotion into their profile update" a property of the type. **Password changes are not here**: they go through `POST /auth/change-password`, which asks for the current password first. Answers the whole profile, so a client re-renders the screen from one response.\n\nThree fields: `phone`, `colorScheme` and `cornerRadius`. They span two tables — the phone is on `employees`, the two preferences on `users` — which is invisible from the wire and has one observable consequence: an account with **no employment record** may set its preferences and gets `403 AUTH_NO_EMPLOYEE_RECORD` for a phone. The refusal is raised before anything is written and the two updates are one transaction, so a rejected request changes nothing at all. An unknown enum value is a `400 VALIDATION_ERROR` naming the property.',
   })
   @ApiOkEnvelope(ProfileEntity)
   @ApiStandardErrors(HttpStatus.BAD_REQUEST)

@@ -1,5 +1,8 @@
+import { ApiProperty } from '@nestjs/swagger';
+
 import { toIsoTimestamp } from '../../../common/utils/date.util';
 import type { Prisma } from '../../../generated/prisma/client';
+import { UiColorScheme, UiCornerRadius } from '../../../generated/prisma/enums';
 import type {
   AccountStatus,
   EmployeeStatus,
@@ -21,9 +24,14 @@ import type {
  * record, and `employee: null` is the honest way to say so.
  *
  * It is the read side of `/profile/me`; what may be *written* is a far shorter
- * list — see `UpdateProfileDto`, which is one field. Everything else here is
+ * list — see `UpdateProfileDto`, which is three fields. Everything else here is
  * shown because it is worth knowing and changed elsewhere by somebody entitled
  * to.
+ *
+ * **It is also where a frontend reads the two UI preferences** (Feature 039).
+ * `account.colorScheme` and `account.cornerRadius` are on this payload rather
+ * than on the login response, so a client applies the theme from the same call
+ * that gives it the person's name.
  *
  * **No `passwordHash` and no token of any kind.** The account half is assembled
  * from an explicit `select` that never names the hash, so it is not read out of
@@ -46,6 +54,44 @@ export class ProfileAccount {
   username!: string | null;
   role!: UserRole;
   status!: AccountStatus;
+
+  /**
+   * The palette this person chose — one of the application's eight themes.
+   *
+   * **This endpoint is where a frontend reads it**, on load, and it is the only
+   * place the API sends it. `GET /auth/me` deliberately does not carry it; the
+   * argument is in `ProfileController`, and the short version is that the query
+   * behind `/auth/me` runs on every authenticated request and is not the place to
+   * add two columns nothing authenticates with.
+   *
+   * Changed through `PATCH /profile/me`, like every other writable field here.
+   *
+   * The `enum` is stated rather than left to the Swagger plugin's inference —
+   * see {@link ProfileAccount.cornerRadius}, where leaving it cost the document
+   * its order.
+   */
+  @ApiProperty({ enum: UiColorScheme, example: UiColorScheme.VIOLET })
+  colorScheme!: UiColorScheme;
+
+  /**
+   * How rounded this person wants the corners — a symbol, not a number.
+   *
+   * The five members map onto CSS radii, and **the frontend owns the mapping**:
+   * `NONE` = `0rem`, `SMALL` = `0.3rem`, `MEDIUM` = `0.5rem` (the default),
+   * `LARGE` = `0.75rem`, `FULL` = `1rem`. The API never sends the number — see
+   * [UiCornerRadius] in `schema.prisma` for why storing one was rejected.
+   *
+   * **The `enum` is passed explicitly, and it has to be.** Everywhere else in
+   * this application the Swagger plugin infers an enum from the field's type and
+   * gets the declaration order right; for this one it did not, and published
+   * `NONE, MEDIUM, SMALL, LARGE, FULL` — a scale with its middle two rungs
+   * swapped, which a settings screen generated from the document would have
+   * rendered in that order. Handing it the runtime enum object instead of a
+   * type-only reference makes the order the schema's, not the type checker's.
+   */
+  @ApiProperty({ enum: UiCornerRadius, example: UiCornerRadius.LARGE })
+  cornerRadius!: UiCornerRadius;
+
   createdAt!: string;
 }
 
@@ -61,7 +107,7 @@ export class ProfileEmployee {
   employeeCode!: string;
   firstName!: string;
   lastName!: string;
-  /** The one field `PATCH /profile/me` may change. */
+  /** The one field of *this half* `PATCH /profile/me` may change. */
   phone!: string | null;
   hireDate!: string;
   terminationDate!: string | null;
@@ -86,6 +132,8 @@ export const PROFILE_SELECT = {
   username: true,
   role: true,
   status: true,
+  colorScheme: true,
+  cornerRadius: true,
   createdAt: true,
   employee: {
     select: {
@@ -111,6 +159,8 @@ export interface ProfileRow {
   username: string | null;
   role: UserRole;
   status: AccountStatus;
+  colorScheme: UiColorScheme;
+  cornerRadius: UiCornerRadius;
   createdAt: Date;
   employee: {
     id: string;
@@ -143,6 +193,8 @@ export function toProfileEntity(row: ProfileRow): ProfileEntity {
       username: row.username,
       role: row.role,
       status: row.status,
+      colorScheme: row.colorScheme,
+      cornerRadius: row.cornerRadius,
       createdAt: toIsoTimestamp(row.createdAt),
     },
     employee:

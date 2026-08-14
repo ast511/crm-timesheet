@@ -17,9 +17,12 @@ import {
   AccountStatus,
   EmployeeStatus,
   SeniorityLevel,
+  UiColorScheme,
+  UiCornerRadius,
   UserRole,
 } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AUTHENTICATED_USER_SELECT } from '../auth/entities/authenticated-user.entity';
 import { TestAuthentication } from '../auth/testing/authentication.testing';
 import { ProfileController } from './profile.controller';
 import { ProfileService } from './profile.service';
@@ -33,6 +36,8 @@ const ROW = {
   username: 'APO',
   role: UserRole.USER,
   status: AccountStatus.ACTIVE,
+  colorScheme: UiColorScheme.DEFAULT,
+  cornerRadius: UiCornerRadius.MEDIUM,
   createdAt: new Date('2026-01-05T09:00:00.000Z'),
   employee: {
     id: 'emp-1',
@@ -62,8 +67,9 @@ const ROW = {
 describe('profile routing', () => {
   let app: INestApplication;
   let prisma: {
-    user: { findUnique: jest.Mock };
+    user: { findUnique: jest.Mock; update: jest.Mock };
     employee: { update: jest.Mock };
+    $transaction: jest.Mock;
   };
 
   const auth = new TestAuthentication();
@@ -73,8 +79,14 @@ describe('profile routing', () => {
 
   beforeAll(async () => {
     prisma = {
-      user: { findUnique: jest.fn() },
+      user: { findUnique: jest.fn(), update: jest.fn() },
       employee: { update: jest.fn() },
+      // The service hands `$transaction` the operations it built, so awaiting
+      // them here is what a real client does — and it keeps each `update` mock
+      // recording the call the assertions below read.
+      $transaction: jest.fn((operations: Promise<unknown>[]) =>
+        Promise.all(operations),
+      ),
     };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -113,6 +125,7 @@ describe('profile routing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.user.findUnique.mockResolvedValue(ROW);
+    prisma.user.update.mockResolvedValue({ id: 'usr-1' });
     prisma.employee.update.mockResolvedValue({ id: 'emp-1' });
   });
 
@@ -130,6 +143,8 @@ describe('profile routing', () => {
           username: 'APO',
           role: UserRole.USER,
           status: AccountStatus.ACTIVE,
+          colorScheme: UiColorScheme.DEFAULT,
+          cornerRadius: UiCornerRadius.MEDIUM,
           createdAt: '2026-01-05T09:00:00.000Z',
         },
         employee: expect.objectContaining({
@@ -161,6 +176,23 @@ describe('profile routing', () => {
       expect(select).not.toHaveProperty('accountTokens');
       expect(select).not.toHaveProperty('refreshTokens');
       expect(JSON.stringify(response.body)).not.toMatch(/passwordHash|token/i);
+    });
+
+    /**
+     * Feature 039. **This endpoint is where a frontend reads the theme**, so
+     * the two preferences being on the payload is the contract rather than a
+     * detail — a client applies them on load from this response.
+     */
+    it('returns the UI preferences on the account half', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`${BASE}/profile/me`)
+        .set(as())
+        .expect(200);
+
+      expect(response.body.data.account).toMatchObject({
+        colorScheme: UiColorScheme.DEFAULT,
+        cornerRadius: UiCornerRadius.MEDIUM,
+      });
     });
 
     /** A super-admin created to administer the system has no employee row. */
@@ -205,7 +237,7 @@ describe('profile routing', () => {
   });
 
   describe('PATCH /profile/me', () => {
-    it('updates the one editable field', async () => {
+    it('updates the phone — the one editable field of the employment half', async () => {
       await request(app.getHttpServer())
         .patch(`${BASE}/profile/me`)
         .set(as())
@@ -290,13 +322,21 @@ describe('profile routing', () => {
       expect(prisma.employee.update).not.toHaveBeenCalled();
     });
 
-    /** A patch with nothing to change is not an error. */
-    it('accepts an empty body as a no-op', async () => {
+    /**
+     * A patch with nothing to change is not an error — and now writes nothing
+     * at all rather than issuing an UPDATE whose only effect would have been to
+     * bump `updated_at`.
+     */
+    it('accepts an empty body as a no-op, and writes nothing', async () => {
       await request(app.getHttpServer())
         .patch(`${BASE}/profile/me`)
         .set(as())
         .send({})
         .expect(200);
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.employee.update).not.toHaveBeenCalled();
     });
 
     it('requires an access token', async () => {
@@ -304,6 +344,279 @@ describe('profile routing', () => {
         .patch(`${BASE}/profile/me`)
         .send({ phone: '+40 722 999 888' })
         .expect(401);
+    });
+  });
+
+  /**
+   * **Feature 039 — the two UI preferences.**
+   *
+   * They are columns of `users` rather than of `employees`, which is what most
+   * of this block is really testing: the same body now spans two tables, and the
+   * interesting cases are all at that seam — an account with no employment
+   * record, a request that names both halves, and a rejected request that must
+   * leave neither half written.
+   */
+  describe('PATCH /profile/me — UI preferences', () => {
+    it('updates both preferences on the caller’s own account', async () => {
+      await request(app.getHttpServer())
+        .patch(`${BASE}/profile/me`)
+        .set(as())
+        .send({
+          colorScheme: UiColorScheme.VIOLET,
+          cornerRadius: UiCornerRadius.FULL,
+        })
+        .expect(200);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'usr-1' },
+        data: {
+          colorScheme: UiColorScheme.VIOLET,
+          cornerRadius: UiCornerRadius.FULL,
+        },
+        select: { id: true },
+      });
+    });
+
+    /** Absent means "leave it alone", which Prisma reads from the `undefined`. */
+    it('leaves the other preference alone when only one is sent', async () => {
+      await request(app.getHttpServer())
+        .patch(`${BASE}/profile/me`)
+        .set(as())
+        .send({ colorScheme: UiColorScheme.GREEN })
+        .expect(200);
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: {
+            colorScheme: UiColorScheme.GREEN,
+            cornerRadius: undefined,
+          },
+        }),
+      );
+    });
+
+    it('touches no employee row when only preferences are sent', async () => {
+      await request(app.getHttpServer())
+        .patch(`${BASE}/profile/me`)
+        .set(as())
+        .send({ cornerRadius: UiCornerRadius.NONE })
+        .expect(200);
+
+      expect(prisma.employee.update).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The round trip the whole feature exists for: what was chosen on one
+     * device is what the next read returns. The stored row here is a stand-in
+     * for the column — the update writes into it and the re-read reads it — so
+     * this asserts the write and the read agree rather than that a mock was
+     * called.
+     */
+    it('persists the change, so a re-fetch returns the new values', async () => {
+      let stored = { ...ROW };
+
+      prisma.user.update.mockImplementation(
+        ({ data }: { data: Partial<typeof ROW> }) => {
+          stored = { ...stored, ...data };
+
+          return Promise.resolve({ id: stored.id });
+        },
+      );
+      prisma.user.findUnique.mockImplementation(() => Promise.resolve(stored));
+
+      const patched = await request(app.getHttpServer())
+        .patch(`${BASE}/profile/me`)
+        .set(as())
+        .send({
+          colorScheme: UiColorScheme.BLUE,
+          cornerRadius: UiCornerRadius.LARGE,
+        })
+        .expect(200);
+
+      expect(patched.body.data.account).toMatchObject({
+        colorScheme: UiColorScheme.BLUE,
+        cornerRadius: UiCornerRadius.LARGE,
+      });
+
+      const refetched = await request(app.getHttpServer())
+        .get(`${BASE}/profile/me`)
+        .set(as())
+        .expect(200);
+
+      expect(refetched.body.data.account).toMatchObject({
+        colorScheme: UiColorScheme.BLUE,
+        cornerRadius: UiCornerRadius.LARGE,
+      });
+    });
+
+    /**
+     * **A value outside the enum never reaches PostgreSQL.** `@IsEnum` turns it
+     * into the standard `400` envelope with `VALIDATION_ERROR`, naming the
+     * property — the alternative, letting the column refuse it, would render a
+     * typo as a `500`.
+     *
+     * The lower-case cases matter: the wire values are the enum's members, and
+     * `violet` is the *stored* spelling rather than the API's.
+     */
+    it.each([
+      ['a colour that does not exist', { colorScheme: 'PURPLE' }],
+      ['the stored spelling of a real colour', { colorScheme: 'violet' }],
+      ['a radius that does not exist', { cornerRadius: 'HUGE' }],
+      ['the stored spelling of a real radius', { cornerRadius: 'medium' }],
+      ['the radius as the number it stands for', { cornerRadius: 0.5 }],
+      ['an empty string', { colorScheme: '' }],
+      ['a null, which neither column admits', { colorScheme: null }],
+    ])('rejects %s with the standard envelope', async (_case, body) => {
+      const response = await request(app.getHttpServer())
+        .patch(`${BASE}/profile/me`)
+        .set(as())
+        .send(body)
+        .expect(400);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        errorCode: 'VALIDATION_ERROR',
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Self-service, and there is nothing to check because there is nothing to
+     * name: the row written is the one the *token* resolved to, so a body
+     * claiming another account is a `400` from the whitelist and the `where`
+     * never sees it either way.
+     */
+    it('writes only the caller’s own account row', async () => {
+      await request(app.getHttpServer())
+        .patch(`${BASE}/profile/me`)
+        .set(auth.as({ userId: 'usr-9', employeeId: 'emp-9' }))
+        .send({ colorScheme: UiColorScheme.RED })
+        .expect(200);
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'usr-9' } }),
+      );
+    });
+
+    it.each([
+      ['a user id', { userId: 'usr-9' }],
+      ['an account id', { id: 'usr-9' }],
+      ['somebody else’s email', { email: 'someone.else@example.com' }],
+    ])(
+      'refuses a preference change that also names %s',
+      async (_case, body) => {
+        await request(app.getHttpServer())
+          .patch(`${BASE}/profile/me`)
+          .set(as())
+          .send({ colorScheme: UiColorScheme.ROSE, ...body })
+          .expect(400);
+
+        expect(prisma.user.update).not.toHaveBeenCalled();
+      },
+    );
+
+    /**
+     * The refusal that Feature 039 narrowed. An account with no employment
+     * record used to be turned away from this endpoint outright, because the
+     * only editable field lived on `employees`. It now has columns of its own,
+     * so a super-admin may choose a theme — and is still refused a phone, which
+     * has nowhere to go.
+     */
+    it('lets an account with no employment record set its preferences', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ...ROW, employee: null });
+
+      await request(app.getHttpServer())
+        .patch(`${BASE}/profile/me`)
+        .set(as({ employeeId: null }))
+        .send({ colorScheme: UiColorScheme.YELLOW })
+        .expect(200);
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { colorScheme: UiColorScheme.YELLOW, cornerRadius: undefined },
+        }),
+      );
+      expect(prisma.employee.update).not.toHaveBeenCalled();
+    });
+
+    /**
+     * A body naming both halves, from an account that has only one of them.
+     * The refusal is raised before anything is written, so the theme does not
+     * land while the phone is rejected — a client's `403` describes the whole
+     * request rather than half of it.
+     */
+    it('writes neither half when the phone is refused for want of an employee', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ...ROW, employee: null });
+
+      const response = await request(app.getHttpServer())
+        .patch(`${BASE}/profile/me`)
+        .set(as({ employeeId: null }))
+        .send({
+          phone: '+40 722 999 888',
+          colorScheme: UiColorScheme.ORANGE,
+        })
+        .expect(403);
+
+      expect(response.body.errorCode).toBe('AUTH_NO_EMPLOYEE_RECORD');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.employee.update).not.toHaveBeenCalled();
+    });
+
+    /** Both halves of one request go in one transaction, or neither does. */
+    it('writes a phone and a preference in a single transaction', async () => {
+      await request(app.getHttpServer())
+        .patch(`${BASE}/profile/me`)
+        .set(as())
+        .send({
+          phone: '+40 722 111 222',
+          cornerRadius: UiCornerRadius.SMALL,
+        })
+        .expect(200);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+
+      const [operations] = prisma.$transaction.mock.calls[0] as [unknown[]];
+
+      expect(operations).toHaveLength(2);
+      expect(prisma.user.update).toHaveBeenCalledTimes(1);
+      expect(prisma.employee.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('requires an access token', async () => {
+      await request(app.getHttpServer())
+        .patch(`${BASE}/profile/me`)
+        .send({ colorScheme: UiColorScheme.BLUE })
+        .expect(401);
+    });
+  });
+
+  /**
+   * **Where a client reads the preferences — the exposure decision of Feature
+   * 039, asserted rather than only documented.**
+   *
+   * They ride on `/profile/me` and on nothing else. The obvious alternative was
+   * `GET /auth/me` and the login response, since those are what a frontend
+   * hydrates a session from; it was rejected because the query behind them runs
+   * on **every authenticated request** — `JwtAuthGuard` resolves the caller from
+   * the database each time — and nothing in the application branches on a
+   * colour. This test is what stops that select quietly growing.
+   */
+  describe('the session-hydration contract', () => {
+    it('serves both preferences from the profile read', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`${BASE}/profile/me`)
+        .set(as())
+        .expect(200);
+
+      expect(response.body.data.account.colorScheme).toBeDefined();
+      expect(response.body.data.account.cornerRadius).toBeDefined();
+    });
+
+    it('keeps them out of the select that runs on every authenticated request', () => {
+      expect(AUTHENTICATED_USER_SELECT).not.toHaveProperty('colorScheme');
+      expect(AUTHENTICATED_USER_SELECT).not.toHaveProperty('cornerRadius');
     });
   });
 });

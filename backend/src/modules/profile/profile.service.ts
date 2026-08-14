@@ -3,6 +3,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { ERROR_CODES } from '../../common/constants/error-codes.constants';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { codedError } from '../../common/errors/coded-error';
+import type { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import {
@@ -68,29 +69,55 @@ export class ProfileService {
   }
 
   /**
-   * Changes the one personal field a person owns about themselves.
+   * Changes the few personal fields a person owns about themselves.
    *
-   * **Requires an employment record**, and the refusal is the interesting case:
-   * an account with no employee — a super-admin created to administer the system
-   * — has nothing this endpoint can write, because the only editable field lives
-   * on `employees`. It answers `AUTH_NO_EMPLOYEE_RECORD`, the code Feature 033
-   * created for precisely this shape of route ("the route is about their own
-   * employment record and their account has none"), rather than inventing a
-   * second way to say it.
+   * **The body spans two tables, and that is what shapes this method.** `phone`
+   * is a column of `employees`; `colorScheme` and `cornerRadius` are columns of
+   * `users` (Feature 039). A caller sends one body and never has to know which,
+   * so the split is made here.
    *
-   * The update is keyed on `employeeId` from the caller's own session, so there
-   * is no path by which this writes another person's row — the same property
-   * {@link findOwn} has, for the same reason.
+   * **The employment record is required only by the half that needs one.** An
+   * account with no employee — a super-admin created to administer the system —
+   * used to be refused outright, because the only editable field lived on
+   * `employees` and there was genuinely nothing to write. That is no longer true:
+   * such an account has preferences, and refusing to let it choose a theme would
+   * be refusing a write to a row that does exist. So the refusal is now
+   * conditional on the request actually naming `phone`, and it is still
+   * `AUTH_NO_EMPLOYEE_RECORD` — the code Feature 033 created for exactly this
+   * shape ("the route is about their own employment record and their account has
+   * none") — rather than a second way of saying it.
    *
-   * A body with no fields at all is a no-op that returns the profile unchanged.
-   * That is deliberate rather than a `400`: `PATCH` with nothing to change is not
-   * an error, and a form that submits an untouched field should not fail.
+   * The refusal is raised **before** anything is written, so a body carrying both
+   * a phone and a preference changes neither. The two updates are then a
+   * transaction for the same reason: one request is one intention, and a run in
+   * which the theme landed and the phone did not would leave the client's
+   * success-or-failure answer describing only half of what happened.
+   *
+   * Each update is keyed on the caller's own session — `userId` for the account,
+   * `employeeId` for the employment record — so there is no path by which this
+   * writes another person's row, the same property {@link findOwn} has and for
+   * the same reason.
+   *
+   * A body with no fields at all writes nothing at all and returns the profile
+   * unchanged. That is deliberate rather than a `400`: `PATCH` with nothing to
+   * change is not an error, and a form that submits an untouched field should not
+   * fail.
    */
   async updateOwn(
     user: CurrentUser,
     dto: UpdateProfileDto,
   ): Promise<ProfileEntity> {
-    if (user.employeeId === null) {
+    const { employeeId } = user;
+
+    // `undefined` means "absent from the body" and is what distinguishes leaving
+    // a field alone from clearing it — `phone: null` is a request to erase the
+    // number, and has to reach the UPDATE. The two preferences have no null at
+    // all, so for them absence is the only thing this can be.
+    const changesPhone = dto.phone !== undefined;
+    const changesPreferences =
+      dto.colorScheme !== undefined || dto.cornerRadius !== undefined;
+
+    if (changesPhone && employeeId === null) {
       throw new ForbiddenException(
         codedError(
           ERROR_CODES.AUTH_NO_EMPLOYEE_RECORD,
@@ -99,16 +126,43 @@ export class ProfileService {
       );
     }
 
-    await this.prisma.employee.update({
-      where: { id: user.employeeId },
-      // `undefined` is omitted from the UPDATE by Prisma, so an absent field is
-      // left alone while an explicit `null` clears the column. Every writable
-      // field of this endpoint is named here, one line each: there is no spread
-      // of the DTO, so widening what a person may change about themselves takes
-      // an edit in two places that a reviewer will see.
-      data: { phone: dto.phone },
-      select: { id: true },
-    });
+    // Every writable field of this endpoint is named here, one line each: there
+    // is no spread of the DTO, so widening what a person may change about
+    // themselves takes an edit in two places that a reviewer will see.
+    const writes: Prisma.PrismaPromise<{ id: string }>[] = [];
+
+    if (changesPreferences) {
+      writes.push(
+        this.prisma.user.update({
+          where: { id: user.userId },
+          data: {
+            colorScheme: dto.colorScheme,
+            cornerRadius: dto.cornerRadius,
+          },
+          select: { id: true },
+        }),
+      );
+    }
+
+    // `employeeId` is non-null whenever `changesPhone` is — the refusal above is
+    // what makes that true. It is restated as a condition rather than asserted
+    // with a cast, so the compiler keeps checking the thing the comment claims.
+    if (changesPhone && employeeId !== null) {
+      writes.push(
+        this.prisma.employee.update({
+          where: { id: employeeId },
+          data: { phone: dto.phone },
+          select: { id: true },
+        }),
+      );
+    }
+
+    // A `PATCH` that named nothing writes nothing — not even an empty
+    // transaction, and not the `updated_at` bump an all-`undefined` UPDATE would
+    // otherwise have made.
+    if (writes.length > 0) {
+      await this.prisma.$transaction(writes);
+    }
 
     return this.findOwn(user);
   }

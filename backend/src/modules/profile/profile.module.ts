@@ -36,11 +36,18 @@ import { ProfileService } from './profile.service';
  * module's table through the service that owns it — and it is worth naming
  * rather than glossing. The rule exists so that a table's *invariants* have one
  * enforcement point, and this module enforces none: it reads two rows in one
- * query and writes exactly one column, `employees.phone`, which no rule anywhere
- * constrains beyond the shared `@IsEmployeePhone()` its DTO already applies. The
- * alternative — a `findOwnProfile` on each of the two services, plus a third
- * method to combine them — would have put a profile screen's shape into two
- * modules that have no interest in it, and taken two queries to do it.
+ * query and writes three columns that no rule anywhere constrains beyond what
+ * its own DTO already applies — `employees.phone`, through the shared
+ * `@IsEmployeePhone()`, and `users.color_scheme` and `users.corner_radius`
+ * (Feature 039), whose only rule is being one of the enum's members and is kept
+ * by the column type itself. The alternative — a `findOwnProfile` on each of the
+ * two services, plus a third method to combine them — would have put a profile
+ * screen's shape into two modules that have no interest in it, and taken two
+ * queries to do it.
+ *
+ * The preference columns landed here rather than on the users module for the
+ * same reason the rest of this endpoint did: they are changed by their owner and
+ * by nobody else, and `/users` is the administrator's resource.
  *
  * The guarantee that actually matters here is kept the way the users module
  * keeps it: an explicit `select` that never names `passwordHash`, so the hash is

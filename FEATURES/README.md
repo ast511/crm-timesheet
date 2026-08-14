@@ -71,3 +71,4 @@ behaviour, record that in the new document and link back to the old one.
 | 036 | [Account Lifecycle](036-account-lifecycle.md) |
 | 037 | [Security Headers](037-security-headers.md) |
 | 038 | [API Documentation](038-api-documentation.md) |
+| 039 | [User UI Preferences](039-user-ui-preferences.md) |

@@ -313,6 +313,27 @@ describe('UserService', () => {
       expect(data).not.toHaveProperty('password');
     });
 
+    /**
+     * Feature 039. A new account gets `DEFAULT` and `MEDIUM` from the **column
+     * defaults**, which is the whole of the defaulting mechanism — there is no
+     * configurable global default for two values, and nothing here states them.
+     *
+     * That is what this asserts: the create path leaves both columns unnamed, so
+     * PostgreSQL supplies them. An administrator choosing somebody else's theme
+     * at creation time is exactly the thing the feature does not build, and it
+     * would start with a line here.
+     */
+    it('names neither UI preference, so the column defaults apply', async () => {
+      await service.create(VALID_CREATE);
+
+      const [{ data }] = prisma.user.create.mock.calls[0] as [
+        { data: Record<string, unknown> },
+      ];
+
+      expect(data).not.toHaveProperty('colorScheme');
+      expect(data).not.toHaveProperty('cornerRadius');
+    });
+
     it('issues an activation token for the new account', async () => {
       await service.create(VALID_CREATE);
 

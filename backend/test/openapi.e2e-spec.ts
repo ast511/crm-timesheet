@@ -975,6 +975,79 @@ describe('API documentation (e2e)', () => {
       expect(dto.properties?.type?.enum).toEqual(['FIXED', 'VARIABLE']);
     });
 
+    /**
+     * **…and it resolves them in the schema's declaration order — but not
+     * always, which is why this exists.**
+     *
+     * Several enums here are *scales*, declared low-to-high on purpose:
+     * `NotificationPriority` says so in `schema.prisma` because PostgreSQL sorts
+     * by declaration order, and `UiCornerRadius` runs `NONE` to `FULL` because a
+     * settings screen generated from this document renders them in the order it
+     * finds them. The plugin's inference gets that right for every enum in the
+     * application except one — Feature 039 found `UiCornerRadius` published as
+     * `NONE, MEDIUM, SMALL, LARGE, FULL`, its middle two rungs swapped, because
+     * the order came from TypeScript's resolution of the union rather than from
+     * the schema.
+     *
+     * The fix was an explicit `@ApiProperty({ enum })` on the entity, handing
+     * the plugin the runtime object. This is what would catch the next one.
+     */
+    it.each([
+      [
+        'ProfileAccount',
+        'cornerRadius',
+        ['NONE', 'SMALL', 'MEDIUM', 'LARGE', 'FULL'],
+      ],
+      [
+        'UpdateProfileDto',
+        'cornerRadius',
+        ['NONE', 'SMALL', 'MEDIUM', 'LARGE', 'FULL'],
+      ],
+      [
+        'ProfileAccount',
+        'colorScheme',
+        [
+          'DEFAULT',
+          'RED',
+          'ROSE',
+          'ORANGE',
+          'GREEN',
+          'BLUE',
+          'YELLOW',
+          'VIOLET',
+        ],
+      ],
+      ['NotificationEntity', 'priority', ['LOW', 'MEDIUM', 'HIGH']],
+      ['ProjectEntity', 'projectPriority', ['LOW', 'MEDIUM', 'HIGH']],
+      [
+        'EmployeeEntity',
+        'seniority',
+        ['INTERN', 'JUNIOR', 'MID', 'SENIOR', 'LEAD'],
+      ],
+      [
+        'WorkScheduleEntity',
+        'weekStartsOn',
+        [
+          'MONDAY',
+          'TUESDAY',
+          'WEDNESDAY',
+          'THURSDAY',
+          'FRIDAY',
+          'SATURDAY',
+          'SUNDAY',
+        ],
+      ],
+    ])(
+      'publishes %s.%s in the schema’s declaration order',
+      (schemaName, property, expected) => {
+        const schema = document.components?.schemas?.[schemaName] as {
+          properties?: Record<string, { enum?: string[] }>;
+        };
+
+        expect(schema.properties?.[property]?.enum).toEqual(expected);
+      },
+    );
+
     /** Required and nullable are inferred from the declaration, not restated. */
     it('marks optional and nullable fields correctly', () => {
       const dto = document.components?.schemas?.CreateDepartmentDto as {

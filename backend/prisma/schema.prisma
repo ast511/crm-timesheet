@@ -489,6 +489,79 @@ enum PermissionAuditAction {
   RESET_TO_ROLE      @map("reset_to_role")
 }
 
+/// Which of the application's fixed palettes a person has chosen to see it in.
+///
+/// **Personalisation, stored server-side so it follows the person rather than
+/// the machine** — Feature 039. The point of the column is the second device: a
+/// preference kept in a browser's local storage is correct until somebody signs
+/// in from the office laptop, and then silently is not. What a person chose is a
+/// fact about their account, so it is stored beside the account.
+///
+/// A closed vocabulary rather than a colour, and that is the whole model. This
+/// does not hold `#7c3aed`: the frontend ships eight themes, each of which is a
+/// set of a dozen related colours, and a hex string would let somebody store a
+/// ninth that nothing knows how to render. The enum is the list of themes that
+/// exist, checked by PostgreSQL rather than by whichever code path last wrote it
+/// — the same call [ProjectStatus] and [SeniorityLevel] make, for the same
+/// reason.
+///
+/// `DEFAULT` is a real member rather than the absence of a choice, so "I want
+/// the standard theme" and "I have never said" are the same answer and there is
+/// no null for a client to interpret.
+///
+/// **Light and dark are deliberately not in here, and belong to no column.**
+/// They are a property of where somebody is sitting rather than of who they are
+/// — the same person wants dark at night on the same laptop where they want
+/// light at noon — and the browser already knows it, through
+/// `prefers-color-scheme`. Storing it would mean a server round trip to
+/// contradict the operating system, and a laptop that follows its owner into a
+/// dark room while the account says otherwise. The frontend keeps it locally
+/// with a local toggle; see [UiCornerRadius] for what *is* stored, and
+/// `FEATURES/039-user-ui-preferences.md` for the argument in full.
+enum UiColorScheme {
+  DEFAULT @map("default")
+  RED     @map("red")
+  ROSE    @map("rose")
+  ORANGE  @map("orange")
+  GREEN   @map("green")
+  BLUE    @map("blue")
+  YELLOW  @map("yellow")
+  VIOLET  @map("violet")
+}
+
+/// How rounded a person wants the application's corners — the second half of
+/// Feature 039's personalisation, stored for the reason [UiColorScheme] is.
+///
+/// **The names are symbols and the values are numbers, and the mapping lives in
+/// this comment because an enum cannot carry it.** A Prisma — and PostgreSQL —
+/// enum member is an identifier, and an identifier may not begin with a digit,
+/// so `0.3` is not spellable as one. The five options the frontend offers are:
+///
+/// | Member | CSS radius | |
+/// | --- | --- | --- |
+/// | `NONE` | `0rem` | square corners |
+/// | `SMALL` | `0.3rem` | |
+/// | `MEDIUM` | `0.5rem` | **the default** |
+/// | `LARGE` | `0.75rem` | |
+/// | `FULL` | `1rem` | |
+///
+/// The frontend owns that translation — it is the only side that knows the unit
+/// is `rem` and that the value lands in a `--radius` custom property — and this
+/// column names *which* of the five was chosen. Storing the number instead was
+/// considered and rejected: a `decimal` column accepts `0.42`, which is not one
+/// of the five, so the check would move out of the database and into whichever
+/// code path last wrote it — exactly the validation this schema keeps asking
+/// PostgreSQL for. It would also freeze a CSS decision in the database, so a
+/// redesign that moved `SMALL` from `0.3rem` to `0.25rem` would have to migrate
+/// every row rather than change one line of CSS.
+enum UiCornerRadius {
+  NONE   @map("none")
+  SMALL  @map("small")
+  MEDIUM @map("medium")
+  LARGE  @map("large")
+  FULL   @map("full")
+}
+
 model User {
   id       String  @id @default(cuid())
   email    String  @unique
@@ -521,6 +594,41 @@ model User {
   /// somebody activates it, instead of being a working login nobody created on
   /// purpose.
   status AccountStatus @default(PENDING_ACTIVATION)
+
+  /// How this person wants the application to look — Feature 039.
+  ///
+  /// **Two explicit enum columns on `users`, rather than a JSON blob or a
+  /// `user_preferences` table**, and the choice is worth stating because both
+  /// alternatives are the usual ones:
+  ///
+  /// - **A separate table** would model a 1-to-1 relation as two rows in two
+  ///   places. Every read of a profile would join for two values, every account
+  ///   would need its preference row created beside it — or read as a null
+  ///   meaning "the defaults" — and the schema would be describing an optional
+  ///   thing that is never actually optional.
+  /// - **A JSON column** would trade away exactly what this schema keeps buying:
+  ///   `{"colorScheme": "purpel"}` is a valid JSON document, so the typo would be
+  ///   stored, returned, and rendered as no theme at all. Neither PostgreSQL nor
+  ///   the generated client would have anything to say about it.
+  ///
+  /// Two values from two small fixed sets are two enum columns. The database
+  /// refuses a value that is not one of the options, the generated client types
+  /// them, and `@IsEnum` in `UpdateProfileDto` rejects one before it gets that
+  /// far — the same three layers every other enum here is checked by.
+  ///
+  /// They are on `users` rather than on `employees` because they belong to the
+  /// *account*: a super-admin created to administer the system has no employment
+  /// record and still has a screen to look at. That is also what makes them the
+  /// first thing `PATCH /profile/me` can change for such an account.
+  ///
+  /// Both are defaulted rather than nullable, so there is no "unset" state for a
+  /// client to interpret and every account ever created — including the ones that
+  /// existed before this feature — has an answer. See [UiColorScheme] for why
+  /// light and dark are deliberately *not* stored here.
+  colorScheme  UiColorScheme  @default(DEFAULT) @map("color_scheme")
+  /// `MEDIUM` is `0.5rem`; the full symbol-to-number mapping is on
+  /// [UiCornerRadius], which is the only place it is written down.
+  cornerRadius UiCornerRadius @default(MEDIUM) @map("corner_radius")
 
   employee Employee?
 

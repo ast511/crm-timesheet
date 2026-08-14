@@ -42,6 +42,7 @@ Append new features to the end of this table.
 | 036 | [Account Lifecycle](036-account-lifecycle.md) | Completed | 2026-08-09 |
 | 037 | [Security Headers](037-security-headers.md) | Completed | 2026-08-12 |
 | 038 | [API Documentation](038-api-documentation.md) | Completed | 2026-08-13 |
+| 039 | [User UI Preferences](039-user-ui-preferences.md) | Completed | 2026-08-13 |
 
 **The authentication series (032–036) is complete.** Identity is proved rather
 than claimed (032), every failure carries a stable code (033), every route is
@@ -78,6 +79,17 @@ note proposed: Swagger UI needs `'unsafe-inline'` for styles, so it is granted o
 `/api/docs` alone rather than on every response in the deployment.
 `SECURITY_CSP_MODE` stays `strict`, and inline *script* stays blocked even on the
 documentation page.
+
+Feature 039 is the smallest thing here in a long while, and deliberately so: two
+enums, two columns on `users`, two fields on a payload that already existed. It
+is the first feature whose subject is what the application *looks like* rather
+than what it knows — a person's palette and corner radius, stored server-side so
+they follow them to the next machine instead of living in one browser's local
+storage. It adds no module, no table and no endpoint, because `PATCH /profile/me`
+was already the route by which somebody changes things about themselves, and
+`UpdateProfileDto` had recorded — back in 036 — where a preference would go and
+on what day it would join the whitelist. Light and dark are the one thing it
+declines to store: that is the device's answer, not the account's.
 
 ## Amendments
 
