@@ -1,0 +1,19 @@
+{
+  "AUTH_UNAUTHENTICATED": "Sesiunea a expirat. Autentifică-te din nou.",
+  "AUTH_INACTIVE_USER": "Contul a fost dezactivat. Contactează departamentul de resurse umane.",
+  "AUTHORIZATION_PERMISSION_DENIED": "Nu ai permisiunea necesară pentru această acțiune ({{requiredPermissions}}).",
+  "VALIDATION_ERROR": "Datele trimise nu sunt valide. Verifică câmpurile marcate.",
+  "RATE_LIMIT_EXCEEDED": "Prea multe cereri. Așteaptă câteva momente și încearcă din nou.",
+  "fallback": {
+    "network": "Serverul nu a putut fi contactat. Verifică conexiunea la internet.",
+    "unknown": "A apărut o eroare neașteptată.",
+    "status": {
+      "400": "Cererea nu a putut fi procesată.",
+      "401": "Sesiunea a expirat. Autentifică-te din nou.",
+      "403": "Acțiunea nu îți este permisă.",
+      "404": "Înregistrarea nu a fost găsită.",
+      "409": "Operațiunea intră în conflict cu datele existente.",
+      "500": "Serverul a întâmpinat o eroare. Încearcă din nou mai târziu."
+    }
+  }
+}

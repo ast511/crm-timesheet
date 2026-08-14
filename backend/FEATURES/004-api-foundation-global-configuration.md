@@ -48,7 +48,7 @@ backend/src/
 ### `configureApp(app)`
 
 All global wiring moved out of `main.ts` into a single
-`configureApp(app: INestApplication)` in [app.setup.ts](../backend/src/config/app.setup.ts).
+`configureApp(app: INestApplication)` in [app.setup.ts](../src/config/app.setup.ts).
 It applies, in order: global prefix → URI versioning → `ValidationPipe` →
 CORS → shutdown hooks.
 
@@ -64,7 +64,7 @@ reading `PORT`, listening, and the startup log line.
 
 ### Environment validation
 
-[env.validation.ts](../backend/src/config/env.validation.ts) declares the
+[env.validation.ts](../src/config/env.validation.ts) declares the
 backend's environment contract as a class and wires `validateEnvironment` into
 `ConfigModule.forRoot({ validate })`. It uses `class-validator` and
 `class-transformer`, both already present for the DTO layer — no new
@@ -135,7 +135,7 @@ Version is carried in the URI (rather than a header or media type) because it
 stays visible in logs, browser address bars and `curl` commands, and it is what
 the frontend can hardcode in a single base-URL constant.
 
-The segments live in [api.constants.ts](../backend/src/config/api.constants.ts)
+The segments live in [api.constants.ts](../src/config/api.constants.ts)
 (`API_PREFIX`, `API_VERSION_PREFIX`, `API_DEFAULT_VERSION`, and the derived
 `API_BASE_PATH = '/api/v1'`). Bootstrap's log line and the e2e tests build
 their paths from those constants, so the base path is defined once.
@@ -151,7 +151,7 @@ Both responses are unchanged. Unprefixed paths now return `404`.
 
 ### CORS
 
-Implemented in [cors.config.ts](../backend/src/config/cors.config.ts) as
+Implemented in [cors.config.ts](../src/config/cors.config.ts) as
 `buildCorsOptions(configService)`, called from `configureApp`.
 
 **Approach.** The allowlist comes from a single environment variable,

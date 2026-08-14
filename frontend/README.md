@@ -1,75 +1,87 @@
-# React + TypeScript + Vite
+# Frontend — CRM Timesheet
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite single-page app for the NestJS API in [`../backend`](../backend).
 
-Currently, two official plugins are available:
+**Conventions live in [`CLAUDE.md`](CLAUDE.md)** — stack, TypeScript rules, component
+style, forms, loading states, responsive design, theming, i18n, dates and API
+access. This file only covers how to run things. What each feature added is in
+[`FEATURES/`](FEATURES/README.md); the foundation is
+[F01](FEATURES/F01-project-foundation.md).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## Requirements
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Node.js 20+
+- The backend running on `http://localhost:3000` (see the repository root
+  `README.md` — PostgreSQL in Docker, then `npm run start:dev` in `backend/`)
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Setup
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
+cp .env.example .env   # optional — every variable has a working default
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The dev server prints its URL (`http://localhost:5173` unless the port is taken).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+---
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Scripts
 
+| Script                | What it does                                                       |
+| --------------------- | ------------------------------------------------------------------ |
+| `npm run dev`         | Vite dev server, with `/api` proxied to the backend.                |
+| `npm run gen:api`     | Regenerates the typed API layer from the backend's OpenAPI document. |
+| `npm run typecheck`   | `tsc -b` across both TypeScript projects.                            |
+| `npm run lint`        | ESLint.                                                              |
+| `npm run build`       | Type-check, then production build into `dist/`.                      |
+| `npm run preview`     | Serves the built `dist/` locally.                                    |
+
+---
+
+## The API types are generated — regenerate them
+
+Request and response types are **never hand-written**. They come from the
+backend's OpenAPI document (`/api/docs-json`, backend Feature 038) into
+`src/api/generated/openapi.d.ts`.
+
+```bash
+# the backend must be running
+npm run gen:api
 ```
+
+Run it after **any** backend contract change. A renamed field then becomes a
+compile error in the screens that use it, which is the entire point — see
+[F01](FEATURES/F01-project-foundation.md) for how the generated types and the
+app's axios instance fit together.
+
+The generated file is committed, so a fresh clone type-checks without the backend
+running. Do not edit it.
+
+---
+
+## Environment
+
+Copy `.env.example` to `.env`. All three variables are optional and documented in
+that file:
+
+| Variable                 | Default                              | Used by            |
+| ------------------------ | ------------------------------------ | ------------------ |
+| `VITE_API_BASE_URL`      | *(empty — same origin)*              | the browser        |
+| `VITE_API_PROXY_TARGET`  | `http://localhost:3000`              | `vite.config.ts`   |
+| `VITE_OPENAPI_URL`       | `http://localhost:3000/api/docs-json` | `npm run gen:api`  |
+
+Vite inlines every `VITE_`-prefixed variable into the shipped bundle, so nothing
+secret belongs in this file. This is the one service in the repository with its
+own `.env`, for that reason.
+
+### The dev proxy
+
+`vite.config.ts` forwards `/api` to `VITE_API_PROXY_TARGET`, so the browser only
+ever talks to the Vite origin and there is no CORS to configure. `/api` rather
+than `/api/v1`, so `/api/docs` and `/api/docs-json` are reachable through the dev
+server too.

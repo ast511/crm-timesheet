@@ -19,4 +19,15 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // `src/components/ui/` holds shadcn primitives, vendored by its CLI and
+    // re-fetched on `shadcn add`. They export a component plus its `cva`
+    // variants from one file, which Fast Refresh flags — a real rule for our
+    // code and a fight with the generator here, since the next `add` would
+    // overwrite the fix. Only this rule is relaxed, and only in this folder.
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

@@ -119,7 +119,7 @@ guessed at.
 
 ### The projection
 
-[public-holiday-occurrence.entity.ts](../backend/src/modules/public-holidays/entities/public-holiday-occurrence.entity.ts)
+[public-holiday-occurrence.entity.ts](../src/modules/public-holidays/entities/public-holiday-occurrence.entity.ts)
 holds `occurrenceSpanIn(row, year)`, and the two types take opposite paths
 through it:
 
@@ -199,7 +199,7 @@ The two calendar routes are declared **before** `@Get(':id')`. Nest matches in
 declaration order, and while `/calendar/2027` could not collide with a
 one-segment `:id` anyway, relying on that would make the safety of these routes
 a fact about how many segments they happen to have.
-[routing.spec.ts](../backend/src/modules/public-holidays/routing.spec.ts) checks
+[routing.spec.ts](../src/modules/public-holidays/routing.spec.ts) checks
 the resolution through a real HTTP request rather than trusting the comment —
 the same technique [Feature 015](015-scoped-membership-endpoints.md) introduced.
 

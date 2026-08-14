@@ -139,7 +139,7 @@ normal state rather than an error.
 ### How Nodemailer is configured, and how the transporter is initialised
 
 `createTransport` is called in exactly one place, `createSmtpTransport()` in
-[email.service.ts](../backend/src/modules/email/email.service.ts), from the
+[email.service.ts](../src/modules/email/email.service.ts), from the
 service constructor:
 
 ```ts
@@ -184,7 +184,7 @@ when the mail server is down.
 
 ### How the SMTP configuration is loaded from `.env`
 
-[email.config.ts](../backend/src/modules/email/email.config.ts) exports
+[email.config.ts](../src/modules/email/email.config.ts) exports
 `SMTP_KEYS` (the variable names, so no literal is repeated), the `SmtpConfig`
 shape, and `loadSmtpConfig(configService)`, which answers:
 
@@ -213,7 +213,7 @@ shape, and `loadSmtpConfig(configService)`, which answers:
   that hangs, and it is the mistake nobody makes twice.
 
 The variables are also declared in
-[env.validation.ts](../backend/src/config/env.validation.ts), all optional. The
+[env.validation.ts](../src/config/env.validation.ts), all optional. The
 optionality is the deliberate part: the application boots without any of them.
 What the contract adds is that a variable which *is* set has to make sense — a
 port that is not a number, a sending address that is not an address, a timeout
@@ -248,7 +248,7 @@ for an email that never comes.
 
 ### EmailException
 
-[email.exception.ts](../backend/src/modules/email/email.exception.ts) — the only
+[email.exception.ts](../src/modules/email/email.exception.ts) — the only
 failure the service ever throws, raised for a missing configuration, a disabled
 test send, and every delivery failure.
 

@@ -7,6 +7,17 @@
     "types": ["vite/client"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
+    /* The i18n bundles are JSON, and `i18next.d.ts` types `t()` against them. */
+    "resolveJsonModule": true,
+
+    /* Path aliases — `@/x` resolves to `src/x`, matching vite.config.ts and
+       components.json. Declared here as well as in the solution tsconfig
+       because a referenced project does not inherit the root's options.
+       No `baseUrl`: it is deprecated in TypeScript 6, and `paths` entries are
+       resolved relative to this file without it. */
+    "paths": {
+      "@/*": ["./src/*"]
+    },
 
     /* Bundler mode */
     "moduleResolution": "bundler",
@@ -17,6 +28,7 @@
     "jsx": "react-jsx",
 
     /* Linting */
+    "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,

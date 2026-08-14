@@ -38,7 +38,7 @@ PostgreSQL
 - Keep the code modular and reusable.
 - Prefer composition over inheritance.
 - Generate clean, maintainable and production-ready code.
-- Keep methods and components small and focused.
+- Keep methods small and focused.
 - Prefer readability over clever implementations.
 
 ---
@@ -123,44 +123,6 @@ Examples include:
 Code generation is allowed without approval.
 
 Environment modifications require explicit user approval.
-
----
-
-## Frontend
-
-- Build reusable UI components.
-- Keep components small and focused.
-- Reuse layouts whenever possible.
-- Avoid duplicated UI logic.
-- Separate presentation from business logic.
-- Organize components by feature whenever appropriate.
-
-### Dates and times
-
-- The API sends every timestamp as ISO-8601 UTC (`2026-08-07T08:36:11.816Z`).
-  Formatting is the frontend's job; the backend never formats a date.
-- Render every timestamp in the **company timezone**, read once from
-  `GET /api/v1/work-schedule` (`timezone`), never in the browser's zone.
-  These are shared business facts — when a timesheet was submitted, when leave
-  was approved — and they must mean the same thing to everyone in the company.
-  A screen that disagrees with the PDF exported from it is a bug.
-- Format with `ro-RO`, matching the exported reports.
-- Never call `toLocaleString()` / `toLocaleDateString()` without an explicit
-  `timeZone`. Without it they silently use the machine's zone: correct on a
-  laptop in Bucharest, wrong for a colleague abroad, and invisible in review.
-- Put both rules in **one** helper and format through it everywhere.
-
-```ts
-new Intl.DateTimeFormat('ro-RO', {
-  timeZone: companyTimezone, // from GET /api/v1/work-schedule
-  year: 'numeric', month: '2-digit', day: '2-digit',
-  hour: '2-digit', minute: '2-digit', hour12: false,
-}).format(new Date(isoString));
-```
-
-Full reasoning — instants versus calendar dates, and why the exports are fixed
-to the company zone — in
-[FEATURES/031-reporting.md](FEATURES/031-reporting.md#frontend).
 
 ---
 
@@ -259,19 +221,29 @@ Tests should be updated whenever application behavior changes.
 
 ## Folder Structure
 
+This file governs the **backend**. It lives inside `backend/`, alongside the
+backend's own `FEATURES/` log, and every path in it is relative to `backend/`.
+The frontend has its own `CLAUDE.md` and `FEATURES/` under `frontend/`; neither
+side's rules or feature log applies to the other.
+
 ```text
-project/
+crm-timesheet/
 │
-├── frontend/
-├── backend/
-├── FEATURES/
-│   ├── README.md
-│   ├── HISTORY.md
-│   ├── TEMPLATE.md
+├── backend/                 # NestJS app — governed by this file
+│   ├── CLAUDE.md            # This file — backend rules
+│   ├── FEATURES/            # Backend feature log
+│   │   ├── README.md
+│   │   ├── HISTORY.md
+│   │   ├── TEMPLATE.md
+│   │   └── ...
+│   ├── prisma/
+│   ├── src/
 │   └── ...
+├── frontend/                # React + Vite app
+│   ├── CLAUDE.md            # Frontend rules — maintained separately
+│   └── FEATURES/            # Frontend feature log — maintained separately
 ├── docker-compose.yml
 ├── README.md
-├── CLAUDE.md
 ├── .env
 ├── .env.example
 └── .gitignore
@@ -293,7 +265,7 @@ After implementing a feature:
 1. Create a new feature document using `FEATURES/TEMPLATE.md`.
 2. Assign the next available incremental number.
 3. Update `FEATURES/HISTORY.md`.
-4. Document all backend, frontend, database and API changes.
+4. Document all backend, database and API changes.
 5. Never overwrite previous feature documents.
 
 ---
@@ -305,7 +277,6 @@ After implementing a feature:
 - Follow DRY.
 - Follow KISS.
 - Keep methods small.
-- Keep components small.
 - Use meaningful names.
 - Avoid magic numbers.
 - Prefer readability over complexity.

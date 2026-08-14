@@ -1,10 +1,43 @@
 <!doctype html>
-<html lang="en">
+<html lang="ro">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>Timesheet</title>
+    <script>
+      /*
+       * Applies the stored light/dark choice before the first paint.
+       *
+       * It has to be inline and it has to be here: any module runs after the
+       * browser has already painted the page, so doing this in React means a
+       * white flash on every load for anybody using dark mode.
+       *
+       * The storage key is the one copy outside `src/theme/theme.ts`, which
+       * says so. Nothing else belongs in this script — the palette and the
+       * radius come from the account and cannot be known before the profile is
+       * read, so there is nothing to pre-apply for them.
+       */
+      (function () {
+        try {
+          var mode = localStorage.getItem("timesheet.color-mode") || "system";
+          var dark =
+            mode === "dark" ||
+            (mode === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+
+          document.documentElement.classList.toggle("dark", dark);
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (error) {
+          /* Storage disabled: fall through to the light default. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

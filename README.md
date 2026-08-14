@@ -14,7 +14,12 @@ backend run on the host with `npm run dev` / `npm run start:dev`.
 crm-timesheet/
 │
 ├── frontend/            # React + Vite app  (runs on the host, e.g. :5173)
+│   ├── CLAUDE.md        # Frontend rules  (added separately)
+│   ├── FEATURES/        # Frontend change log  (added separately)
+│   └── src/
 ├── backend/             # NestJS app        (runs on the host, e.g. :3000)
+│   ├── CLAUDE.md        # Backend rules
+│   ├── FEATURES/        # Backend change log (see backend/FEATURES/README.md)
 │   ├── prisma/
 │   │   ├── schema.prisma
 │   │   ├── migrations/  # Committed migration history
@@ -22,14 +27,16 @@ crm-timesheet/
 │   │   └── seeds/       # One file per seeded entity
 │   ├── prisma.config.ts # Prisma CLI configuration
 │   └── src/
-├── FEATURES/            # Per-feature change log (see FEATURES/README.md)
 ├── docker-compose.yml   # PostgreSQL only (for now)
 ├── .env                 # Real secrets — gitignored
 ├── .env.example         # Template committed to git
 ├── .gitignore
-├── CLAUDE.md
 └── README.md
 ```
+
+Backend and frontend each own their `CLAUDE.md` and `FEATURES/`: the rules and
+the change log live next to the code they describe, and neither side's apply to
+the other. The frontend pair is added as a separate step.
 
 ---
 
@@ -233,10 +240,10 @@ migrating.
   memberships. Every entity is upserted, so the seed can be run repeatedly
   without creating duplicates. Accounts, the default password and the
   `SEED_PASSWORD` override are documented in
-  [`FEATURES/005-database-seeding.md`](FEATURES/005-database-seeding.md).
+  [`backend/FEATURES/005-database-seeding.md`](backend/FEATURES/005-database-seeding.md).
 
 `DATABASE_URL` is the single source of the connection string for the CLI and
-the application alike. See [`FEATURES/003-prisma-orm-setup.md`](FEATURES/003-prisma-orm-setup.md)
+the application alike. See [`backend/FEATURES/003-prisma-orm-setup.md`](backend/FEATURES/003-prisma-orm-setup.md)
 for the full rationale.
 
 ---

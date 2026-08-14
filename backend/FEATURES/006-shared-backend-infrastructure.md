@@ -81,7 +81,7 @@ Each becomes a one-line addition the day it holds something real.
 
 ### Global exception filter
 
-[all-exceptions.filter.ts](../backend/src/common/filters/all-exceptions.filter.ts)
+[all-exceptions.filter.ts](../src/common/filters/all-exceptions.filter.ts)
 is a single `@Catch()` filter — no arguments, so it catches everything — and
 renders the same envelope for both cases:
 
@@ -124,7 +124,7 @@ be instantiated directly instead of registered as an `APP_FILTER` provider.
 
 ### Global response interceptor
 
-[response.interceptor.ts](../backend/src/common/interceptors/response.interceptor.ts)
+[response.interceptor.ts](../src/common/interceptors/response.interceptor.ts)
 wraps every successful body:
 
 ```json
@@ -236,7 +236,7 @@ valid request is.
 
 ### Date helper
 
-[date.util.ts](../backend/src/common/utils/date.util.ts) holds one function,
+[date.util.ts](../src/common/utils/date.util.ts) holds one function,
 `toIsoTimestamp(date = new Date())`. It is deliberately small: its value is that
 "a timestamp in an API payload is ISO-8601 UTC" becomes a decision recorded in
 one file instead of a `toISOString()` call repeated at every producer. Its only

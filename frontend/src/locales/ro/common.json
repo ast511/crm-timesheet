@@ -1,0 +1,57 @@
+{
+  "app": {
+    "name": "CRM Timesheet",
+    "tagline": "Pontaj, concedii și raportare pentru echipă."
+  },
+  "nav": {
+    "home": "Acasă",
+    "workspace": "Aplicație"
+  },
+  "actions": {
+    "retry": "Reîncearcă",
+    "openWorkspace": "Deschide aplicația"
+  },
+  "language": {
+    "label": "Limbă",
+    "ro": "Română",
+    "en": "Engleză"
+  },
+  "colorMode": {
+    "label": "Aspect",
+    "light": "Luminos",
+    "dark": "Întunecat",
+    "system": "Sistem"
+  },
+  "state": {
+    "loading": "Se încarcă…",
+    "empty": "Nu există date."
+  },
+  "table": {
+    "search": "Caută…",
+    "columns": "Coloane",
+    "sort": "Sortare",
+    "sortAscending": "crescător",
+    "sortDescending": "descrescător",
+    "noResults": "Niciun rezultat.",
+    "rowsPerPage": "Rânduri pe pagină",
+    "pageOf": "Pagina {{page}} din {{totalPages}}",
+    "totalRecords": "{{total}} înregistrări",
+    "previousPage": "Pagina anterioară",
+    "nextPage": "Pagina următoare"
+  },
+  "health": {
+    "title": "Starea serviciului",
+    "description": "Un apel tipizat către API, prin instanța axios și TanStack Query.",
+    "service": "Serviciu",
+    "status": "Stare",
+    "failed": "Verificarea nu a reușit."
+  },
+  "shell": {
+    "sidebarPlaceholder": "Navigația apare odată cu primele ecrane.",
+    "contentPlaceholder": "Zona de conținut."
+  },
+  "landing": {
+    "title": "Fundația aplicației",
+    "body": "Clientul HTTP, tipurile generate din contractul OpenAPI, traducerile și tema sunt configurate. Ecranele urmează."
+  }
+}

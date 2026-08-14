@@ -1,0 +1,19 @@
+{
+  "AUTH_UNAUTHENTICATED": "Your session has expired. Please sign in again.",
+  "AUTH_INACTIVE_USER": "This account has been deactivated. Please contact HR.",
+  "AUTHORIZATION_PERMISSION_DENIED": "You do not have permission for this action ({{requiredPermissions}}).",
+  "VALIDATION_ERROR": "The data sent is not valid. Check the highlighted fields.",
+  "RATE_LIMIT_EXCEEDED": "Too many requests. Wait a moment and try again.",
+  "fallback": {
+    "network": "The server could not be reached. Check your internet connection.",
+    "unknown": "Something went wrong.",
+    "status": {
+      "400": "The request could not be processed.",
+      "401": "Your session has expired. Please sign in again.",
+      "403": "You are not allowed to do that.",
+      "404": "The record was not found.",
+      "409": "That conflicts with data which already exists.",
+      "500": "The server ran into a problem. Please try again later."
+    }
+  }
+}

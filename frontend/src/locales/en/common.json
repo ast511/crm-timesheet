@@ -1,0 +1,57 @@
+{
+  "app": {
+    "name": "CRM Timesheet",
+    "tagline": "Timesheets, leave and reporting for the team."
+  },
+  "nav": {
+    "home": "Home",
+    "workspace": "Workspace"
+  },
+  "actions": {
+    "retry": "Retry",
+    "openWorkspace": "Open the workspace"
+  },
+  "language": {
+    "label": "Language",
+    "ro": "Romanian",
+    "en": "English"
+  },
+  "colorMode": {
+    "label": "Appearance",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "state": {
+    "loading": "Loading…",
+    "empty": "No data."
+  },
+  "table": {
+    "search": "Search…",
+    "columns": "Columns",
+    "sort": "Sort",
+    "sortAscending": "ascending",
+    "sortDescending": "descending",
+    "noResults": "No results.",
+    "rowsPerPage": "Rows per page",
+    "pageOf": "Page {{page}} of {{totalPages}}",
+    "totalRecords": "{{total}} records",
+    "previousPage": "Previous page",
+    "nextPage": "Next page"
+  },
+  "health": {
+    "title": "Service status",
+    "description": "A typed call to the API, through the axios instance and TanStack Query.",
+    "service": "Service",
+    "status": "Status",
+    "failed": "The check did not succeed."
+  },
+  "shell": {
+    "sidebarPlaceholder": "Navigation arrives with the first screens.",
+    "contentPlaceholder": "Content area."
+  },
+  "landing": {
+    "title": "Application foundation",
+    "body": "The HTTP client, the types generated from the OpenAPI contract, the translations and the theme are configured. Screens follow."
+  }
+}

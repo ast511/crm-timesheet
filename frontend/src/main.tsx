@@ -1,10 +1,25 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
+import { RouterProvider } from '@tanstack/react-router';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
 
-createRoot(document.getElementById('root')!).render(
+import { AppProviders } from '@/app/AppProviders';
+import { router } from '@/app/router';
+
+import './index.css';
+// Side-effect import: initialises the default i18next instance that
+// `useTranslation` reads. It must run before the first component renders.
+import '@/i18n/config';
+
+const container = document.getElementById('root');
+
+if (container === null) {
+  throw new Error('Missing #root element in index.html');
+}
+
+createRoot(container).render(
   <StrictMode>
-    <App />
+    <AppProviders>
+      <RouterProvider router={router} />
+    </AppProviders>
   </StrictMode>,
-)
+);
