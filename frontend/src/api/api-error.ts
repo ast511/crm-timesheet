@@ -87,6 +87,17 @@ export class ApiError extends Error {
 export const isApiError = (error: unknown): error is ApiError => error instanceof ApiError;
 
 /**
+ * Whether a failure carries a specific backend code.
+ *
+ * For the small number of cases where a screen does something *different* for
+ * one code rather than merely translating it — an expired activation link needs
+ * a way to ask for a new one, not just a sentence. Translation goes through
+ * `useApiErrorMessage`; this is for branching.
+ */
+export const hasErrorCode = (error: unknown, errorCode: string): boolean =>
+  toApiError(error).errorCode === errorCode;
+
+/**
  * Recognises the backend's error envelope without trusting that every failure
  * carries one: a `502` from a reverse proxy is HTML, and a request that never
  * arrived has no body at all.

@@ -111,6 +111,41 @@ export const COLOR_MODES: ColorMode[] = ['light', 'dark', 'system'];
 export const DEFAULT_COLOR_MODE: ColorMode = 'system';
 
 /**
+ * **Whose** light/dark preference applies on the screen currently open.
+ *
+ * - `device` — the operating system's, and only that. The public screens.
+ * - `account` — the {@link ColorMode} the person picked, which may itself be
+ *   `system`. The application behind sign-in.
+ *
+ * The distinction exists because a stored preference belongs to somebody, and
+ * on the sign-in screen there is no somebody yet. A visitor arriving at a login
+ * form should see the theme their machine asked for; showing them dark because
+ * the last person to use this browser chose dark is a stranger's setting
+ * presented as their own — and the public screens deliberately offer no control
+ * to correct it with, which would make it a setting they cannot escape.
+ *
+ * It is declared by the layouts, one each, through `<ColorModeScope>`.
+ */
+export type ColorModeScope = 'device' | 'account';
+
+/**
+ * The path prefix the account's preference applies under, and the whole of the
+ * rule.
+ *
+ * A prefix rather than a list of public paths, deliberately: the authenticated
+ * area is one subtree and the public area is everything else, so a screen added
+ * next year is covered without being enumerated. It is also short enough to be
+ * restated safely in the pre-paint script in `index.html`, which has no module
+ * system to import it from and must decide before React exists.
+ */
+export const ACCOUNT_THEME_PATH_PREFIX = '/app';
+
+/** Which scope a path falls in. Mirrored by the inline script in `index.html`. */
+export const isAccountThemePath = (pathname: string): boolean =>
+  pathname === ACCOUNT_THEME_PATH_PREFIX ||
+  pathname.startsWith(`${ACCOUNT_THEME_PATH_PREFIX}/`);
+
+/**
  * Where the colour mode is remembered.
  *
  * `localStorage` is right here and wrong for the access token, and the
@@ -119,6 +154,13 @@ export const DEFAULT_COLOR_MODE: ColorMode = 'system';
  * applies the stored mode before the first paint so the page does not flash the
  * wrong theme. That duplication is deliberate — the script has to run before
  * any module loads — and it is the only copy.
+ *
+ * **The two copies must be the same string.** They were not, for a while, and
+ * the failure is silent in the direction that matters: the script reads a key
+ * nothing writes, finds nothing, falls back to `system`, and everything looks
+ * correct to anybody whose device is already set the way they chose. It is only
+ * wrong for the person who picked the mode their machine did not — which is the
+ * only person the script exists for.
  */
 export const COLOR_MODE_STORAGE_KEY = 'crm-timesheet.color-mode';
 

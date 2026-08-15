@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "CRM Timesheet",
+    "name": "TimeSheet",
     "tagline": "Timesheets, leave and reporting for the team."
   },
   "nav": {
@@ -53,5 +53,56 @@
   "landing": {
     "title": "Application foundation",
     "body": "The HTTP client, the types generated from the OpenAPI contract, the translations and the theme are configured. Screens follow."
+  },
+  "auth": {
+    "fields": {
+      "email": "Email",
+      "password": "Password",
+      "newPassword": "New password",
+      "confirmPassword": "Confirm password"
+    },
+    "placeholders": {
+      "email": "user@example.com"
+    },
+    "validation": {
+      "emailRequired": "Enter your email address.",
+      "emailInvalid": "That email address is not valid.",
+      "emailTooLong": "That email address is too long.",
+      "passwordRequired": "Enter your password.",
+      "passwordTooShort": "The password must be at least {{min}} characters.",
+      "passwordTooLong": "The password can be at most {{max}} characters.",
+      "passwordMismatch": "The two passwords do not match."
+    },
+    "login": {
+      "title": "Welcome back",
+      "description": "Sign in to your TimeSheet account",
+      "forgotPassword": "Forgot your password?",
+      "submit": "Login"
+    },
+    "forgotPassword": {
+      "title": "Forgot your password?",
+      "description": "Enter your account's email address and we will send you a link to choose a new password.",
+      "submit": "Send the reset link",
+      "sent": "If an account exists for that address, we have sent an email with reset instructions. Check your inbox and your spam folder."
+    },
+    "resetPassword": {
+      "title": "Choose a new password",
+      "description": "Set a new password for your account. Every active session will be signed out.",
+      "submit": "Save the new password",
+      "success": "Your password has been changed. You can sign in with it now.",
+      "invalidLink": "This reset link is invalid or has expired.",
+      "requestNew": "Request a new link"
+    },
+    "activate": {
+      "title": "Activate your account",
+      "description": "Choose the password you will sign in to TimeSheet with.",
+      "submit": "Activate the account",
+      "success": "Your account has been activated. You can sign in now.",
+      "invalidLink": "This activation link is invalid or has expired. Ask HR for a new one."
+    },
+    "missingToken": "The link you opened carries no token. Open the full link from the email again.",
+    "backToLogin": "Back to sign-in",
+    "goToLogin": "Go to sign-in",
+    "signOut": "Sign out"
   }
 }

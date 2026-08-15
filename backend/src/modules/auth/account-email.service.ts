@@ -74,9 +74,9 @@ export class AccountEmailService {
     const validity = describeValidity(context.expiresAt);
 
     await this.send(context.to, {
-      subject: 'Activate your CRM TimeSheet account',
+      subject: 'Activate your TimeSheet account',
       intro:
-        'An account has been created for you in the CRM TimeSheet system. To finish setting it up, choose your password using the link below.',
+        'An account has been created for you in the TimeSheet system. To finish setting it up, choose your password using the link below.',
       action: 'Set your password',
       link,
       validity,
@@ -91,9 +91,9 @@ export class AccountEmailService {
     const validity = describeValidity(context.expiresAt);
 
     await this.send(context.to, {
-      subject: 'Reset your CRM TimeSheet password',
+      subject: 'Reset your TimeSheet password',
       intro:
-        'We received a request to reset the password for your CRM TimeSheet account. Choose a new password using the link below.',
+        'We received a request to reset the password for your TimeSheet account. Choose a new password using the link below.',
       action: 'Choose a new password',
       link,
       validity,

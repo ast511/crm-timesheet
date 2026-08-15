@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "CRM Timesheet",
+    "name": "TimeSheet",
     "tagline": "Pontaj, concedii și raportare pentru echipă."
   },
   "nav": {
@@ -53,5 +53,56 @@
   "landing": {
     "title": "Fundația aplicației",
     "body": "Clientul HTTP, tipurile generate din contractul OpenAPI, traducerile și tema sunt configurate. Ecranele urmează."
+  },
+  "auth": {
+    "fields": {
+      "email": "Email",
+      "password": "Parolă",
+      "newPassword": "Parolă nouă",
+      "confirmPassword": "Confirmă parola"
+    },
+    "placeholders": {
+      "email": "user@exemplu.com"
+    },
+    "validation": {
+      "emailRequired": "Introdu adresa de email.",
+      "emailInvalid": "Adresa de email nu este validă.",
+      "emailTooLong": "Adresa de email este prea lungă.",
+      "passwordRequired": "Introdu parola.",
+      "passwordTooShort": "Parola trebuie să aibă cel puțin {{min}} caractere.",
+      "passwordTooLong": "Parola poate avea cel mult {{max}} caractere.",
+      "passwordMismatch": "Cele două parole nu coincid."
+    },
+    "login": {
+      "title": "Bine ai revenit",
+      "description": "Autentifică-te în contul tău TimeSheet",
+      "forgotPassword": "Ai uitat parola?",
+      "submit": "Login"
+    },
+    "forgotPassword": {
+      "title": "Ai uitat parola?",
+      "description": "Introdu adresa de email a contului tău și îți trimitem un link pentru a-ți alege o parolă nouă.",
+      "submit": "Trimite linkul de resetare",
+      "sent": "Dacă există un cont pentru această adresă, am trimis un email cu instrucțiuni de resetare. Verifică-ți inboxul și folderul de spam."
+    },
+    "resetPassword": {
+      "title": "Alege o parolă nouă",
+      "description": "Setează o parolă nouă pentru contul tău. Toate sesiunile active vor fi închise.",
+      "submit": "Salvează parola nouă",
+      "success": "Parola a fost schimbată. Te poți autentifica cu noua parolă.",
+      "invalidLink": "Linkul de resetare este invalid sau a expirat.",
+      "requestNew": "Cere un link nou"
+    },
+    "activate": {
+      "title": "Activează-ți contul",
+      "description": "Alege parola cu care te vei autentifica în TimeSheet.",
+      "submit": "Activează contul",
+      "success": "Contul a fost activat. Te poți autentifica acum.",
+      "invalidLink": "Linkul de activare este invalid sau a expirat. Cere unul nou departamentului de resurse umane."
+    },
+    "missingToken": "Linkul deschis nu conține niciun token. Deschide din nou linkul complet din email.",
+    "backToLogin": "Înapoi la autentificare",
+    "goToLogin": "Mergi la autentificare",
+    "signOut": "Ieși din cont"
   }
 }

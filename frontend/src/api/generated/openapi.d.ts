@@ -62,7 +62,7 @@ export interface paths {
         put?: never;
         /**
          * Sign in
-         * @description Returns an access token, a refresh token and the account behind them. **No padlock, and the route is not unprotected** — it is protected by the password in the body, and the endpoint that *issues* a token cannot require one. Answers `200` rather than `201`: a session is not a resource here, there is no `/auth/sessions/:id` to put in a `Location` header, and `201` would promise one. A wrong address, a wrong password and a deactivated account all answer `401 AUTH_INVALID_CREDENTIALS` with the same message and equalised timing — splitting them would confirm that an address exists, which in a company’s internal system also answers "does this person work here". On the strict rate-limit tier.
+         * @description Returns an access token and the account behind it, and sets the **refresh token as an `HttpOnly` cookie** on the response — it is deliberately not in the body, so no script on the page can read it. Present the access token as `Authorization: Bearer <accessToken>` and keep it in memory only; the browser handles the cookie by itself. A browser client must call this with `credentials: "include"` (`withCredentials: true`) or the cookie is neither stored nor sent back. **No padlock, and the route is not unprotected** — it is protected by the password in the body, and the endpoint that *issues* a token cannot require one. Answers `200` rather than `201`: a session is not a resource here, there is no `/auth/sessions/:id` to put in a `Location` header, and `201` would promise one. A wrong address, a wrong password and a deactivated account all answer `401 AUTH_INVALID_CREDENTIALS` with the same message and equalised timing — splitting them would confirm that an address exists, which in a company’s internal system also answers "does this person work here". On the strict rate-limit tier.
          */
         post: operations["AuthController_login_v1"];
         delete?: never;
@@ -81,8 +81,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Rotate a refresh token into a new session
-         * @description Returns the same body as login, because a refresh *is* a new session: the account may have changed role in the meantime, so sending back less would leave a long-running client rendering a role it was given hours ago. **Single-use** — the response contains the replacement, so a client must *overwrite* what it stored rather than append to it, which is the one thing an integrator can get wrong here. Presenting a spent token is treated as theft: every live session of the account is revoked and the answer is `AUTH_REFRESH_TOKEN_REUSED` rather than an ordinary expiry. Public at the authentication level only — the refresh token in the body is the credential. On the strict rate-limit tier.
+         * Rotate the refresh cookie into a new session
+         * @description Reads the refresh token from the **`HttpOnly` cookie** set at login — the request takes no body — and answers with a new access token and a new refresh cookie. The body is the same as login’s, because a refresh *is* a new session: the account may have changed role in the meantime, so sending back less would leave a long-running client rendering a role it was given hours ago. **Single-use.** Presenting a spent token is treated as theft: every live session of the account is revoked, the answer is `AUTH_REFRESH_TOKEN_REUSED` rather than an ordinary expiry, and the cookie is cleared. A request carrying no cookie, or one whose value is not plausibly a token, answers the same `401 AUTH_REFRESH_TOKEN_INVALID` an unusable token does — a browser with no cookie sends no header, so there is nothing for a missing-field `400` to describe. Public at the authentication level only — the cookie is the credential. On the strict rate-limit tier.
          */
         post: operations["AuthController_refresh_v1"];
         delete?: never;
@@ -101,8 +101,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * End the session a refresh token belongs to
-         * @description Requires **both** credentials: a valid access token, because this is an action taken by a known caller, and the refresh token, because that is the thing being revoked and the caller has more than one. The service checks that the token belongs to the caller before revoking it, which is what stops an authenticated employee ending somebody else’s session. Answers `200` with `data: null` rather than `204`.
+         * End the session the refresh cookie belongs to
+         * @description Requires **both** credentials: a valid access token, because this is an action taken by a known caller, and the refresh token — now read from the `HttpOnly` cookie — because that is the thing being revoked and the caller has more than one. The request takes no body. The service checks that the token belongs to the caller before revoking it, which is what stops an authenticated employee ending somebody else’s session. The cookie is cleared on the response whether or not one was presented, so a client whose cookie has already expired can still sign out cleanly; the route has always been idempotent and silent about what it found. Answers `200` with `data: null` rather than `204`. The access token is untouched and stays valid until it expires — a client discards it.
          */
         post: operations["AuthController_logout_v1"];
         delete?: never;
@@ -202,7 +202,7 @@ export interface paths {
         put?: never;
         /**
          * Change a password its owner knows
-         * @description The one password route that is **not** public, and the one that asks for the current password. Both follow from the same fact: this caller is signed in, so the question is not "who are you" but "are you the person who owns this session, or somebody who found it unlocked". The account is always the caller’s own — taken from the token, never from the body — so there is no route through this API by which anybody changes another person’s password. An optional `refreshToken` names the session to keep alive; every other session of the account is revoked. A wrong current password is `400 ACCOUNT_CURRENT_PASSWORD_INCORRECT`, which is deliberately specific: there is no enumeration to protect against here, and the honest message is what stops somebody assuming their *new* password was rejected.
+         * @description The one password route that is **not** public, and the one that asks for the current password. Both follow from the same fact: this caller is signed in, so the question is not "who are you" but "are you the person who owns this session, or somebody who found it unlocked". The account is always the caller’s own — taken from the token, never from the body — so there is no route through this API by which anybody changes another person’s password. **Every other session of the account is revoked and the current one is kept**, identified by the `HttpOnly` refresh cookie the request carries; the `refreshToken` body field this used to take was removed in Feature 040, because a client no longer holds the value. A request arriving without the cookie revokes every session including its own, which is the safe direction to be wrong in — the cost is one extra sign-in. A wrong current password is `401 ACCOUNT_CURRENT_PASSWORD_INCORRECT`, which is deliberately specific: there is no enumeration to protect against here, and the honest message is what stops somebody assuming their *new* password was rejected.
          */
         post: operations["AuthController_changePassword_v1"];
         delete?: never;
@@ -1768,15 +1768,6 @@ export interface components {
         AuthSessionEntity: {
             /** @description Present as `Authorization: Bearer <accessToken>` on every other request. */
             accessToken: string;
-            /**
-             * @description Presented to `POST /auth/refresh`, once.
-             *
-             *     Rotation makes this single-use: the response to a refresh contains its
-             *     replacement, and presenting this one again is treated as theft. A client
-             *     therefore has to *overwrite* what it stored, not append to it — the one
-             *     thing an integrator can get wrong here, and the reason it is said out loud.
-             */
-            refreshToken: string;
             /** @description Always `Bearer`, so a client can build the header without knowing the scheme. */
             tokenType: string;
             /**
@@ -1801,9 +1792,6 @@ export interface components {
              */
             email: string;
             password: string;
-        };
-        RefreshDto: {
-            refreshToken: string;
         };
         ActivateAccountDto: {
             token: string;
@@ -1835,29 +1823,6 @@ export interface components {
         ChangePasswordDto: {
             currentPassword: string;
             newPassword: string;
-            /**
-             * @description The caller's own refresh token — the session **not** to end.
-             *
-             *     Changing a password revokes the account's other sessions, which is the half
-             *     of the feature that matters when somebody suspects their password is known.
-             *     This field is what keeps the person doing it signed in on the machine they
-             *     are sitting at; without it they would change their password and be thrown
-             *     back to the login screen, which reads as a failure and teaches people to
-             *     avoid the feature.
-             *
-             *     **Optional, and the default is the safe direction.** An absent or unrecognised
-             *     token spares nothing, so every session ends including this one. The cost of
-             *     being wrong is one extra sign-in; the cost of the opposite default — sparing
-             *     a session that was not really the caller's — would be leaving the very
-             *     session this change was meant to evict.
-             *
-             *     It is not a second credential and proves nothing: the access token has
-             *     already said who is calling and the current password has already been
-             *     verified. It is only ever used to *exclude* a row from a revocation, so a
-             *     value belonging to somebody else spares one of their sessions and touches
-             *     nothing of theirs otherwise.
-             */
-            refreshToken?: string;
         };
         EmailHealthResponseDto: {
             /** @description Whether every required `SMTP_*` variable is present. */
@@ -4536,6 +4501,8 @@ export interface operations {
         responses: {
             200: {
                 headers: {
+                    /** @description The refresh token, as an `HttpOnly` cookie — e.g. `refresh_token=<jws>; Max-Age=604800; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Lax`. It is not readable from JavaScript and is not in the response body. `Max-Age` matches the token’s own lifetime, `Path` scopes it to the auth routes so it rides on nothing else, and `Secure` is set outside development. Name, path, `Secure` and `SameSite` are configurable per deployment. */
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4616,14 +4583,12 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RefreshDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
+                    /** @description The refresh token, as an `HttpOnly` cookie — e.g. `refresh_token=<jws>; Max-Age=604800; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Lax`. It is not readable from JavaScript and is not in the response body. `Max-Age` matches the token’s own lifetime, `Path` scopes it to the auth routes so it rides on nothing else, and `Secure` is set outside development. Name, path, `Secure` and `SameSite` are configurable per deployment. */
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4635,15 +4600,6 @@ export interface operations {
                         success: true;
                         data: components["schemas"]["AuthSessionEntity"];
                     };
-                };
-            };
-            /** @description The request body, query or path failed validation. The global `ValidationPipe` runs with `whitelist` and `forbidNonWhitelisted`, so an unknown property is rejected by name rather than ignored. `message` is an array with one entry per rejected field and `errorCode` is `VALIDATION_ERROR`. Some domain rules — a leave span, a missing processor — deliberately answer in this same shape so a client handles them with the code it already has for field errors. Those send a single string and their own code: `ACCOUNT_TOKEN_INVALID` on `POST /auth/activate` and `POST /auth/reset-password`, where a dead link is an input error rather than an authentication failure — the token is a body parameter proving somebody received an email, not a credential — and `params.purpose` says which kind of link it was. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
             /** @description The credential in the request body was refused — there is no access token involved on a public route. `AUTH_INVALID_CREDENTIALS` covers all three login failures (no such address, wrong password, deactivated account) with one message and equalised timing, because splitting them would confirm that an address exists. `AUTH_REFRESH_TOKEN_INVALID` covers a refresh token that is malformed, expired, revoked or unknown; `AUTH_REFRESH_TOKEN_REUSED` is the one that is deliberately specific, because a spent token coming back means two parties hold one credential and every session has just been revoked. */
@@ -4704,14 +4660,12 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RefreshDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
+                    /** @description Clears the refresh cookie — the same name, path and attributes with an expiry in the past. Sent whether or not the request carried one. */
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4727,15 +4681,6 @@ export interface operations {
                          */
                         data: unknown;
                     };
-                };
-            };
-            /** @description The request body, query or path failed validation. The global `ValidationPipe` runs with `whitelist` and `forbidNonWhitelisted`, so an unknown property is rejected by name rather than ignored. `message` is an array with one entry per rejected field and `errorCode` is `VALIDATION_ERROR`. Some domain rules — a leave span, a missing processor — deliberately answer in this same shape so a client handles them with the code it already has for field errors. Those send a single string and their own code: `ACCOUNT_TOKEN_INVALID` on `POST /auth/activate` and `POST /auth/reset-password`, where a dead link is an input error rather than an authentication failure — the token is a body parameter proving somebody received an email, not a credential — and `params.purpose` says which kind of link it was. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
             /** @description No access token, or one that is malformed, expired, forged, or names an account that no longer exists. Produced by the global `JwtAuthGuard` before any handler runs; `errorCode` is `AUTH_UNAUTHENTICATED`. The client should attempt a refresh and, failing that, send the person to the login screen. Two other codes reach this status on their own flows: `AUTH_INACTIVE_USER` when the account behind an otherwise valid token has been deactivated — on any authenticated request, on `GET /auth/me` and on `POST /auth/refresh`, never on login — where a refresh would fail forever and the person needs "your account has been deactivated" instead; and `ACCOUNT_CURRENT_PASSWORD_INCORRECT`, only on `POST /auth/change-password`, where the session is fine and it is the `currentPassword` in the body that was wrong. The message does not distinguish them; the code does. */

@@ -34,6 +34,7 @@ the OpenAPI contract.
 - **shadcn/ui + Tailwind CSS v4** — components and styling.
 - **react-hook-form + Zod** (`@hookform/resolvers`) — all forms and their validation.
 - **react-i18next + i18next** — internationalization (default `ro`, fallback `en`).
+- **framer-motion** — all non-trivial UI animation and transitions (see Animations).
 
 Justify any additional dependency in the feature doc; keep the set lean.
 
@@ -112,6 +113,29 @@ Two distinct loading patterns — use the right one:
   mapped to consistent dimensions via CSS variables / Tailwind classes.
 - Accessible: an accessible label (e.g. `aria-label`/role status) so screen readers
   announce the loading state.
+
+---
+
+## Animations
+
+- **Use framer-motion** for all non-trivial animation and transitions: entrance/exit
+  of dialogs, popovers, sheets and menus (e.g. the collapsed-sidebar popover submenu),
+  list item add/remove, page/route transitions, and any motion that needs
+  orchestration, spring physics, or enter/exit (`AnimatePresence`). Do not hand-roll
+  these with ad-hoc CSS keyframes or setTimeout-driven state.
+- Simple, static state changes (a hover color, a basic fade that Tailwind's
+  `transition-*` utilities already cover) may stay plain CSS — do not reach for
+  framer-motion where a Tailwind transition is clearly enough. Reserve it for motion
+  that has enter/exit, sequencing, or interactivity.
+- Keep motion **subtle, fast, and purposeful** — it should aid understanding (where did
+  this come from, what changed), never distract. Prefer short durations and gentle
+  easing/spring.
+- **Respect reduced motion:** honor `prefers-reduced-motion` (framer-motion's
+  `useReducedMotion` / reduced variants) so users who ask for less motion get minimal
+  or no animation. This is an accessibility requirement, not optional.
+- Wrap repeated motion patterns in small reusable components/variants (e.g. a shared
+  fade/slide variant set) rather than re-specifying transitions inline everywhere,
+  consistent with the "small reusable pieces" rule.
 
 ---
 

@@ -13,10 +13,12 @@ import {
   DEFAULT_CORNER_RADIUS,
   applyTheme,
   getSystemColorMode,
+  isAccountThemePath,
   readStoredColorMode,
   storeColorMode,
   subscribeToSystemColorScheme,
   type ColorMode,
+  type ColorModeScope,
 } from './theme';
 
 export interface ThemeProviderProps {
@@ -57,6 +59,20 @@ export const ThemeProvider = ({ children, defaultPreferences }: ThemeProviderPro
   const [colorMode, setColorModeState] = useState<ColorMode>(readStoredColorMode);
 
   /**
+   * Seeded from the URL rather than from a default, so React's first paint
+   * agrees with the pre-paint script in `index.html` — which decides by the
+   * same rule and has already put a class on `<html>`. Starting at `account`
+   * and correcting once a layout mounts would be a visible flash on exactly the
+   * screen this scoping exists to protect.
+   *
+   * `<ColorModeScope>` takes over from here; this initial value only has to be
+   * right for the first frame.
+   */
+  const [colorModeScope, setColorModeScope] = useState<ColorModeScope>(() =>
+    isAccountThemePath(window.location.pathname) ? 'account' : 'device',
+  );
+
+  /**
    * The operating system's setting, read as an external store rather than
    * copied into state by an effect.
    *
@@ -67,7 +83,16 @@ export const ThemeProvider = ({ children, defaultPreferences }: ThemeProviderPro
    * and there is nothing to keep in step.
    */
   const systemColorMode = useSyncExternalStore(subscribeToSystemColorScheme, getSystemColorMode);
-  const resolvedColorMode = colorMode === 'system' ? systemColorMode : colorMode;
+
+  /**
+   * The `device` scope ignores {@link colorMode} entirely — it does not reset
+   * it, override it, or write to it. The stored choice is left exactly as it
+   * was, unread, and comes back into effect the moment an authenticated screen
+   * declares the `account` scope. A public screen is a gap in the preference's
+   * application, not an edit to it.
+   */
+  const resolvedColorMode =
+    colorModeScope === 'device' || colorMode === 'system' ? systemColorMode : colorMode;
 
   useEffect(() => {
     applyTheme({ ...preferences, resolvedColorMode });
@@ -83,8 +108,16 @@ export const ThemeProvider = ({ children, defaultPreferences }: ThemeProviderPro
   }, []);
 
   const value = useMemo(
-    () => ({ ...preferences, colorMode, resolvedColorMode, setPreferences, setColorMode }),
-    [preferences, colorMode, resolvedColorMode, setPreferences, setColorMode],
+    () => ({
+      ...preferences,
+      colorMode,
+      resolvedColorMode,
+      colorModeScope,
+      setPreferences,
+      setColorMode,
+      setColorModeScope,
+    }),
+    [preferences, colorMode, resolvedColorMode, colorModeScope, setPreferences, setColorMode],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

@@ -8,24 +8,55 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <link rel="manifest" href="/site.webmanifest" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      `interactive-widget=resizes-visual` says the on-screen keyboard must
+      overlay the page rather than shrink the layout viewport.
+
+      Without it, focusing a field can shorten `100dvh` by a third, and every
+      vertically-centred element on the page moves — then moves back when the
+      field is blurred. That is a layout shift caused by typing, and it is the
+      default behaviour in some browsers. `resizes-visual` keeps the layout
+      still and lets the browser scroll the focused field into view instead,
+      which is what people expect.
+
+      It is the standardised half of the fix; `AuthCard` also aligns to the top
+      on small screens, so the form stays put even where this is not honoured.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, interactive-widget=resizes-visual"
+    />
     <title>Timesheet</title>
     <script>
       /*
-       * Applies the stored light/dark choice before the first paint.
+       * Applies the right light/dark theme before the first paint.
        *
        * It has to be inline and it has to be here: any module runs after the
        * browser has already painted the page, so doing this in React means a
        * white flash on every load for anybody using dark mode.
        *
-       * The storage key is the one copy outside `src/theme/theme.ts`, which
-       * says so. Nothing else belongs in this script — the palette and the
-       * radius come from the account and cannot be known before the profile is
-       * read, so there is nothing to pre-apply for them.
+       * TWO constants are duplicated from `src/theme/theme.ts`, which says so:
+       * the storage key and the `/app` prefix. This script has no module system
+       * to import them from and must decide before React exists.
+       *
+       * The `/app` check is the same rule `isAccountThemePath` implements. The
+       * stored choice belongs to a signed-in person, so it applies only under
+       * `/app`; every public screen — the login form above all — follows the
+       * operating system, because there is nobody there yet whose preference it
+       * could be. Without this check the login screen would flash the previous
+       * user's dark mode and then correct itself, which is the exact flash this
+       * script exists to prevent.
+       *
+       * Nothing else belongs here — the palette and the radius come from the
+       * account and cannot be known before the profile is read.
        */
       (function () {
         try {
-          var mode = localStorage.getItem("timesheet.color-mode") || "system";
+          var path = window.location.pathname;
+          var isAccountArea = path === "/app" || path.indexOf("/app/") === 0;
+          var mode = isAccountArea
+            ? localStorage.getItem("crm-timesheet.color-mode") || "system"
+            : "system";
           var dark =
             mode === "dark" ||
             (mode === "system" &&

@@ -38,7 +38,7 @@ export class ExcelReportRenderer {
   async render(model: ReportDataModel): Promise<Buffer> {
     const workbook = new Workbook();
 
-    workbook.creator = 'CRM TimeSheet';
+    workbook.creator = 'TimeSheet';
     workbook.created = new Date(model.generatedAt);
 
     const sheet = workbook.addWorksheet(toSheetName(model), {
