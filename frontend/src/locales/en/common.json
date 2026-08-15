@@ -104,5 +104,14 @@
     "backToLogin": "Back to sign-in",
     "goToLogin": "Go to sign-in",
     "signOut": "Sign out"
+  },
+  "permissions": {
+    "accessChanged": "Your permissions have changed. What you can reach has been updated.",
+    "notAuthorized": {
+      "title": "Access restricted",
+      "description": "You do not have permission to open this page. Ask an administrator for access.",
+      "required": "Permission required:",
+      "backHome": "Back to the home page"
+    }
   }
 }

@@ -2,6 +2,7 @@ import { createRoute, redirect } from '@tanstack/react-router';
 
 import { WorkspaceLayout } from '@/app/layout/WorkspaceLayout';
 import { WorkspaceHomePage } from '@/app/pages/WorkspaceHomePage';
+import { loadEffectivePermissions } from '@/features/permissions/permissions-query';
 
 import { rootRoute } from './root.route';
 
@@ -29,20 +30,43 @@ import { rootRoute } from './root.route';
  * `location.href` is recorded so signing in returns them to the screen they
  * asked for; `login.route.tsx` sanitises it before anything navigates to it.
  *
- * SEAM (permissions feature): a child route that needs a specific permission
- * declares it in its own `beforeLoad` against the effective permissions on the
- * router context. Route-level checks are for *navigation*; a button inside a
- * screen is soft-gated in the component. Neither replaces the backend's
- * enforcement — both are about not offering somebody a door that will be shut
- * in their face.
+ * ## It also loads the permissions, and hands them down (F04)
+ *
+ * The second half of `beforeLoad` resolves the effective permission set and
+ * **returns it**, which TanStack Router merges into the context of every child.
+ * So a child route gating on a permission (`requirePermission(…)`) is
+ * synchronous and can never see a half-loaded set — the parent has already
+ * awaited it.
+ *
+ * That ordering is the whole design. Awaiting here rather than reading a
+ * snapshot pushed in from React removes the race that would otherwise decide
+ * every navigation made before the first fetch answers: at the moment somebody
+ * signs in, the query cache has just been cleared and the set is not there yet,
+ * so a guard reading a live snapshot would refuse a page the person is
+ * perfectly entitled to. It is the same class of mistake `AuthGate` exists to
+ * prevent for the session, solved the way the router offers rather than by
+ * holding the whole application back a second time.
+ *
+ * The cost is bounded: `ensureQueryData` is a cache read once the set is
+ * loaded, so this is one request per session, and usually zero by the time a
+ * guard asks — `AppRouter` mounts an observer as soon as somebody is
+ * authenticated, which normally starts the request first.
+ *
+ * `context.auth.user` is non-null here because the check above threw
+ * otherwise; the guard clause below states that for the compiler rather than
+ * asserting it.
  */
 export const workspaceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/app',
-  beforeLoad: ({ context, location }) => {
-    if (!context.auth.isAuthenticated) {
+  beforeLoad: async ({ context, location }) => {
+    if (!context.auth.isAuthenticated || context.auth.user === null) {
       throw redirect({ to: '/login', search: { redirect: location.href } });
     }
+
+    return {
+      permissions: await loadEffectivePermissions(context.queryClient, context.auth.user.id),
+    };
   },
   component: WorkspaceLayout,
 });

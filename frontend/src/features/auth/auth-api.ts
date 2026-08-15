@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from '@/api/client';
+import { apiGet, apiPost, type CallConfig } from '@/api/client';
 import type { components } from '@/api/generated/openapi';
 
 /**
@@ -57,8 +57,16 @@ export const logout = async (): Promise<void> => {
  * The session hydration call, and the one place a `401` *should* reach the
  * refresh seam — a returning tab has no access token in memory, so the first
  * request of the page is expected to fail and be retried behind a refresh.
+ *
+ * It has a second caller: the permission re-sync (F04) re-runs it after a `403`
+ * because a role can change in the same edit that changed a permission, and a
+ * demoted administrator's UI has to stop believing they are one. That caller
+ * passes `skipPermissionResync` so a `403` from this request cannot start
+ * another re-sync — hence the `config` parameter rather than a second function
+ * naming the same endpoint.
  */
-export const fetchCurrentUser = (): Promise<AuthUser> => apiGet('/api/v1/auth/me');
+export const fetchCurrentUser = (config?: CallConfig): Promise<AuthUser> =>
+  apiGet('/api/v1/auth/me', { config });
 
 export const forgotPassword = (email: string): Promise<{ message: string }> =>
   apiPost('/api/v1/auth/forgot-password', {

@@ -115,17 +115,24 @@ type BodyPart<Operation> = [BodyOf<Operation>] extends [never]
 /** Axios options this helper models itself, and therefore does not accept twice. */
 type ManagedAxiosOptions = 'method' | 'url' | 'params' | 'data' | 'signal' | 'baseURL';
 
+/**
+ * Escape hatch for the rest of axios — `responseType: 'blob'` for a report
+ * export, a per-call `timeout`, an extra header, and this application's own
+ * `skipAuthRefresh` / `skipPermissionResync` switches. It cannot reach the
+ * fields the contract owns.
+ *
+ * Exported so a feature's API module can take one and pass it through, which is
+ * how `fetchCurrentUser` is reused by the permission re-sync with a flag the
+ * boot-time caller does not want.
+ */
+export type CallConfig = Omit<AxiosRequestConfig, ManagedAxiosOptions>;
+
 export type RequestOptions<Operation> = PathPart<Operation> &
   QueryPart<Operation> &
   BodyPart<Operation> & {
     /** Wired to TanStack Query's signal so a superseded request is aborted. */
     signal?: AbortSignal;
-    /**
-     * Escape hatch for the rest of axios — `responseType: 'blob'` for a report
-     * export, a per-call `timeout`, an extra header. It cannot reach the fields
-     * above, which are the contract's job.
-     */
-    config?: Omit<AxiosRequestConfig, ManagedAxiosOptions>;
+    config?: CallConfig;
   };
 
 type RequiredKeys<T> = {

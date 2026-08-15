@@ -8,3 +8,4 @@ the backend (F01, F02, …).
 | F01 | [Project Foundation](F01-project-foundation.md)             | Done   | 2026-08-14 |
 | F02 | [Theme Palette Stylesheet](F02-theme-palette-stylesheet.md) | Done   | 2026-08-14 |
 | F03 | [Authentication](F03-authentication.md)                     | Done   | 2026-08-15 |
+| F04 | [Permissions](F04-permissions.md)                           | Done   | 2026-08-15 |

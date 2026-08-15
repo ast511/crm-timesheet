@@ -104,5 +104,14 @@
     "backToLogin": "Înapoi la autentificare",
     "goToLogin": "Mergi la autentificare",
     "signOut": "Ieși din cont"
+  },
+  "permissions": {
+    "accessChanged": "Permisiunile tale s-au modificat. Am actualizat ce poți accesa.",
+    "notAuthorized": {
+      "title": "Acces restricționat",
+      "description": "Nu ai permisiunea necesară pentru a deschide această pagină. Cere accesul unui administrator.",
+      "required": "Permisiune necesară:",
+      "backHome": "Înapoi la pagina principală"
+    }
   }
 }

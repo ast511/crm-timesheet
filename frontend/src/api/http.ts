@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '@/lib/env';
 
 import { toApiError } from './api-error';
+import { getForbiddenHandler } from './authorization-seam';
 import { getAccessToken, getUnauthorizedHandler } from './auth-session';
 
 /**
@@ -21,6 +22,18 @@ declare module 'axios' {
      * would be refused, forever.
      */
     skipAuthRefresh?: boolean;
+
+    /**
+     * Skip the `403` re-sync seam for this request.
+     *
+     * The permissions feature sets it on the two calls the re-sync itself
+     * makes — `GET /permissions/me/effective` and `GET /auth/me` — so a `403`
+     * from one of them cannot start another re-sync. Neither endpoint can
+     * currently answer `AUTHORIZATION_PERMISSION_DENIED`, which is the code the
+     * handler acts on, so this is a second line rather than the only one; the
+     * failure it guards against is an unbounded loop, which is worth two.
+     */
+    skipPermissionResync?: boolean;
   }
 
   interface InternalAxiosRequestConfig {
@@ -85,13 +98,13 @@ http.interceptors.request.use((config) => {
 });
 
 /**
- * Response: the `401` seam, then normalisation.
+ * Response: the `401` seam, the `403` seam, then normalisation.
  *
- * The refresh-and-retry *place* is implemented here; the refresh *logic* is
- * not, and must not be — see `auth-session.ts`. Until the auth feature calls
- * `setUnauthorizedHandler`, `getUnauthorizedHandler()` returns `null` and every
- * `401` falls straight through to the normaliser, which is the right behaviour
- * for an application that cannot yet sign anybody in.
+ * The two seams are *places*, not logic — the logic must live in the features
+ * that own it, in `auth-session.ts` and `authorization-seam.ts` respectively.
+ * Until each is registered, `getUnauthorizedHandler()` and
+ * `getForbiddenHandler()` return `null` and the failure falls straight through
+ * to the normaliser.
  *
  * Whatever leaves this interceptor is an {@link ApiError}. Nothing downstream —
  * a query, a component, a form — ever handles an `AxiosError`.
@@ -125,6 +138,28 @@ http.interceptors.response.use(
       }
     }
 
-    return Promise.reject(toApiError(error));
+    const apiError = toApiError(error);
+
+    /**
+     * A `403` is the signal that this client's idea of what the person may do
+     * has drifted from the server's — an administrator changed a role or a
+     * permission while the tab was open. The handler brings the two back into
+     * line; `src/features/permissions/permission-resync.ts` implements it.
+     *
+     * **Not awaited, and the rejection is not delayed by it.** Unlike a `401`
+     * there is nothing to retry: the request has finished failing and its
+     * caller needs to be told now. Waiting for a refetch before rejecting would
+     * add a round trip to an error whose outcome is already decided, and would
+     * make every refused action feel slow at the moment it fails. The re-sync
+     * lands a moment later and re-renders the menu underneath.
+     */
+    if (apiError.status === 403) {
+      const handler = getForbiddenHandler();
+      const skip = axios.isAxiosError(error) && error.config?.skipPermissionResync === true;
+
+      if (handler !== null && !skip) handler(apiError);
+    }
+
+    return Promise.reject(apiError);
   },
 );

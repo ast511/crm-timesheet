@@ -35,6 +35,9 @@ the OpenAPI contract.
 - **react-hook-form + Zod** (`@hookform/resolvers`) — all forms and their validation.
 - **react-i18next + i18next** — internationalization (default `ro`, fallback `en`).
 - **framer-motion** — all non-trivial UI animation and transitions (see Animations).
+- **Sonner** — the toast library, installed via shadcn's integration
+  (`npx shadcn add sonner`) for a themed `<Toaster />`; the `toast.*` API is Sonner's
+  own (see Toasts / notifications).
 
 Justify any additional dependency in the feature doc; keep the set lean.
 
@@ -278,6 +281,54 @@ the company zone — is in the backend's `FEATURES/031-reporting.md`.
 - **Translate by `errorCode`, never show the raw `message`.** Error codes are i18n
   keys (namespace `errors.<CODE>`); `params` are the interpolation values.
 - Default language `ro`, fallback `en`.
+
+---
+
+## Toasts / notifications
+
+Use **Sonner** for transient user-facing feedback. Sonner is a standalone toast
+library; install it through shadcn's integration (`npx shadcn add sonner`), which
+gives a themed `<Toaster />` wrapper. shadcn's older Radix-based `toast` is deprecated
+in favour of Sonner — do not use it. Mount a single `<Toaster />` once at the app
+root; trigger toasts with `toast.*` imported from `sonner` (the library's own API),
+usable from anywhere.
+
+- **When to toast:** after a mutation whose result the user should be told about —
+  create / update / delete (POST / PATCH / PUT / DELETE) and similar actions. A
+  successful save, a successful delete, a failed action. Use:
+  - `toast.success(...)` for a successful mutation ("Pontaj trimis", "Angajat creat"),
+  - `toast.error(...)` for a failed one,
+  - `toast.info` / `toast.warning` where they fit.
+- **Show the BACKEND's message where there is one.** On error, translate the
+  envelope's `errorCode` (never the raw `message`) and show THAT in the toast — same
+  rule as everywhere else. On success, if the backend returns a meaningful message,
+  surface it; otherwise use a localized action-specific string. Do not invent a
+  success message that contradicts what the server actually did.
+- **Do NOT toast for everything.** Pure reads/queries do not toast (their result is
+  the screen). Form-field validation errors show inline on the field, not as a toast.
+  Reserve toasts for the outcome of an action the user took.
+- Toasts complement, not replace, other error handling: a failed load still shows its
+  error/skeleton state; a 403 still redirects/handles per the auth rules. A toast is
+  the "here's what just happened" layer on top.
+- Keep messages short, localized (i18n), and specific. Themed automatically via
+  Sonner's shadcn integration (respects light/dark).
+
+---
+
+## Page metadata (title + description)
+
+Every page/route sets document metadata:
+
+- **Title:** `TimeSheet | <page name>` — e.g. `TimeSheet | Dashboard`,
+  `TimeSheet | Angajați`, `TimeSheet | Rapoarte`. The base name is always `TimeSheet`.
+- **Description:** a meaningful, page-specific meta description.
+- Both come from i18n (localized), and the page name matches the route.
+- Implement this consistently — a small reusable mechanism (e.g. a `usePageMeta` hook
+  or a `<PageMeta title=... description=... />` component, or TanStack Router's `head`
+  option per route) rather than setting `document.title` ad hoc in each component.
+  Pick one approach, use it everywhere, and document it.
+- Set a sensible default title/description at the app root as a fallback for any route
+  that does not specify its own.
 
 ---
 

@@ -5,6 +5,7 @@ import {
 } from './account-link.routes';
 import { landingRoute } from './landing.route';
 import { loginRoute } from './login.route';
+import { notAuthorizedRoute } from './not-authorized.route';
 import { publicRoute } from './public.route';
 import { rootRoute } from './root.route';
 import { workspaceIndexRoute, workspaceRoute } from './workspace.route';
@@ -40,5 +41,5 @@ export const routeTree = rootRoute.addChildren([
     resetPasswordRoute,
     activateAccountRoute,
   ]),
-  workspaceRoute.addChildren([workspaceIndexRoute]),
+  workspaceRoute.addChildren([workspaceIndexRoute, notAuthorizedRoute]),
 ]);

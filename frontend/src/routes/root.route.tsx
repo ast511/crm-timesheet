@@ -16,9 +16,26 @@ import type { AuthState } from '@/features/auth/auth-store';
  * pushed in by `AppRouter` on every change (`<RouterProvider context={…}>`),
  * which is also what makes a change re-run the guards.
  *
- * SEAM (permissions feature): the effective permission keys from
- * `GET /api/v1/permissions/me/effective` belong on the same object, so a route
- * can require one and a component can soft-gate a button on the same source.
+ * ## Where the permissions ended up, and why not here (F04)
+ *
+ * This once carried a seam saying the effective permission keys belonged on
+ * this object beside `auth`. They do not, and the reason is a difference
+ * between the two that is invisible until it bites.
+ *
+ * `auth` can be *pushed* into the context because it is already known before
+ * the router mounts — `AuthGate` holds the application back until it is. The
+ * permission set is not: it is fetched per account, and the moment it is most
+ * needed is the navigation immediately after a login, when the cache has just
+ * been cleared and the answer has not arrived. A guard reading a pushed
+ * snapshot at that moment reads an empty set and refuses a page the person is
+ * entitled to.
+ *
+ * So the set is *awaited* instead, in `workspaceRoute`'s `beforeLoad`, and
+ * returned as context for its children — see `src/routes/workspace.route.tsx`.
+ * Every route that could need it is under `/app` by construction, since a
+ * permission is meaningless without a session, so nothing above that route ever
+ * has to ask. `AppRouter` still watches the set and invalidates the router when
+ * it changes, which is what makes a mid-session demotion re-run these guards.
  */
 export interface RouterContext {
   queryClient: QueryClient;
