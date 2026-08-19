@@ -4,6 +4,7 @@
   "AUTH_INACTIVE_USER": "This account has been deactivated. Please contact HR.",
   "AUTH_REFRESH_TOKEN_INVALID": "Your session has expired. Please sign in again.",
   "AUTH_REFRESH_TOKEN_REUSED": "For security reasons every session was signed out. Please sign in again.",
+  "AUTH_NO_EMPLOYEE_RECORD": "This account has no employment record, so there is no personal information to edit.",
   "ACCOUNT_TOKEN_INVALID": "This link is invalid or has expired.",
   "ACCOUNT_CURRENT_PASSWORD_INCORRECT": "That is not your current password.",
   "AUTHORIZATION_PERMISSION_DENIED": "You do not have permission for this action ({{requiredPermissions}}).",

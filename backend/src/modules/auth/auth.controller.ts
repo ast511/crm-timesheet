@@ -22,6 +22,7 @@ import {
 } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RefreshRateLimit } from '../rate-limiting/decorators/refresh-rate-limit.decorator';
 import { StrictRateLimit } from '../rate-limiting/decorators/strict-rate-limit.decorator';
 import { AccountPasswordService } from './account-password.service';
 import { PASSWORD_RESET_REQUESTED_MESSAGE } from './auth.constants';
@@ -115,12 +116,22 @@ const CLEAR_REFRESH_COOKIE_HEADER = {
  * | `forgot-password` | nothing — and it tells the caller nothing either |
  * | `reset-password` | the reset link's secret |
  *
- * All five carry `@StrictRateLimit()`. They are the only routes an
+ * All five are rate-limited above the baseline. They are the only routes an
  * unauthenticated caller can reach that do real work — a bcrypt, a database
  * lookup, an email — and Feature 034's baseline alone would leave a few hundred
  * guesses a minute against each. `forgot-password` is on the strict tier for a
  * reason of its own: it *sends mail*, so an unlimited one is a way to have this
  * company's mail server deliver hundreds of messages to one colleague.
+ *
+ * **Four of them carry `@StrictRateLimit()`; `refresh` carries
+ * `@RefreshRateLimit()`.** It used to be on the strict tier with the others, and
+ * that was wrong in a way only a client could notice: the strict tier bounds
+ * *guessing*, and a refresh guesses at nothing — it presents a token this server
+ * issued, signed and single-use. What it does instead is happen **routinely**,
+ * once per cold page load and once per rotation per open tab, so ten per five
+ * minutes was about nine reloads before somebody was signed out for reloading.
+ * The tier, its number and the shared-address arithmetic behind it are on
+ * `RefreshRateLimit` in `modules/rate-limiting/decorators/`.
  *
  * The remaining three — `logout`, `me` and `change-password` — require an access
  * token like every other route in the application.
@@ -189,12 +200,12 @@ export class AuthController {
   @ApiOperation({
     summary: 'Rotate the refresh cookie into a new session',
     description:
-      'Reads the refresh token from the **`HttpOnly` cookie** set at login — the request takes no body — and answers with a new access token and a new refresh cookie. The body is the same as login’s, because a refresh *is* a new session: the account may have changed role in the meantime, so sending back less would leave a long-running client rendering a role it was given hours ago. **Single-use.** Presenting a spent token is treated as theft: every live session of the account is revoked, the answer is `AUTH_REFRESH_TOKEN_REUSED` rather than an ordinary expiry, and the cookie is cleared. A request carrying no cookie, or one whose value is not plausibly a token, answers the same `401 AUTH_REFRESH_TOKEN_INVALID` an unusable token does — a browser with no cookie sends no header, so there is nothing for a missing-field `400` to describe. Public at the authentication level only — the cookie is the credential. On the strict rate-limit tier.',
+      'Reads the refresh token from the **`HttpOnly` cookie** set at login — the request takes no body — and answers with a new access token and a new refresh cookie. The body is the same as login’s, because a refresh *is* a new session: the account may have changed role in the meantime, so sending back less would leave a long-running client rendering a role it was given hours ago. **Single-use.** Presenting a spent token is treated as theft: every live session of the account is revoked, the answer is `AUTH_REFRESH_TOKEN_REUSED` rather than an ordinary expiry, and the cookie is cleared. A request carrying no cookie, or one whose value is not plausibly a token, answers the same `401 AUTH_REFRESH_TOKEN_INVALID` an unusable token does — a browser with no cookie sends no header, so there is nothing for a missing-field `400` to describe. Public at the authentication level only — the cookie is the credential. On its **own** rate-limit tier, not the strict one login uses: a refresh guesses at nothing and a client makes one per cold page load and one per rotation per open tab, so it is bounded as routine traffic (`RATE_LIMIT_REFRESH_LIMIT`, 120 per five minutes by default) rather than as attempts at a password. That allowance is per client address and therefore shared by everybody behind one NAT.',
   })
   @ApiOkEnvelope(AuthSessionEntity, { headers: SET_REFRESH_COOKIE_HEADER })
   @ApiPublicRouteErrors(HttpStatus.UNAUTHORIZED)
   @Public()
-  @StrictRateLimit()
+  @RefreshRateLimit()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(

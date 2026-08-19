@@ -611,3 +611,114 @@ have to be rebuilt to change either.
 7. **Bundle splitting.** One 571 kB chunk is fine for an internal application on
    a LAN and will not stay fine. Route-level `lazy()` is the obvious first cut,
    and it is worth doing when there are routes worth splitting.
+
+---
+
+# Amendment: the column-visibility menu crashed on its first open
+
+Reported against F07, the `DataTable`'s first real consumer: the list
+rendered, sorting and paging worked, and clicking **Coloane** replaced the
+page with *A apărut o eroare neașteptată*.
+
+The hypothesis in the report was that the menu iterates the columns and
+trips over one that lacks something — the actions column has no data, the
+code column renders a swatch, and menus like this often break on
+non-data columns. It was a reasonable guess and it was not the cause.
+`DataTableColumnVisibility` already filtered on `column.getCanHide()` and
+already fell back to `column.id` when `meta.label` was absent, so no
+column could reach it unlabelled.
+
+## The actual cause
+
+`DropdownMenuLabel` is Base UI's `Menu.GroupLabel`, and it calls
+`useMenuGroupRootContext()`, which **throws** rather than returning
+`undefined`:
+
+```
+Base UI: MenuGroupContext is missing.
+Menu group parts must be used within <Menu.Group> or <Menu.RadioGroup>.
+```
+
+Both `DataTable` menus rendered that label as a direct child of the popup,
+with no group around it.
+
+Three things conspired to hide it until F07:
+
+1. **The popup is portalled in on open.** Nothing in the menu body
+   evaluates until somebody clicks, so the bug survives type-checking,
+   linting, a build, and every render of a page that merely *contains* the
+   button.
+2. **Nothing had used the `DataTable`.** It was built here in F01 and F07
+   is the first screen to mount one.
+3. **Radix allowed a bare label.** The mock this kit was ported from is
+   Radix-based, so the shape is what shadcn's own documentation shows.
+   `WorkspaceSwitcher` hit the same wall in F05 and left a comment saying
+   so; the two `DataTable` menus were written before that lesson and never
+   opened afterwards.
+
+The error surfaced as the generic sentence because a render throw inside
+`QueryBoundary` is caught by its `ErrorBoundary` and described by
+`useApiErrorMessage`, which has no code and no status for something that
+is not an `ApiError` — so it falls to `errors:fallback.unknown`. That is
+the fallback working as designed, and it is also why the message named
+nothing useful.
+
+## Proof, not inference
+
+Rendering the label three ways under `react-dom/server`, which evaluates
+the component body without a browser:
+
+| Arrangement | Result |
+| --- | --- |
+| `<Menu.GroupLabel>` bare | **throws** `MenuGroupContext is missing` |
+| inside `<Menu.Group>` | renders |
+| inside `<Menu.RadioGroup>` | renders |
+
+## The fix
+
+- `DataTableColumnVisibility` wraps its label, separator and checkbox
+  items in `DropdownMenuGroup`.
+- `DataTableSortMenu` had the identical latent crash — its label was
+  outside the radio group too — and was only invisible because the menu is
+  `lg:hidden` and no desktop had ever opened it. The label moves *inside*
+  `DropdownMenuRadioGroup`, which supplies the same context.
+- `DropdownMenuLabel` in `components/ui/dropdown-menu.tsx` now carries a
+  doc comment saying it must be inside a group and why, so the next menu
+  copied from the shadcn docs fails in review rather than on click.
+
+Putting the label inside the group it labels is also the correct markup
+rather than a workaround: that is how `GroupLabel` becomes the group's
+`aria-labelledby`, which is the whole point of the part.
+
+## What was hardened while in there
+
+The report asked that non-hideable columns be skipped and that the label
+have a safe fallback. Both were already true, and the reason they read as
+missing is that nothing in the codebase had ever *set*
+`enableHiding: false` — so `getCanHide()` had never once answered `false`
+and the filter looked decorative.
+
+It is not decorative now: F07's row-actions column declares
+`enableHiding: false`, which is what keeps the visibility menu from
+offering to hide the only way to edit or delete a row. That is the
+convention for every later list — **a display column that is not data
+opts out of hiding.**
+
+## Files Modified
+
+| File | Change |
+| --- | --- |
+| `src/components/data-table/DataTableColumnVisibility.tsx` | Label, separator and items inside `DropdownMenuGroup`; the two robustness rules documented. |
+| `src/components/data-table/DataTableSortMenu.tsx` | Label moved inside `DropdownMenuRadioGroup`. |
+| `src/components/ui/dropdown-menu.tsx` | A doc comment on `DropdownMenuLabel`. Comment only — no behaviour change. |
+
+## Verification
+
+`npm run typecheck`, `npm run lint`, `npm run build` — clean. The throw
+and both fixes are demonstrated by the table above, run against the
+installed `@base-ui/react`.
+
+**Still not run in a browser.** What a browser has to confirm is that the
+menu opens, lists the eight data columns by their Romanian labels and not
+the actions column, and that unchecking one removes its column from the
+table and its key/value pair from the card view.

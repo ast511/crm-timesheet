@@ -201,6 +201,43 @@ list that can grow.
 
 ---
 
+## Accessibility (REQUIRED — every component, from the start)
+
+Accessibility is built into every component as it is written, not retrofitted later.
+This is the real, invisible accessibility that actually helps users; a future
+"accessibility widget" (user-adjustable font size / contrast / etc.) is a separate
+add-on and does NOT replace these baseline rules.
+
+- **Semantic HTML.** Use the right element for the job (`<button>` for actions,
+  `<a>`/router links for navigation, `<nav>`, `<main>`, `<header>`, `<ul>`, headings in
+  order). Do not make a `<div>` clickable when a `<button>` is meant.
+- **Keyboard.** Everything interactive must be reachable and operable by keyboard alone
+  (Tab/Shift-Tab, Enter/Space to activate, Esc to close overlays, arrow keys where a
+  widget expects them). Never trap focus except intentionally inside a modal; return
+  focus sensibly when it closes. Prefer the shadcn/Radix primitives — they handle this
+  correctly; do not hand-roll dropdowns/dialogs/menus that lose keyboard support.
+- **Focus visibility.** Keep a clear visible focus indicator; do not remove focus
+  outlines without providing an equally-visible replacement.
+- **ARIA where semantics aren't enough.** Label icon-only buttons (`aria-label`),
+  associate inputs with `<label>`, announce loading (`role="status"` / `aria-busy`),
+  mark decorative images `alt=""` and meaningful images with real alt text. Don't
+  over-ARIA: correct semantic HTML first, ARIA only to fill gaps.
+- **Forms.** Every field has a programmatic label; validation errors are associated
+  with their field (`aria-describedby`) and announced, not just colored red. (Ties into
+  the react-hook-form + Zod rules.)
+- **Contrast.** Text and essential UI must meet WCAG AA contrast. The themes are built
+  for this — do not introduce low-contrast foreground/background combinations, and
+  verify custom colors.
+- **Motion.** Respect `prefers-reduced-motion` (see Animations) — already required.
+- **Don't rely on color alone** to convey meaning (status, errors, required fields):
+  pair it with text, an icon, or a shape.
+- **Images/media:** meaningful alt text; decorative images empty alt.
+
+When building any page or component, treat these as acceptance criteria, not optional
+polish. A component that isn't keyboard-operable or is missing labels is not done.
+
+---
+
 ## Tailwind CSS v4 (CRITICAL)
 
 We use **Tailwind CSS v4**, which is CSS-based, not JS-config based.
@@ -279,15 +316,12 @@ import { ro } from "date-fns/locale";
 
 export const formatDateTime = (
   isoString: string,
-  companyTimezone: string,
+  companyTimezone: string
 ): string =>
-  formatInTimeZone(
-    isoString,
-    companyTimezone,
-    "dd.MM.yyyy HH:mm",
-    { locale: ro },
-  );
-  ```
+  formatInTimeZone(isoString, companyTimezone, "dd.MM.yyyy HH:mm", {
+    locale: ro,
+  });
+```
 
 Full reasoning — instants versus calendar dates, and why the exports are fixed to
 the company zone — is in the backend's `FEATURES/031-reporting.md`.
@@ -433,4 +467,7 @@ After implementing a frontend feature:
   config, and wait for explicit approval before running it.
 - Never run destructive commands without approval.
 - Prefer type-check (`tsc --noEmit`) for verification unless a full build is needed.
+
+```
+
 ```

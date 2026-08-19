@@ -4,7 +4,11 @@
     "tagline": "Pontaj, concedii și raportare pentru echipă."
   },
   "actions": {
-    "retry": "Reîncearcă"
+    "retry": "Reîncearcă",
+    "save": "Salvează",
+    "cancel": "Anulează",
+    "edit": "Modifică",
+    "delete": "Șterge"
   },
   "language": {
     "label": "Limbă",
@@ -58,14 +62,32 @@
   },
   "account": {
     "menu": "Meniul contului",
-    "profile": "Contul meu",
-    "unavailable": "Disponibil într-o funcționalitate viitoare."
+    "profile": "Contul meu"
   },
   "roles": {
     "SUPERADMIN": "Super administrator",
     "ADMIN": "Administrator",
     "HR": "Resurse umane",
     "USER": "Angajat"
+  },
+  "accountStatus": {
+    "ACTIVE": "Activ",
+    "PENDING_ACTIVATION": "În așteptarea activării",
+    "DISABLED": "Dezactivat"
+  },
+  "employeeStatus": {
+    "ACTIVE": "Activ",
+    "INACTIVE": "Inactiv",
+    "ON_LEAVE": "În concediu",
+    "SUSPENDED": "Suspendat",
+    "TERMINATED": "Contract încheiat"
+  },
+  "seniority": {
+    "INTERN": "Intern",
+    "JUNIOR": "Junior",
+    "MID": "Mid",
+    "SENIOR": "Senior",
+    "LEAD": "Lead"
   },
   "theme": {
     "open": "Personalizează tema",
@@ -97,7 +119,167 @@
   "footer": {
     "copyright": "© {{year}} TimeSheet"
   },
+  "profile": {
+    "notSet": "—",
+    "account": {
+      "title": "Cont",
+      "description": "Datele contului tău. Sunt administrate de companie și nu pot fi modificate de aici.",
+      "email": "Email",
+      "username": "Nume utilizator",
+      "role": "Rol",
+      "status": "Stare"
+    },
+    "employment": {
+      "title": "Angajare",
+      "description": "Datele de angajare sunt administrate de departamentul de resurse umane. Doar numărul de telefon îți aparține.",
+      "name": "Nume",
+      "employeeCode": "Cod angajat",
+      "department": "Departament",
+      "position": "Poziție",
+      "seniority": "Senioritate",
+      "status": "Stare",
+      "hireDate": "Data angajării",
+      "terminationDate": "Data încetării",
+      "empty": "Contul tău nu are o fișă de angajat. Este cazul conturilor create pentru administrarea sistemului, iar numărul de telefon se poate completa doar pe o fișă de angajat."
+    },
+    "phone": {
+      "label": "Telefon",
+      "placeholder": "+40 721 000 000",
+      "hint": "Lasă câmpul gol și salvează pentru a șterge numărul.",
+      "saved": "Numărul de telefon a fost salvat."
+    },
+    "appearance": {
+      "title": "Aspect",
+      "description": "Paleta și rotunjimea colțurilor se salvează în contul tău și te urmează pe orice dispozitiv. Modul luminos sau întunecat rămâne setat pe acest dispozitiv."
+    },
+    "validation": {
+      "phoneTooLong": "Numărul de telefon poate avea cel mult {{max}} caractere."
+    }
+  },
+  "leaveTypes": {
+    "searchPlaceholder": "Caută după cod sau denumire…",
+    "noResults": "Niciun tip de concediu nu corespunde căutării.",
+    "columns": {
+      "code": "Cod",
+      "label": "Denumire",
+      "reportMarker": "Marcaj raport",
+      "defaultAllocatedDays": "Zile sugerate",
+      "carryOver": "Report",
+      "isPaid": "Plată",
+      "requiresApproval": "Aprobare",
+      "isActive": "Stare",
+      "actions": "Acțiuni",
+      "noValue": "—",
+      "days": "{{days}} zile"
+    },
+    "flags": {
+      "active": "Activ",
+      "inactive": "Inactiv",
+      "paid": "Plătit",
+      "unpaid": "Neplătit",
+      "requiresApproval": "Cu aprobare",
+      "noApproval": "Fără aprobare",
+      "carryOver": "Se reportează",
+      "noCarryOver": "Fără report",
+      "carryOverMax": "maximum {{days}} zile",
+      "carryOverUnlimited": "fără plafon"
+    },
+    "filters": {
+      "status": "Filtrează după stare",
+      "all": "Toate stările",
+      "activeOnly": "Doar active",
+      "inactiveOnly": "Doar inactive"
+    },
+    "actions": {
+      "create": "Adaugă tip de concediu",
+      "menu": "Acțiuni pentru {{label}}"
+    },
+    "form": {
+      "createTitle": "Tip de concediu nou",
+      "createDescription": "Definește un tip de concediu și politica după care se acordă.",
+      "editTitle": "Modifică tipul de concediu",
+      "editDescription": "Modificările se aplică de acum înainte. Soldurile deja acordate rămân neschimbate."
+    },
+    "fields": {
+      "code": "Cod",
+      "codePlaceholder": "ANNUAL",
+      "reportMarker": "Marcaj raport",
+      "reportMarkerPlaceholder": "CO",
+      "label": "Denumire",
+      "labelPlaceholder": "Concediu de odihnă",
+      "icon": "Pictogramă",
+      "color": "Culoare",
+      "colorPicker": "Alege culoarea",
+      "colorClear": "Elimină culoarea",
+      "colorHint": "Opțional, în formatul #RRGGBB. Lasă gol pentru a nu folosi o culoare.",
+      "description": "Descriere",
+      "descriptionPlaceholder": "Când se acordă acest tip de concediu.",
+      "defaultAllocatedDays": "Zile sugerate implicit",
+      "defaultAllocatedDaysPlaceholder": "21",
+      "isActive": "Activ",
+      "isActiveHint": "Un tip inactiv nu mai poate fi ales în cereri noi.",
+      "isPaid": "Plătit",
+      "isPaidHint": "Zilele din acest concediu se plătesc.",
+      "requiresApproval": "Necesită aprobare",
+      "requiresApprovalHint": "Cererile trebuie aprobate înainte de a fi înregistrate.",
+      "allowsCarryOver": "Se reportează în anul următor",
+      "allowsCarryOverHint": "Zilele rămase la final de an pot fi folosite în anul următor.",
+      "maxCarryOverDays": "Plafon de report",
+      "maxCarryOverDaysPlaceholder": "Fără plafon"
+    },
+    "icons": {
+      "umbrella": "Umbrelă",
+      "treePalm": "Palmier",
+      "sun": "Soare",
+      "plane": "Avion",
+      "stethoscope": "Stetoscop",
+      "heartPulse": "Puls",
+      "bed": "Pat",
+      "baby": "Bebeluș",
+      "graduationCap": "Studii",
+      "briefcase": "Servietă",
+      "house": "Casă",
+      "landmark": "Instituție",
+      "calendarOff": "Calendar blocat",
+      "ban": "Interdicție"
+    },
+    "validation": {
+      "codeRequired": "Introdu codul tipului de concediu.",
+      "codeTooLong": "Codul poate avea cel mult {{max}} caractere.",
+      "codeInvalid": "Codul poate conține doar litere și cifre, separate prin - sau _.",
+      "labelRequired": "Introdu denumirea tipului de concediu.",
+      "labelTooLong": "Denumirea poate avea cel mult {{max}} caractere.",
+      "reportMarkerRequired": "Introdu marcajul folosit în rapoarte.",
+      "reportMarkerInvalid": "Marcajul poate avea cel mult {{max}} litere sau cifre.",
+      "iconRequired": "Alege o pictogramă.",
+      "colorInvalid": "Culoarea trebuie scrisă în formatul #RRGGBB.",
+      "descriptionTooLong": "Descrierea poate avea cel mult {{max}} caractere.",
+      "daysInvalid": "Introdu un număr întreg de zile.",
+      "daysRange": "Numărul de zile trebuie să fie între {{min}} și {{max}}."
+    },
+    "errors": {
+      "duplicate": "Codul, denumirea sau marcajul de raport este deja folosit de alt tip de concediu. Alege altele.",
+      "inUse": "Tipul de concediu nu poate fi șters cât timp există cereri sau solduri care îl folosesc. Dezactivează-l pentru a-l retrage fără a pierde istoricul."
+    },
+    "toast": {
+      "created": "Tipul de concediu „{{label}}” a fost adăugat.",
+      "updated": "Tipul de concediu „{{label}}” a fost actualizat.",
+      "deleted": "Tipul de concediu „{{label}}” a fost șters."
+    },
+    "delete": {
+      "title": "Ștergi tipul de concediu?",
+      "description": "„{{label}}” va fi șters definitiv. Dacă a fost deja folosit, dezactivează-l în loc să-l ștergi."
+    },
+    "empty": {
+      "title": "Niciun tip de concediu",
+      "description": "Tipurile de concediu sunt vocabularul folosit de cereri, solduri și rapoarte. Adaugă primul tip pentru a începe."
+    }
+  },
   "pages": {
+    "profile": {
+      "title": "Profil",
+      "description": "Datele contului tău, fișa de angajat și preferințele de aspect."
+    },
     "dashboard": {
       "title": "Panou principal",
       "description": "Vedere de ansamblu asupra pontajului, concediilor și proiectelor tale."
@@ -231,6 +413,10 @@
       "submit": "Activează contul",
       "success": "Contul a fost activat. Te poți autentifica acum.",
       "invalidLink": "Linkul de activare este invalid sau a expirat. Cere unul nou departamentului de resurse umane."
+    },
+    "sessionUnknown": {
+      "title": "Nu am putut verifica sesiunea",
+      "description": "Serverul nu a răspuns când am întrebat dacă ești autentificat. Nu te-am deconectat — sesiunea ta este cel mai probabil în continuare validă. Încearcă din nou în câteva momente."
     },
     "missingToken": "Linkul deschis nu conține niciun token. Deschide din nou linkul complet din email.",
     "backToLogin": "Înapoi la autentificare",

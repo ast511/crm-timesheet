@@ -1,5 +1,6 @@
 import { createRoute, redirect } from '@tanstack/react-router';
 
+import { LeaveTypesPage } from '@/app/pages/LeaveTypesPage';
 import { WorkspacePlaceholderPage } from '@/app/pages/WorkspacePlaceholderPage';
 import { requirePermission } from '@/features/permissions/permission-route-guard';
 import { firstRouteOf } from '@/features/workspace/navigation';
@@ -124,16 +125,20 @@ export const settingsProjectsRoute = createRoute({
   ),
 });
 
+/**
+ * The first settings screen that is a real page rather than a placeholder (F07).
+ *
+ * The guard is unchanged: `LEAVES.PAGE_ACCESS` opens the screen, and the
+ * create / edit / delete actions carry their own keys inside it. Note the
+ * resource — `LEAVES` is the leave *configuration*, which is what a leave type
+ * is; `LEAVE_REQUESTS` is the separate screen where absences are asked for and
+ * approved.
+ */
 export const settingsLeaveTypesRoute = createRoute({
   getParentRoute: () => teamRoute,
   path: '/settings/leave-types',
   beforeLoad: requirePermission({ permission: 'LEAVES.PAGE_ACCESS' }),
-  component: () => (
-    <WorkspacePlaceholderPage
-      titleKey="pages.settingsLeaveTypes.title"
-      descriptionKey="pages.settingsLeaveTypes.description"
-    />
-  ),
+  component: LeaveTypesPage,
 });
 
 export const settingsWorkScheduleRoute = createRoute({

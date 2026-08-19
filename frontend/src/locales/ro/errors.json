@@ -4,6 +4,7 @@
   "AUTH_INACTIVE_USER": "Contul a fost dezactivat. Contactează departamentul de resurse umane.",
   "AUTH_REFRESH_TOKEN_INVALID": "Sesiunea a expirat. Autentifică-te din nou.",
   "AUTH_REFRESH_TOKEN_REUSED": "Din motive de securitate, toate sesiunile au fost închise. Autentifică-te din nou.",
+  "AUTH_NO_EMPLOYEE_RECORD": "Contul tău nu are o fișă de angajat, așa că nu există date personale de modificat.",
   "ACCOUNT_TOKEN_INVALID": "Linkul din email este invalid sau a expirat.",
   "ACCOUNT_CURRENT_PASSWORD_INCORRECT": "Parola curentă nu este corectă.",
   "AUTHORIZATION_PERMISSION_DENIED": "Nu ai permisiunea necesară pentru această acțiune ({{requiredPermissions}}).",

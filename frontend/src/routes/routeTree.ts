@@ -12,6 +12,7 @@ import {
   publicHolidaysRoute,
   timesheetRoute,
 } from './personal.routes';
+import { profileRoute } from './profile.route';
 import { publicRoute } from './public.route';
 import { rootRoute } from './root.route';
 import {
@@ -75,6 +76,7 @@ export const routeTree = rootRoute.addChildren([
   workspaceRoute.addChildren([
     workspaceIndexRoute,
     notAuthorizedRoute,
+    profileRoute,
     timesheetRoute,
     leaveRequestsRoute,
     projectsRoute,

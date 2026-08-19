@@ -51,6 +51,14 @@ function DropdownMenuGroup({ ...props }: MenuPrimitive.Group.Props) {
   return <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
 }
 
+/**
+ * MUST be rendered inside `DropdownMenuGroup` or `DropdownMenuRadioGroup`.
+ *
+ * This is `Menu.GroupLabel`, which throws "Base UI: MenuGroupContext is
+ * missing" without one. Radix allowed a bare label, so menus copied from
+ * shadcn's docs compile and then crash the first time they are opened — the
+ * popup is portalled in on open, so nothing evaluates before that.
+ */
 function DropdownMenuLabel({
   className,
   inset,

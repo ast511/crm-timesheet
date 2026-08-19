@@ -111,9 +111,17 @@ export class ApiThrottlerGuard extends ThrottlerGuard {
    * request rate" has to mean.
    *
    * The strict tier keeps a bucket per handler, so exhausting login attempts
-   * does not also block the refresh that would have recovered the session, and
-   * adds the submitted address so that one person's mistyped password does not
-   * spend an office's shared allowance.
+   * does not also block the password reset that would have recovered the
+   * account, and adds the submitted address so that one person's mistyped
+   * password does not spend an office's shared allowance.
+   *
+   * **The refresh tier takes the first branch — client alone — deliberately.**
+   * It is carried by exactly one route, so a per-handler component would name
+   * a constant; and there is no identity to add, because a refresh submits no
+   * address. What is left is the client, which is the thing being bounded: a
+   * flood of rotations from one place. That it is *also* the NAT'd office's
+   * shared bucket is why the tier's allowance is sized the way it is — see
+   * `decorators/refresh-rate-limit.decorator.ts`.
    */
   protected override generateKey(
     context: ExecutionContext,

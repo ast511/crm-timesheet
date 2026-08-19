@@ -798,3 +798,154 @@ has two calls and a comment saying why.
    deliberately has no composition rules, following NIST; a strength meter is
    the guidance that replaces them, and it belongs on `SetPasswordForm` where
    both flows would get it at once.
+
+---
+
+# Amendment: "I could not find out" is not "you are signed out"
+
+## The report
+
+> After I sign in successfully and reach the app, reloading signs me out and
+> redirects to `/login?redirect=%2Fapp`.
+
+The immediate cause was on the backend — `POST /auth/refresh` shared an
+anti-brute-force allowance with `POST /auth/login`, so about nine page loads in
+five minutes exhausted it, and it is fixed there (backend Feature 034's
+amendment). But the `429` only *revealed* the defect on this side, and that
+defect is the interesting one, because it makes the same thing happen for a
+backend restarting under a reload, a `500` mid-deploy, or a laptop that slept.
+
+## The contradiction inside this feature
+
+`session-refresh.ts` decides exactly this question for a mid-session `401`, and
+argues it at length:
+
+> Everything else is a blip and must not sign anybody out. […] Ending the session
+> here would throw away a credential the server still honours, and the person
+> would be asked to type their password because a rate limiter counted to ten.
+
+It calls `endSession()` for a `401` and deliberately not for anything else.
+
+`session-bootstrap.ts` then overruled it a millisecond later:
+
+```ts
+try { adoptUser(await fetchCurrentUser()); }
+catch { endSession(); }          // ← unconditional
+```
+
+The comment explaining that `catch` said the cookie must be gone or spent, "which
+is the anonymous case". True of one failure and false of every other — and the
+false ones are the common ones.
+
+## Why the `catch` cannot simply inspect the error
+
+It was the obvious fix and it does not work. Whatever the refresh answered, the
+error arriving here is `/auth/me`'s **own `401`**: the interceptor rejects with
+the original failure once the retry is declined. Branching on it would read `401`
+for a spent cookie and `401` for a rate limiter — the two cases that have to be
+told apart.
+
+What distinguishes them is already in the store, because the refresh seam is what
+writes it:
+
+| After the boot request fails | Store says | Meaning |
+| --- | --- | --- |
+| The refresh was refused `401` | `anonymous` | Sign in. |
+| The refresh was refused otherwise | `loading` | Nobody knows. |
+| No refresh ran (network, `5xx` on `/auth/me`) | `loading` | Nobody knows. |
+
+So the bootstrap **reads the decision instead of repeating it**. Still `loading`
+means nothing decided this, which becomes the new state. One rule about what ends
+a session, in one file, with one reader — rather than two files agreeing by
+coincidence, which is what they had stopped doing.
+
+## The third status
+
+```ts
+type AuthStatus = 'loading' | 'authenticated' | 'anonymous' | 'unknown';
+```
+
+`unknown` is the difference between two sentences the application can say:
+*"you are signed out"* and *"I could not find out"*. In every failure that
+reaches it the refresh cookie is still in the jar and the server still honours
+it.
+
+It does **not** clear the access token, unlike `endSession`. A blip is not a
+reason to throw a credential away.
+
+`markSessionUnknown()` and `beginSessionHydration()` are the two new actions; the
+second is what a retry starts from, so the wait looks like the first attempt
+rather than leaving the error screen up with a spinner beside it.
+
+## Three outcomes at the gate, not two
+
+`AuthGate` mounts the router for "yes" and for "no". **`unknown` must not**,
+because the router's only way to express it is `/login?redirect=…` — which tells
+somebody with a perfectly good cookie that they are signed out.
+
+That is the same technique and the same argument as the existing `loading`
+branch: `beforeLoad` runs once per navigation and is not re-evaluated when a
+promise settles, so a guard must never decide on information that is about to
+change. The state gets a screen instead.
+
+### `SessionUnknownScreen`
+
+Says what happened and offers to ask again — and the retry usually succeeds,
+since every failure that lands here is by definition one that could pass on its
+own. `retrySessionHydration()` drops the memoised promise (it is holding a
+settled failure, so returning it would make the button do nothing) and puts the
+status back to `loading`.
+
+**No login form**, deliberately: it would be a statement that is false, and
+somebody typing their password into it would be recovering from a rate limiter by
+re-authenticating — the support ticket `session-refresh.ts` exists to prevent.
+
+**No error code**, which is a deliberate exception to the translate-by-`errorCode`
+rule. The error available at this point is `/auth/me`'s `401`, not the refresh's
+`429`; rendering it would be a precise-sounding message about the wrong request.
+The honest sentence is the one the screen shows.
+
+## Files
+
+| File | Change |
+| --- | --- |
+| `features/auth/components/SessionUnknownScreen.tsx` | New. The explanation and the retry. |
+| `features/auth/auth-store.ts` | `'unknown'`; `markSessionUnknown`, `beginSessionHydration`. |
+| `features/auth/session-bootstrap.ts` | Reads the refresh seam's decision instead of overruling it; `retrySessionHydration`. |
+| `features/auth/AuthGate.tsx` | The third branch. |
+| `locales/{ro,en}/common.json` | `auth.sessionUnknown`. |
+
+## Verification
+
+`typecheck`, `lint` and `build` clean.
+
+A browser harness driving the failures that cannot be produced against a healthy
+backend — CDP's `Fetch` domain answers `POST /auth/refresh` with whatever the test
+wants. **13 assertions, all passing.**
+
+| Forced on refresh | Result |
+| --- | --- |
+| `429` | stays on `/app`; names the screen; says *"Nu te-am deconectat"*; offers a retry; **no password field** |
+| retry, interception removed | the shell renders, showing the original account — nobody signed in again |
+| `503` | identical to the `429` |
+| `401` | **does** redirect to `/login?redirect=%2Fapp`, with the login form and no retry screen |
+
+The last row is the one that had to keep working: this change must not make a
+genuinely dead session look recoverable.
+
+Confirmed separately that the underlying report is gone. With the rate-limit
+window reset, one sign-in and three reloads:
+
+```
+reload 1: 401 /auth/me, 200 /auth/refresh, 200 /auth/me  →  /app
+reload 2: 401 /auth/me, 200 /auth/refresh, 200 /auth/me  →  /app
+reload 3: 401 /auth/me, 200 /auth/refresh, 200 /auth/me  →  /app
+```
+
+## Supersedes
+
+*Future Improvement 4* above — a request timeout, on the grounds that it "would
+turn that into the anonymous case, which is at least a screen with a form on it".
+The anonymous case is now the wrong destination for a hung boot request, and a
+form is not what somebody with a live session should be shown. A timeout is still
+worth adding; it should resolve to `unknown`.

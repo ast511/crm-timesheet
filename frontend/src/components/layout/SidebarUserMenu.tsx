@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router';
 import { ChevronsUpDownIcon, LogOutIcon, UserRoundIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -37,11 +38,19 @@ const initialsOf = (email: string): string => email.slice(0, 2).toUpperCase();
  * This is also what "the sidebar collapses to the user menu" means for somebody
  * who loses every permission mid-session: `SidebarNav` renders an empty list
  * and this stays, because knowing who you are signed in as and being able to
- * leave are not permissions.
+ * leave are not permissions. **The profile link is in the same position**, and
+ * for the same reason: `/app/profile` asks for authentication and nothing else,
+ * so it survives every revocation.
  *
- * The profile entry is present and disabled: the screen it opens belongs to the
- * feature that reads `GET /profile/me`, and offering a menu item that navigates
- * nowhere would be worse than one that says it is not ready yet.
+ * ## This is the only way into the profile, deliberately (F06)
+ *
+ * The page is not in the sidebar menu — that menu is the workspace's screens,
+ * filtered by permission, and an account screen is neither — and it is not in
+ * the header strip either. F05 recorded that sign out appearing in both places
+ * was one control too many and that the likely resolution was for the account
+ * *menu* to own the account actions. Adding a second entry point to the profile
+ * would have been that same mistake, made again with the answer already written
+ * down.
  */
 export const SidebarUserMenu = () => {
   const { t } = useTranslation();
@@ -100,12 +109,18 @@ export const SidebarUserMenu = () => {
 
               <DropdownMenuSeparator />
 
-              <DropdownMenuItem disabled>
+              {/*
+               * The seam F05 left disabled, filled by F06.
+               *
+               * `render` rather than an `onClick` that navigates: Base UI
+               * composes the item onto the element it is given, so this is a
+               * real `<a href="/app/profile">` — middle-clickable, openable in
+               * a new tab, and announced as a link. A menu item that navigates
+               * from a click handler is none of those.
+               */}
+              <DropdownMenuItem render={<Link to="/app/profile" />}>
                 <UserRoundIcon aria-hidden="true" />
-                <div className="grid leading-tight">
-                  <span>{t('account.profile')}</span>
-                  <span className="text-xs text-muted-foreground">{t('account.unavailable')}</span>
-                </div>
+                {t('account.profile')}
               </DropdownMenuItem>
 
               <DropdownMenuSeparator />

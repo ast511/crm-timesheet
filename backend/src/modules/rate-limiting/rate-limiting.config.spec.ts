@@ -8,6 +8,8 @@ const VALID = {
   [RATE_LIMIT_KEYS.defaultTtl]: 60,
   [RATE_LIMIT_KEYS.authLimit]: 10,
   [RATE_LIMIT_KEYS.authTtl]: 300,
+  [RATE_LIMIT_KEYS.refreshLimit]: 120,
+  [RATE_LIMIT_KEYS.refreshTtl]: 300,
 };
 
 /** A `ConfigService` that answers from a plain record, as the real one does. */
@@ -30,7 +32,7 @@ describe('loadRateLimitConfig', () => {
    * conversion happens here so that no call site multiplies by a thousand and
    * none forgets to.
    */
-  it('converts both windows from seconds to milliseconds', () => {
+  it('converts every window from seconds to milliseconds', () => {
     const config = loadRateLimitConfig(configWith(VALID));
 
     expect(config).toEqual({
@@ -38,7 +40,24 @@ describe('loadRateLimitConfig', () => {
       defaultTtlMs: 60 * MILLISECONDS_PER_SECOND,
       authLimit: 10,
       authTtlMs: 300 * MILLISECONDS_PER_SECOND,
+      refreshLimit: 120,
+      refreshTtlMs: 300 * MILLISECONDS_PER_SECOND,
     });
+  });
+
+  /**
+   * The whole point of the third tier: a refresh is routine traffic and a login
+   * attempt is a guess, so the routine one has to be allowed to be much more
+   * frequent. A deployment that made them equal would have re-created the defect
+   * the tier was added to fix.
+   */
+  it('reads the refresh allowance separately from the strict one', () => {
+    const config = loadRateLimitConfig(
+      configWith({ ...VALID, [RATE_LIMIT_KEYS.refreshLimit]: 240 }),
+    );
+
+    expect(config.refreshLimit).toBe(240);
+    expect(config.authLimit).toBe(10);
   });
 
   /**
@@ -53,6 +72,8 @@ describe('loadRateLimitConfig', () => {
         [RATE_LIMIT_KEYS.defaultTtl]: '30',
         [RATE_LIMIT_KEYS.authLimit]: '5',
         [RATE_LIMIT_KEYS.authTtl]: '600',
+        [RATE_LIMIT_KEYS.refreshLimit]: '60',
+        [RATE_LIMIT_KEYS.refreshTtl]: '900',
       }),
     );
 
@@ -60,6 +81,8 @@ describe('loadRateLimitConfig', () => {
     expect(config.defaultTtlMs).toBe(30_000);
     expect(config.authLimit).toBe(5);
     expect(config.authTtlMs).toBe(600_000);
+    expect(config.refreshLimit).toBe(60);
+    expect(config.refreshTtlMs).toBe(900_000);
   });
 
   it('names the variable it wanted when one is missing', () => {

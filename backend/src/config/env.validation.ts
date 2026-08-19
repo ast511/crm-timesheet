@@ -193,6 +193,12 @@ const DEFAULT_AUTH_RATE_LIMIT = 10;
 /** Five minutes — see {@link EnvironmentVariables.RATE_LIMIT_AUTH_TTL}. */
 const DEFAULT_AUTH_RATE_LIMIT_TTL_SECONDS = 300;
 
+/** See {@link EnvironmentVariables.RATE_LIMIT_REFRESH_LIMIT}. */
+const DEFAULT_REFRESH_RATE_LIMIT = 120;
+
+/** Five minutes — see {@link EnvironmentVariables.RATE_LIMIT_REFRESH_TTL}. */
+const DEFAULT_REFRESH_RATE_LIMIT_TTL_SECONDS = 300;
+
 /**
  * Rejects a `TRUST_PROXY` value Express would misread.
  *
@@ -742,6 +748,40 @@ export class EnvironmentVariables {
   @Min(MIN_RATE_LIMIT_TTL_SECONDS)
   @Max(MAX_RATE_LIMIT_TTL_SECONDS)
   readonly RATE_LIMIT_AUTH_TTL: number = DEFAULT_AUTH_RATE_LIMIT_TTL_SECONDS;
+
+  /**
+   * Session rotations allowed per window. Defaults to 120.
+   *
+   * Twelve times the strict allowance, because `POST /auth/refresh` is not the
+   * same kind of route as `POST /auth/login`: nothing is being guessed at, the
+   * credential was issued by this server, and a client spends one per cold page
+   * load plus one per rotation per open tab. On the strict tier it was roughly
+   * nine reloads before somebody was signed out for reloading.
+   *
+   * **The number is sized for a shared egress address, not for a person.** A
+   * company behind one NAT is one bucket, so this has to cover every employee's
+   * tabs at once — read as a per-person limit it looks absurdly generous and is
+   * in fact about two. The full arithmetic, and the argument for why a loose
+   * limit here is acceptable when the token is single-use and revoked on reuse,
+   * is on `RefreshRateLimit` in
+   * `modules/rate-limiting/decorators/refresh-rate-limit.decorator.ts`.
+   *
+   * If refreshes are being refused in production, check {@link TRUST_PROXY}
+   * before raising this: an untrusted proxy collapses every client into one
+   * bucket, which is the same failure with a different cause.
+   */
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_RATE_LIMIT)
+  @Max(MAX_RATE_LIMIT)
+  readonly RATE_LIMIT_REFRESH_LIMIT: number = DEFAULT_REFRESH_RATE_LIMIT;
+
+  /** The refresh window, in seconds. Defaults to 300 (five minutes). */
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_RATE_LIMIT_TTL_SECONDS)
+  @Max(MAX_RATE_LIMIT_TTL_SECONDS)
+  readonly RATE_LIMIT_REFRESH_TTL: number = DEFAULT_REFRESH_RATE_LIMIT_TTL_SECONDS;
 
   /**
    * Whether Express should believe `X-Forwarded-For`, and how far.

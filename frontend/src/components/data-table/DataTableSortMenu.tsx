@@ -60,14 +60,22 @@ export const DataTableSortMenu = <TData extends RowData>({
         }
       />
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>
-          {t('table.sort')} — {direction}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
+        {/*
+         * The label sits *inside* the radio group, which is both the correct
+         * markup and the only thing that works: `DropdownMenuLabel` is Base
+         * UI's `Menu.GroupLabel` and throws without a `Menu.Group` or
+         * `Menu.RadioGroup` above it. See the longer note in
+         * `DataTableColumnVisibility` — this menu had the same latent crash and
+         * hid it by being `lg:hidden`, so no desktop ever opened it.
+         */}
         <DropdownMenuRadioGroup
           value={state.sortBy}
           onValueChange={(value) => actions.toggleSort(String(value))}
         >
+          <DropdownMenuLabel>
+            {t('table.sort')} — {direction}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
           {sortableColumns.map((column) => (
             <DropdownMenuRadioItem key={column.id} value={column.columnDef.meta?.sortKey ?? ''}>
               {column.columnDef.meta?.label ?? column.id}

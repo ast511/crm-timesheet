@@ -10,24 +10,22 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { useUpdateThemePreferences } from '@/features/profile/useProfile';
-import type { ThemePreferences } from '@/theme/theme-context';
-import { useTheme } from '@/theme/useTheme';
 
-import { ColorSchemePicker } from './ColorSchemePicker';
-import { RadiusPicker } from './RadiusPicker';
+import { ThemePreferenceFields } from './ThemePreferenceFields';
 import { ThemePreview } from './ThemePreview';
 
 /**
  * The palette and corner-radius picker, behind the header's palette button.
  *
- * It drives **the existing theme system and only that**. Both pickers call
- * `ThemeProvider.setPreferences`, which puts the `theme-*` class and `--radius`
- * on `<html>`; nothing here writes a CSS variable, keeps a copy of the current
- * palette, or knows what colour violet is. That is the difference between this
- * and the mock's `ThemeCustomizer`, which carried its own provider, its own
- * `localStorage` key and its own list of hex values — a second theme system
- * beside the first.
+ * It drives **the existing theme system and only that**: nothing here writes a
+ * CSS variable, keeps a copy of the current palette, or knows what colour violet
+ * is. That is the difference between this and the mock's `ThemeCustomizer`,
+ * which carried its own provider, its own `localStorage` key and its own list of
+ * hex values — a second theme system beside the first.
+ *
+ * The two pickers and the mutation behind them are
+ * {@link ThemePreferenceFields}, shared with the profile page's *Appearance*
+ * card (F06). This component is the dialog around them, and the preview.
  *
  * The change applies on click rather than on a Save button, because there is
  * nothing to save: the whole page is the preview, and a dialog that made you
@@ -45,7 +43,7 @@ import { ThemePreview } from './ThemePreview';
  * ## It persists, and applying is how
  *
  * Both pickers call `PATCH /api/v1/profile/me` (backend Feature 039) through
- * {@link useUpdateThemePreferences}, which writes the new value into the
+ * `useUpdateThemePreferences`, which writes the new value into the
  * profile cache optimistically. The theme is *rendered from* that cache — see
  * `AppProviders`' `ThemedApp` — so the optimistic write is what repaints the
  * screen. There is no separate "apply now, save later" path that could disagree
@@ -58,19 +56,6 @@ import { ThemePreview } from './ThemePreview';
  */
 export const ThemePaletteDialog = () => {
   const { t } = useTranslation();
-  const { colorScheme, cornerRadius } = useTheme();
-  const updatePreferences = useUpdateThemePreferences();
-
-  /**
-   * Every change from either picker, in one place.
-   *
-   * `Partial`, so a picker changes one preference without restating the other —
-   * the endpoint accepts a partial body, so nothing has to be read back and
-   * resent.
-   */
-  const applyPreferences = (next: Partial<ThemePreferences>): void => {
-    updatePreferences.mutate(next);
-  };
 
   return (
     <Dialog>
@@ -89,21 +74,7 @@ export const ThemePaletteDialog = () => {
         </DialogHeader>
 
         <div className="flex flex-col gap-6">
-          <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-medium">{t('theme.colorScheme')}</h3>
-            <ColorSchemePicker
-              value={colorScheme}
-              onChange={(scheme) => applyPreferences({ colorScheme: scheme })}
-            />
-          </section>
-
-          <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-medium">{t('theme.cornerRadius')}</h3>
-            <RadiusPicker
-              value={cornerRadius}
-              onChange={(radius) => applyPreferences({ cornerRadius: radius })}
-            />
-          </section>
+          <ThemePreferenceFields />
 
           <section className="flex flex-col gap-3">
             <h3 className="text-sm font-medium">{t('theme.preview')}</h3>

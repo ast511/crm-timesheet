@@ -15,9 +15,11 @@ export const RATE_LIMIT_KEYS = {
   defaultTtl: 'RATE_LIMIT_DEFAULT_TTL',
   authLimit: 'RATE_LIMIT_AUTH_LIMIT',
   authTtl: 'RATE_LIMIT_AUTH_TTL',
+  refreshLimit: 'RATE_LIMIT_REFRESH_LIMIT',
+  refreshTtl: 'RATE_LIMIT_REFRESH_TTL',
 } as const;
 
-/** The two tiers, in the milliseconds the throttler measures windows in. */
+/** The three tiers, in the milliseconds the throttler measures windows in. */
 export interface RateLimitConfig {
   /** Requests a client may make to the whole API per {@link defaultTtlMs}. */
   readonly defaultLimit: number;
@@ -27,6 +29,16 @@ export interface RateLimitConfig {
   readonly authLimit: number;
   /** The strict window, in milliseconds. */
   readonly authTtlMs: number;
+  /**
+   * Session rotations allowed per {@link refreshTtlMs}.
+   *
+   * Deliberately much larger than {@link authLimit} and sized for a shared
+   * egress address rather than for a person — see
+   * `decorators/refresh-rate-limit.decorator.ts`.
+   */
+  readonly refreshLimit: number;
+  /** The refresh window, in milliseconds. */
+  readonly refreshTtlMs: number;
 }
 
 /**
@@ -61,6 +73,8 @@ export function loadRateLimitConfig(
     defaultTtlMs: readWindowMs(configService, RATE_LIMIT_KEYS.defaultTtl),
     authLimit: readCount(configService, RATE_LIMIT_KEYS.authLimit),
     authTtlMs: readWindowMs(configService, RATE_LIMIT_KEYS.authTtl),
+    refreshLimit: readCount(configService, RATE_LIMIT_KEYS.refreshLimit),
+    refreshTtlMs: readWindowMs(configService, RATE_LIMIT_KEYS.refreshTtl),
   };
 }
 

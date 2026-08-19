@@ -23,19 +23,33 @@ export const STRICT_RATE_LIMIT_KEY = 'rate-limit:strict';
  * spraying one password across a thousand addresses would get a fresh bucket
  * every request and never be limited at all.
  *
- * ## Where it is used, and why those two
+ * ## Where it is used
  *
- * `POST /auth/login` and `POST /auth/refresh`, the two routes Feature 032
- * identified as the gap and recorded as its highest-priority follow-up:
+ * The four `@Public()` auth routes at which somebody **proposes a credential**:
+ * `login`, `activate`, `forgot-password` and `reset-password`. Each is
+ * unauthenticated and each does real work per request — a bcrypt, a database
+ * lookup, an email — which is the gap Feature 032 recorded as its
+ * highest-priority follow-up.
  *
- * > Both are unauthenticated and both do real work per request — a bcrypt and a
- * > database lookup.
- *
- * They are also the only `@Public()` routes in the application that *cost*
- * anything. `GET /` and `GET /health` are public too and are deliberately left
- * on the baseline: they read no table and are polled by a container runtime that
+ * `GET /` and `GET /health` are public too and are deliberately left on the
+ * baseline: they read no table and are polled by a container runtime that
  * restarts the service when they fail, so a strict limit there would be a
  * liveness probe that trips its own outage.
+ *
+ * ### `POST /auth/refresh` was here and no longer is
+ *
+ * It carried this decorator from Feature 034 until the defect described on
+ * {@link RefreshRateLimit}: a refresh proposes nothing — the token is one this
+ * server signed and issued — and it happens routinely rather than adversarially,
+ * once per cold page load and once per rotation per open tab. Ten per five
+ * minutes is the right shape for a password guess and roughly nine reloads for a
+ * person, so the anti-brute-force budget was being spent by ordinary work. It
+ * has its own tier now.
+ *
+ * The rule that separates them is worth stating, because it decides where a
+ * future route goes: **this tier is for a credential the caller invents.** If
+ * the server issued the thing being presented, the risk is a flood rather than a
+ * guess, and a flood is what the baseline and a wider dedicated tier are for.
  *
  * ## Adding a route later
  *

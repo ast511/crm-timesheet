@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from 'react';
 
 import { Spinner } from '@/components/ui/spinner';
 
+import { SessionUnknownScreen } from './components/SessionUnknownScreen';
 import { ensureSessionHydrated } from './session-bootstrap';
 import { useAuth } from './useAuth';
 
@@ -28,6 +29,15 @@ export interface AuthGateProps {
  * app boot" as the punctual wait a spinner exists for, and there is no known
  * shape here to skeleton.
  *
+ * ## Three outcomes, not two
+ *
+ * The question has an answer this gate did not used to have a branch for. "Yes"
+ * and "no" mount the router; **"I could not find out" must not**, because the
+ * router's only way to express it is `/login?redirect=…`, which tells somebody
+ * with a perfectly good refresh cookie that they are signed out and asks them to
+ * type their password because a rate limiter counted to ten. That state gets its
+ * own screen with a retry — see `SessionUnknownScreen` and `AuthStatus`.
+ *
  * ## The effect
  *
  * `useEffect` rather than a TanStack Query hook, and this is the one place in
@@ -49,6 +59,24 @@ export const AuthGate = ({ children }: AuthGateProps) => {
         <Spinner size="xl" className="text-muted-foreground" />
       </div>
     );
+  }
+
+  /*
+   * The boot request failed for a reason that is not "the session is over", so
+   * the router stays unmounted rather than being handed a `false`
+   * `isAuthenticated` it would read as a signed-out visitor and answer with
+   * `/login?redirect=…`. That redirect is the bug this branch exists to remove:
+   * it is the correct response to being signed out and the wrong response to a
+   * rate limiter, a deploy or a dropped connection, and from inside the guard
+   * the two are indistinguishable.
+   *
+   * Holding the router back is the same technique — and the same argument — as
+   * the `loading` branch above: `beforeLoad` runs once per navigation and is not
+   * re-evaluated when something settles, so a guard must never be allowed to
+   * decide on information that is about to change.
+   */
+  if (status === 'unknown') {
+    return <SessionUnknownScreen />;
   }
 
   return children;

@@ -311,6 +311,28 @@ const targetsOf = (items: readonly NavItem[]): NavTarget[] =>
   );
 
 /**
+ * Screens reached from the **account menu** rather than from the sidebar (F06).
+ *
+ * They are targets without being menu items, and the distinction is not a
+ * technicality. The two lists above are *the workspace's* screens, filtered by
+ * permission — putting the profile in one of them would give it a permission it
+ * does not have, a workspace it does not belong to, and a row in a menu that is
+ * about work rather than about the person doing it.
+ *
+ * But `/app/profile` is still somewhere you can be, and the header still has to
+ * say where that is. Listing it here is the smaller of the two claims: it names
+ * screens, not permissions, and {@link findActiveTarget} — which is what the
+ * header and the sidebar's highlight both read — searches it after the menu.
+ *
+ * Every entry must be reachable without a permission, since nothing filters this
+ * list. That holds for the profile by construction: `profileRoute` declares no
+ * requirement because a person cannot be refused their own record.
+ */
+const ACCOUNT_TARGETS: readonly NavTarget[] = [
+  { route: '/app/profile', titleKey: 'pages.profile.title' },
+];
+
+/**
  * Which menu entry the current URL is on.
  *
  * **Longest match wins**, and that single rule replaces two special cases. A
@@ -325,11 +347,17 @@ const targetsOf = (items: readonly NavItem[]): NavTarget[] =>
  * One function, three consumers — the highlighted item, the expanded group, and
  * the header's section title — so the sidebar cannot highlight one screen while
  * the header names another.
+ *
+ * {@link ACCOUNT_TARGETS} is searched alongside the menu, which is what lets the
+ * header name the profile page. Longest match still decides, so `/app/profile`
+ * beats the dashboard's `/app` and the sidebar correctly highlights **nothing**
+ * while somebody is on a screen that is not in its menu — better than leaving
+ * the dashboard lit on a page that is not the dashboard.
  */
 export const findActiveTarget = (
   items: readonly NavItem[],
   pathname: string,
 ): NavTarget | undefined =>
-  targetsOf(items)
+  [...targetsOf(items), ...ACCOUNT_TARGETS]
     .filter(({ route }) => pathname === route || pathname.startsWith(`${String(route)}/`))
     .sort((a, b) => String(b.route).length - String(a.route).length)[0];

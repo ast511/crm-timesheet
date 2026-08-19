@@ -4,7 +4,11 @@
     "tagline": "Timesheets, leave and reporting for the team."
   },
   "actions": {
-    "retry": "Retry"
+    "retry": "Retry",
+    "save": "Save",
+    "cancel": "Cancel",
+    "edit": "Edit",
+    "delete": "Delete"
   },
   "language": {
     "label": "Language",
@@ -58,14 +62,32 @@
   },
   "account": {
     "menu": "Account menu",
-    "profile": "My account",
-    "unavailable": "Available in a later feature."
+    "profile": "My account"
   },
   "roles": {
     "SUPERADMIN": "Super administrator",
     "ADMIN": "Administrator",
     "HR": "Human resources",
     "USER": "Employee"
+  },
+  "accountStatus": {
+    "ACTIVE": "Active",
+    "PENDING_ACTIVATION": "Awaiting activation",
+    "DISABLED": "Disabled"
+  },
+  "employeeStatus": {
+    "ACTIVE": "Active",
+    "INACTIVE": "Inactive",
+    "ON_LEAVE": "On leave",
+    "SUSPENDED": "Suspended",
+    "TERMINATED": "Employment ended"
+  },
+  "seniority": {
+    "INTERN": "Intern",
+    "JUNIOR": "Junior",
+    "MID": "Mid",
+    "SENIOR": "Senior",
+    "LEAD": "Lead"
   },
   "theme": {
     "open": "Customise the theme",
@@ -97,7 +119,167 @@
   "footer": {
     "copyright": "© {{year}} TimeSheet"
   },
+  "profile": {
+    "notSet": "—",
+    "account": {
+      "title": "Account",
+      "description": "Your account details. The company maintains them and they cannot be changed here.",
+      "email": "Email",
+      "username": "Username",
+      "role": "Role",
+      "status": "Status"
+    },
+    "employment": {
+      "title": "Employment",
+      "description": "Human resources maintains your employment details. Only the phone number is yours.",
+      "name": "Name",
+      "employeeCode": "Employee code",
+      "department": "Department",
+      "position": "Position",
+      "seniority": "Seniority",
+      "status": "Status",
+      "hireDate": "Hire date",
+      "terminationDate": "End date",
+      "empty": "Your account has no employment record. That is expected for accounts created to administer the system, and a phone number can only be stored on an employment record."
+    },
+    "phone": {
+      "label": "Phone",
+      "placeholder": "+40 721 000 000",
+      "hint": "Clear the field and save to remove the number.",
+      "saved": "Your phone number has been saved."
+    },
+    "appearance": {
+      "title": "Appearance",
+      "description": "The palette and the corner radius are stored on your account and follow you to any device. Light or dark stays on this device."
+    },
+    "validation": {
+      "phoneTooLong": "The phone number can be at most {{max}} characters."
+    }
+  },
+  "leaveTypes": {
+    "searchPlaceholder": "Search by code or name…",
+    "noResults": "No leave type matches your search.",
+    "columns": {
+      "code": "Code",
+      "label": "Name",
+      "reportMarker": "Report marker",
+      "defaultAllocatedDays": "Suggested days",
+      "carryOver": "Carry-over",
+      "isPaid": "Payment",
+      "requiresApproval": "Approval",
+      "isActive": "Status",
+      "actions": "Actions",
+      "noValue": "—",
+      "days": "{{days}} days"
+    },
+    "flags": {
+      "active": "Active",
+      "inactive": "Inactive",
+      "paid": "Paid",
+      "unpaid": "Unpaid",
+      "requiresApproval": "Needs approval",
+      "noApproval": "No approval",
+      "carryOver": "Carries over",
+      "noCarryOver": "No carry-over",
+      "carryOverMax": "up to {{days}} days",
+      "carryOverUnlimited": "no ceiling"
+    },
+    "filters": {
+      "status": "Filter by status",
+      "all": "All statuses",
+      "activeOnly": "Active only",
+      "inactiveOnly": "Inactive only"
+    },
+    "actions": {
+      "create": "Add leave type",
+      "menu": "Actions for {{label}}"
+    },
+    "form": {
+      "createTitle": "New leave type",
+      "createDescription": "Define a kind of leave and the policy it is granted under.",
+      "editTitle": "Edit leave type",
+      "editDescription": "Changes apply from now on. Balances already granted are left untouched."
+    },
+    "fields": {
+      "code": "Code",
+      "codePlaceholder": "ANNUAL",
+      "reportMarker": "Report marker",
+      "reportMarkerPlaceholder": "CO",
+      "label": "Name",
+      "labelPlaceholder": "Annual leave",
+      "icon": "Icon",
+      "color": "Colour",
+      "colorPicker": "Pick a colour",
+      "colorClear": "Clear the colour",
+      "colorHint": "Optional, as #RRGGBB. Leave it empty for no colour.",
+      "description": "Description",
+      "descriptionPlaceholder": "When this kind of leave is granted.",
+      "defaultAllocatedDays": "Suggested days by default",
+      "defaultAllocatedDaysPlaceholder": "21",
+      "isActive": "Active",
+      "isActiveHint": "An inactive type can no longer be chosen on a new request.",
+      "isPaid": "Paid",
+      "isPaidHint": "Days of this leave are paid.",
+      "requiresApproval": "Needs approval",
+      "requiresApprovalHint": "Requests must be approved before they are recorded.",
+      "allowsCarryOver": "Carries over into the next year",
+      "allowsCarryOverHint": "Days left at the end of a year may still be taken in the next one.",
+      "maxCarryOverDays": "Carry-over ceiling",
+      "maxCarryOverDaysPlaceholder": "No ceiling"
+    },
+    "icons": {
+      "umbrella": "Umbrella",
+      "treePalm": "Palm tree",
+      "sun": "Sun",
+      "plane": "Plane",
+      "stethoscope": "Stethoscope",
+      "heartPulse": "Pulse",
+      "bed": "Bed",
+      "baby": "Baby",
+      "graduationCap": "Studies",
+      "briefcase": "Briefcase",
+      "house": "House",
+      "landmark": "Institution",
+      "calendarOff": "Blocked calendar",
+      "ban": "Ban"
+    },
+    "validation": {
+      "codeRequired": "Enter the leave type's code.",
+      "codeTooLong": "The code can be at most {{max}} characters.",
+      "codeInvalid": "The code may contain letters and digits only, separated by - or _.",
+      "labelRequired": "Enter the leave type's name.",
+      "labelTooLong": "The name can be at most {{max}} characters.",
+      "reportMarkerRequired": "Enter the marker used on reports.",
+      "reportMarkerInvalid": "The marker can be at most {{max}} letters or digits.",
+      "iconRequired": "Choose an icon.",
+      "colorInvalid": "The colour must be written as #RRGGBB.",
+      "descriptionTooLong": "The description can be at most {{max}} characters.",
+      "daysInvalid": "Enter a whole number of days.",
+      "daysRange": "The number of days must be between {{min}} and {{max}}."
+    },
+    "errors": {
+      "duplicate": "The code, the name or the report marker is already used by another leave type. Choose different ones.",
+      "inUse": "This leave type cannot be deleted while requests or balances still reference it. Deactivate it instead to retire it without losing the history."
+    },
+    "toast": {
+      "created": "Leave type “{{label}}” was added.",
+      "updated": "Leave type “{{label}}” was updated.",
+      "deleted": "Leave type “{{label}}” was deleted."
+    },
+    "delete": {
+      "title": "Delete this leave type?",
+      "description": "“{{label}}” will be removed for good. If it has already been used, deactivate it instead."
+    },
+    "empty": {
+      "title": "No leave types yet",
+      "description": "Leave types are the vocabulary requests, balances and reports all use. Add the first one to get started."
+    }
+  },
   "pages": {
+    "profile": {
+      "title": "Profile",
+      "description": "Your account details, your employment record and your appearance preferences."
+    },
     "dashboard": {
       "title": "Dashboard",
       "description": "An overview of your timesheet, your leave and your projects."
@@ -231,6 +413,10 @@
       "submit": "Activate the account",
       "success": "Your account has been activated. You can sign in now.",
       "invalidLink": "This activation link is invalid or has expired. Ask HR for a new one."
+    },
+    "sessionUnknown": {
+      "title": "We could not check your session",
+      "description": "The server did not answer when we asked whether you are signed in. You have not been signed out — your session is most likely still valid. Try again in a moment."
     },
     "missingToken": "The link you opened carries no token. Open the full link from the email again.",
     "backToLogin": "Back to sign-in",

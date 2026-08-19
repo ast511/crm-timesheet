@@ -549,3 +549,162 @@ Items 2, 3, 4, 6, 7 and 8 are untouched and still open.
    carrying the tier and a *hashed* client key — never the address, never the
    email — would make an attack visible without becoming a log of who is trying to
    sign in. It pairs with whatever monitoring the deployment grows.
+
+---
+
+# Amendment: `POST /auth/refresh` gets its own tier
+
+## The report
+
+> After I sign in successfully and reach the app, reloading signs me out and
+> redirects to `/login?redirect=%2Fapp`.
+
+Reproduced in a browser on the first attempt. The refresh cookie was fine — sent
+on both requests, `blocked: []` — and the exchange was:
+
+```
+GET  /api/v1/auth/me      → 401   (expected: the access token is memory-only)
+POST /api/v1/auth/refresh → 429   ← this tier
+→ /login?redirect=%2Fapp
+```
+
+## What was wrong
+
+`POST /auth/refresh` carried `@StrictRateLimit()` from this feature onwards, and
+it did not belong there. The strict tier bounds **guessing**: `POST /auth/login`
+is an unauthenticated bcrypt against a password somebody is proposing, and ten
+attempts per five minutes is four more than a person who has forgotten theirs
+will use and nothing at all to an attacker.
+
+A refresh proposes nothing. It presents a token **this server issued** — signed,
+single-use, in an `HttpOnly` cookie the page cannot read. A wrong value is a
+`401` in one signature check; a *reused* value is not rate-limited but punished,
+by revoking the whole token family.
+
+What it is instead is **routine, and driven by the client's lifecycle**:
+
+| When | Cost |
+| --- | --- |
+| A cold page load — reload, new tab, restored window | 1 |
+| Every rotation, per open tab | 1 per `JWT_ACCESS_TTL` |
+
+A browser keeps its access token in memory only, so every page load spends one,
+**including on the sign-in screen** where nobody is signed in yet: the cookie is
+`HttpOnly`, so a client cannot know whether it has one without asking. Ten per
+five minutes is therefore about nine reloads, after which somebody is signed out
+for reloading. The two routes were sharing an anti-brute-force budget with
+ordinary work, and ordinary work spent it.
+
+## The rule this establishes
+
+**The strict tier is for a credential the caller invents.** If the server issued
+the thing being presented, the risk is a flood rather than a guess, and a flood
+is what the baseline and a wider dedicated tier are for. It is written on
+`StrictRateLimit` so the next route to be added has somewhere to look.
+
+Four routes keep the strict tier — `login`, `activate`, `forgot-password`,
+`reset-password` — and each is somebody proposing a secret.
+
+## The third tier
+
+| Tier | Name | Default | Bucket key | Bounds |
+| --- | --- | --- | --- | --- |
+| baseline | `default` | 300 / 60 s | client | the total request rate |
+| strict | `auth` | 10 / 300 s | client + handler + submitted address | guessing at one account |
+| **refresh** | `refresh` | **120 / 300 s** | client | a flood of session rotations |
+
+Additive, like the strict tier: a refresh is counted in both its own tier and the
+baseline, so loosening this did not remove a bound, it added a second one that is
+shaped for the traffic.
+
+`generateKey` gives it the client alone, deliberately. It is carried by exactly
+one route, so a per-handler component would name a constant; and a refresh
+submits no address, so there is no identity to add.
+
+### The number, and the office behind one address
+
+**120 per five minutes is sized for a shared egress address, not for a person.**
+That is the case that decides it — a company on one NAT is one bucket, so the
+allowance has to cover everybody's tabs at once:
+
+```
+45 people × 2 tabs, rotating every 15 min   ≈ 30 / 5 min
+plus reloads, deploys, and morning arrival  ≈ 60 / 5 min
+```
+
+Reading it as a per-person limit ("120 reloads is generous!") is the mistake:
+divided across a floor of people it is closer to two.
+
+**What that buys, honestly.** A limit loose enough for an office is loose for a
+single attacker on that office's address, and that is accepted deliberately,
+because this tier is not what protects the route. The protection is the token:
+signed, single-use, rotated, revoked on reuse, unreadable by script. This bounds
+the cost of a flood, and it is the second bound on that.
+
+The direction of the trade decides it. Too tight signs employees out for
+reloading, every day, and looks like a broken session; too loose costs a
+signature check on a route already behind the baseline. Only one of those is a
+support ticket.
+
+### `TRUST_PROXY` is the same failure in a different costume
+
+Behind a reverse proxy with `TRUST_PROXY` unset, Express reports the proxy's
+address for every request and the *entire deployment* collapses into one bucket —
+the NAT case, applied to everybody at once. A wider tier makes that
+misconfiguration take longer to notice, so it is written in three places
+(`.env.example`, the decorator, the environment contract): **if refreshes start
+being refused in production, check `TRUST_PROXY` before raising the number.**
+
+## Environment
+
+| Variable | Default | Range |
+| --- | --- | --- |
+| `RATE_LIMIT_REFRESH_LIMIT` | 120 | 1–100 000 |
+| `RATE_LIMIT_REFRESH_TTL` | 300 | 1–86 400 seconds |
+
+Both optional, both validated at boot by `env.validation.ts` like the other four,
+and documented in `.env.example` with the NAT arithmetic rather than only the
+number.
+
+## Files
+
+| File | Change |
+| --- | --- |
+| `modules/rate-limiting/decorators/refresh-rate-limit.decorator.ts` | New. The decorator, its `Reflector` lookup, and the argument above. |
+| `modules/rate-limiting/rate-limiting.constants.ts` | `REFRESH_THROTTLER_NAME`; the `ANONYMOUS_IDENTITY` note corrected — it named refresh, which is no longer on that tier. |
+| `modules/rate-limiting/rate-limiting.config.ts` | Two keys, two fields. |
+| `modules/rate-limiting/rate-limiting.module.ts` | The third throttler and its `skipIf`. |
+| `modules/rate-limiting/rate-limiting.guard.ts` | `generateKey` — why the refresh tier takes the client-only branch. |
+| `modules/rate-limiting/decorators/strict-rate-limit.decorator.ts` | "Where it is used" corrected to four routes, plus the invents-versus-issued rule. |
+| `modules/auth/auth.controller.ts` | `@RefreshRateLimit()` on `refresh`; the class doc and the Swagger description. |
+| `config/env.validation.ts` | The two variables. |
+| `.env.example` | The two variables, with the office arithmetic. |
+
+## Verification
+
+`tsc --noEmit` clean. **The full suite: 137 suites, 2 970 tests, all passing.**
+
+`rate-limiting/routing.spec.ts` gains a `describe` for the new tier, and what it
+asserts is the **ordering** — strict < refresh < baseline — because that ordering
+is what the fix consists of; the production numbers are configuration. It also
+keeps each client in its own bucket.
+
+The old assertion that refresh "trips in fewer attempts than the baseline" was
+removed rather than adjusted: it described the defect.
+
+Against the running application, through the frontend's dev proxy:
+
+| Probe | Result |
+| --- | --- |
+| 16 consecutive `POST /auth/refresh` with a bogus cookie | `401` × 16 — no `429` |
+| 12 consecutive `POST /auth/login` with a wrong password | `401` × 10, then `429` × 2 |
+
+The second is the one that matters: the brute-force bound is untouched.
+
+## Reconciling the earlier notes
+
+*Future Improvements* 2 and 4 above both anticipated a third tier. Neither is
+this one — 2 is for report exports and 4 is a per-address counter for the auth
+routes — and both remain open. What this amendment settles is the *precedent*:
+tiers are added when the traffic has a different shape, and adding one is a
+constant, a decorator, two environment variables and a `skipIf`.

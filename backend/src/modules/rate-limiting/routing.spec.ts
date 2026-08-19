@@ -45,6 +45,13 @@ import { RateLimitingModule } from './rate-limiting.module';
 /** Small enough that a test can exhaust a tier without sending 300 requests. */
 const DEFAULT_LIMIT = 5;
 const AUTH_LIMIT = 2;
+/**
+ * Larger than {@link AUTH_LIMIT} and smaller than {@link DEFAULT_LIMIT}, which
+ * is the ordering production uses and the only one that lets a test tell the
+ * three tiers apart: a refresh must survive longer than a login and still trip
+ * before the baseline.
+ */
+const REFRESH_LIMIT = 3;
 const WINDOW_SECONDS = 60;
 
 const BASE = `/${API_PREFIX}/${API_VERSION_PREFIX}${API_DEFAULT_VERSION}`;
@@ -97,6 +104,7 @@ interface AppOptions {
   readonly trustProxy?: string;
   readonly defaultLimit?: number;
   readonly authLimit?: number;
+  readonly refreshLimit?: number;
 }
 
 /**
@@ -115,6 +123,10 @@ async function createApp(options: AppOptions = {}): Promise<INestApplication> {
     [RATE_LIMIT_KEYS.defaultTtl]: String(WINDOW_SECONDS),
     [RATE_LIMIT_KEYS.authLimit]: String(options.authLimit ?? AUTH_LIMIT),
     [RATE_LIMIT_KEYS.authTtl]: String(WINDOW_SECONDS),
+    [RATE_LIMIT_KEYS.refreshLimit]: String(
+      options.refreshLimit ?? REFRESH_LIMIT,
+    ),
+    [RATE_LIMIT_KEYS.refreshTtl]: String(WINDOW_SECONDS),
     [TRUST_PROXY_KEY]: options.trustProxy ?? 'false',
   };
 
@@ -463,26 +475,11 @@ describe('rate limiting', () => {
       });
     });
 
-    it('trips on POST /auth/refresh in fewer attempts than the baseline', async () => {
-      const caller = client();
-
-      const refresh = () =>
-        request(app.getHttpServer())
-          .post(`${BASE}/auth/refresh`)
-          .set(caller)
-          .set('Cookie', `${DEFAULT_REFRESH_COOKIE_NAME}=${REFRESH_TOKEN}`);
-
-      for (let attempt = 0; attempt < AUTH_LIMIT; attempt++) {
-        await refresh().expect(200);
-      }
-
-      await refresh().expect(429);
-    });
-
     /**
      * Exhausting login attempts must not also block the refresh that would have
-     * recovered the session, which is why the strict tier keeps a bucket per
-     * handler.
+     * recovered the session. It was the strict tier's per-handler bucket that
+     * made this true; now the two are in different tiers entirely, which makes
+     * it true for a second reason.
      */
     it('keeps login and refresh in separate buckets', async () => {
       const caller = client();
@@ -554,6 +551,83 @@ describe('rate limiting', () => {
       expect(response.body).toMatchObject({
         errorCode: ERROR_CODES.RATE_LIMIT_EXCEEDED,
       });
+    });
+  });
+
+  /**
+   * The third tier, and the defect it was added for.
+   *
+   * `POST /auth/refresh` was on the strict tier until a frontend reported being
+   * signed out by reloading: a browser's access token is memory-only, so **every
+   * cold page load spends one refresh**, and ten per five minutes is about nine
+   * reloads. The strict tier bounds somebody guessing at a password; a refresh
+   * presents a token this server signed. Different risk, different tier.
+   *
+   * What these assert is the *ordering* — strict < refresh < baseline — because
+   * that is the property the fix consists of. The production numbers are
+   * configuration; that a refresh outlives a login and still trips before the
+   * baseline is the design.
+   */
+  describe('the refresh tier on POST /auth/refresh', () => {
+    let app: INestApplication;
+
+    beforeAll(async () => {
+      app = await createApp({ trustProxy: '1' });
+    });
+
+    afterAll(async () => {
+      await app.close();
+    });
+
+    const refresh = (caller: Record<string, string>) =>
+      request(app.getHttpServer())
+        .post(`${BASE}/auth/refresh`)
+        .set(caller)
+        .set('Cookie', `${DEFAULT_REFRESH_COOKIE_NAME}=${REFRESH_TOKEN}`);
+
+    it('allows more rotations than the strict tier allows logins', async () => {
+      const caller = client();
+
+      expect(AUTH_LIMIT).toBeLessThan(REFRESH_LIMIT);
+
+      for (let attempt = 0; attempt < REFRESH_LIMIT; attempt++) {
+        await refresh(caller).expect(200);
+      }
+
+      const response = await refresh(caller).expect(429);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        statusCode: 429,
+        errorCode: ERROR_CODES.RATE_LIMIT_EXCEEDED,
+      });
+    });
+
+    /**
+     * Still bounded. A tier loose enough for an office is not a tier that has
+     * been switched off, and the baseline counts these requests too.
+     */
+    it('trips before the baseline would', async () => {
+      expect(REFRESH_LIMIT).toBeLessThan(DEFAULT_LIMIT);
+    });
+
+    /**
+     * The bucket is the client, so one address exhausting it does not touch
+     * another's — the property that keeps a noisy tab from signing out a
+     * colleague who happens to be on a different connection. Everybody behind
+     * one NAT *does* share it, which is why the production allowance is sized
+     * for an office rather than for a person.
+     */
+    it('gives each client its own allowance', async () => {
+      const first = client();
+      const second = client();
+
+      for (let attempt = 0; attempt <= REFRESH_LIMIT; attempt++) {
+        await refresh(first);
+      }
+
+      await refresh(first).expect(429);
+      await refresh(second).expect(200);
     });
   });
 

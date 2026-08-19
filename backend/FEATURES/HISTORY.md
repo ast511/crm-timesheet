@@ -134,3 +134,4 @@ feature that was never written.
 | 003 | [Prisma — `timestamptz` for instants](003-prisma-orm-setup.md) | Completed | 2026-08-08 |
 | 038 | [API Documentation — a per-status error example](038-api-documentation.md) | Completed | 2026-08-13 |
 | 038 | [API Documentation — error statuses corrected against their throw sites](038-api-documentation.md) | Completed | 2026-08-13 |
+| 034 | [Rate Limiting — `POST /auth/refresh` gets its own tier](034-rate-limiting.md) | Completed | 2026-08-19 |

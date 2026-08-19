@@ -3,10 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerModuleOptions } from '@nestjs/throttler';
 
+import { isRefreshRateLimited } from './decorators/refresh-rate-limit.decorator';
 import { isStrictlyRateLimited } from './decorators/strict-rate-limit.decorator';
 import { loadRateLimitConfig } from './rate-limiting.config';
 import {
   DEFAULT_THROTTLER_NAME,
+  REFRESH_THROTTLER_NAME,
   STRICT_THROTTLER_NAME,
 } from './rate-limiting.constants';
 import { ApiThrottlerGuard } from './rate-limiting.guard';
@@ -23,8 +25,9 @@ import { ApiThrottlerGuard } from './rate-limiting.guard';
  *
  * ## What is imported, and what is not
  *
- * `ThrottlerModule.forRootAsync`, because both tiers are read from validated
- * configuration and `ConfigService` is only available through the injector.
+ * `ThrottlerModule.forRootAsync`, because all three tiers are read from
+ * validated configuration and `ConfigService` is only available through the
+ * injector.
  * That is also why the limits are not `@Throttle()` decorators on the two auth
  * handlers, which is the shape the library documents first: a decorator's
  * arguments are evaluated when the class is *defined*, which happens while
@@ -103,6 +106,19 @@ import { ApiThrottlerGuard } from './rate-limiting.guard';
               limit: limits.authLimit,
               ttl: limits.authTtlMs,
               skipIf: (context) => !isStrictlyRateLimited(reflector, context),
+            },
+            // The refresh tier, confined by its own `skipIf` to the one route
+            // carrying `@RefreshRateLimit()`. It is a *third* tier rather than a
+            // wider number on the strict one because the two bound different
+            // things: the strict tier bounds guessing at a password, this bounds
+            // a flood of session rotations, and a route that does one does not
+            // do the other. Sharing an allowance meant a working day's reloads
+            // could spend an anti-brute-force budget.
+            {
+              name: REFRESH_THROTTLER_NAME,
+              limit: limits.refreshLimit,
+              ttl: limits.refreshTtlMs,
+              skipIf: (context) => !isRefreshRateLimited(reflector, context),
             },
           ],
         };
