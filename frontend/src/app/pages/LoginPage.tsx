@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AuthCard } from '@/features/auth/components/AuthCard';
 import { AuthIllustration } from '@/features/auth/components/AuthIllustration';
 import { LoginForm } from '@/features/auth/components/LoginForm';
+import { usePageMeta } from '@/hooks/usePageMeta';
 
 export interface LoginPageProps {
   /**
@@ -35,7 +36,13 @@ export interface LoginPageProps {
  */
 export const LoginPage = ({ redirectTo }: LoginPageProps) => {
   const { t } = useTranslation();
+
   const navigate = useNavigate();
+
+  usePageMeta({
+    title: t('pages.login.title'),
+    description: t('pages.login.description'),
+  });
 
   // Two calls rather than one with a conditional argument: `to` and `href` are
   // different overloads, and a union of the two makes the router infer a

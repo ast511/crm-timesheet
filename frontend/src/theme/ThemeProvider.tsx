@@ -9,8 +9,6 @@ import {
 
 import { ThemeContext, type ThemePreferences } from './theme-context';
 import {
-  DEFAULT_COLOR_SCHEME,
-  DEFAULT_CORNER_RADIUS,
   applyTheme,
   getSystemColorMode,
   isAccountThemePath,
@@ -24,38 +22,39 @@ import {
 export interface ThemeProviderProps {
   children: ReactNode;
   /**
-   * Where the preferences start before anybody has signed in.
+   * The palette and corner radius to apply — **supplied, not held.**
    *
-   * These are the backend's own column defaults (`DEFAULT` and `MEDIUM`), so an
-   * anonymous visitor and a brand-new account see the same thing. Once the
-   * profile feature exists it calls `setPreferences` with what
-   * `GET /api/v1/profile/me` returned; nothing here needs to change for that to
-   * work, which is the point of taking them as props.
+   * This provider used to keep them in `useState` behind a `setPreferences`,
+   * with a seam saying the profile feature would call it once the account's
+   * stored values could be read. That arrangement was replaced rather than
+   * filled in, because the seam had a flaw that only shows on a reload: two
+   * copies of the same value, one in React and one on the server, and nothing
+   * deciding which is right. A palette applied through the setter survived the
+   * click and not the refresh.
+   *
+   * So the server's copy is the only copy. `AppProviders` passes what
+   * `useStoredThemePreferences()` reads from `GET /profile/me`, and the picker
+   * changes the theme by writing to that same cache — see
+   * `features/profile/useProfile.ts`. This component is left doing exactly what
+   * it always claimed to: applying three inputs to `<html>`, knowing nothing
+   * about authentication and nothing about the API.
    */
-  defaultPreferences?: ThemePreferences;
+  preferences: ThemePreferences;
 }
 
 /**
- * Applies the three theme inputs to `<html>` and exposes the two setters.
+ * Applies the three theme inputs to `<html>`.
  *
- * It holds state and writes CSS variables. It does not read the profile, does
- * not write it back, and knows nothing about authentication — those are the
- * profile feature's job through {@link ThemeContextValue.setPreferences}.
+ * Two of them come from the account (the palette and the corner radius, passed
+ * in) and one from the device (light/dark, owned here because there is nowhere
+ * else it belongs — see `theme.ts` on why it is never sent to the backend).
  *
- * The first paint is not this component's doing either: the inline script in
+ * The first paint is not this component's doing: the inline script in
  * `index.html` puts the stored colour mode on `<html>` before any module loads,
  * so the page never flashes light before turning dark. This provider takes over
  * from there and is the only thing that touches the theme afterwards.
  */
-export const ThemeProvider = ({ children, defaultPreferences }: ThemeProviderProps) => {
-  const [preferences, setPreferencesState] = useState<ThemePreferences>(
-    () =>
-      defaultPreferences ?? {
-        colorScheme: DEFAULT_COLOR_SCHEME,
-        cornerRadius: DEFAULT_CORNER_RADIUS,
-      },
-  );
-
+export const ThemeProvider = ({ children, preferences }: ThemeProviderProps) => {
   const [colorMode, setColorModeState] = useState<ColorMode>(readStoredColorMode);
 
   /**
@@ -98,10 +97,6 @@ export const ThemeProvider = ({ children, defaultPreferences }: ThemeProviderPro
     applyTheme({ ...preferences, resolvedColorMode });
   }, [preferences, resolvedColorMode]);
 
-  const setPreferences = useCallback((next: Partial<ThemePreferences>) => {
-    setPreferencesState((current) => ({ ...current, ...next }));
-  }, []);
-
   const setColorMode = useCallback((mode: ColorMode) => {
     storeColorMode(mode);
     setColorModeState(mode);
@@ -113,11 +108,10 @@ export const ThemeProvider = ({ children, defaultPreferences }: ThemeProviderPro
       colorMode,
       resolvedColorMode,
       colorModeScope,
-      setPreferences,
       setColorMode,
       setColorModeScope,
     }),
-    [preferences, colorMode, resolvedColorMode, colorModeScope, setPreferences, setColorMode],
+    [preferences, colorMode, resolvedColorMode, colorModeScope, setColorMode],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { AuthCard } from '@/features/auth/components/AuthCard';
 import { ForgotPasswordForm } from '@/features/auth/components/ForgotPasswordForm';
+import { usePageMeta } from '@/hooks/usePageMeta';
 
 /**
  * `/forgot-password` — one field, and a way back.
@@ -13,6 +14,11 @@ import { ForgotPasswordForm } from '@/features/auth/components/ForgotPasswordFor
  */
 export const ForgotPasswordPage = () => {
   const { t } = useTranslation();
+
+  usePageMeta({
+    title: t('pages.forgotPassword.title'),
+    description: t('pages.forgotPassword.description'),
+  });
 
   return (
     <AuthCard

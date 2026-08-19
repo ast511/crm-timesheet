@@ -3,13 +3,8 @@
     "name": "TimeSheet",
     "tagline": "Timesheets, leave and reporting for the team."
   },
-  "nav": {
-    "home": "Home",
-    "workspace": "Workspace"
-  },
   "actions": {
-    "retry": "Retry",
-    "openWorkspace": "Open the workspace"
+    "retry": "Retry"
   },
   "language": {
     "label": "Language",
@@ -47,12 +42,149 @@
     "failed": "The check did not succeed."
   },
   "shell": {
-    "sidebarPlaceholder": "Navigation arrives with the first screens.",
-    "contentPlaceholder": "Content area."
+    "placeholder": "The screen for this section arrives with a later feature. The navigation, the workspaces and the theme already work."
   },
-  "landing": {
-    "title": "Application foundation",
-    "body": "The HTTP client, the types generated from the OpenAPI contract, the translations and the theme are configured. Screens follow."
+  "sidebar": {
+    "toggle": "Toggle the sidebar",
+    "openSubmenu": "Open the {{title}} submenu"
+  },
+  "workspace": {
+    "label": "Workspaces",
+    "switch": "Switch workspace",
+    "personal": "Personal",
+    "personalHint": "Your own work",
+    "team": "Team",
+    "teamHint": "Administration"
+  },
+  "account": {
+    "menu": "Account menu",
+    "profile": "My account",
+    "unavailable": "Available in a later feature."
+  },
+  "roles": {
+    "SUPERADMIN": "Super administrator",
+    "ADMIN": "Administrator",
+    "HR": "Human resources",
+    "USER": "Employee"
+  },
+  "theme": {
+    "open": "Customise the theme",
+    "title": "Customise the theme",
+    "description": "Choose the colour palette and how rounded the corners are. Changes apply immediately.",
+    "colorScheme": "Colour palette",
+    "cornerRadius": "Corner radius",
+    "preview": "Preview",
+    "previewPrimary": "Primary button",
+    "previewOutline": "Outlined button",
+    "schemes": {
+      "DEFAULT": "Default",
+      "RED": "Red",
+      "ROSE": "Rose",
+      "ORANGE": "Orange",
+      "GREEN": "Green",
+      "BLUE": "Blue",
+      "YELLOW": "Yellow",
+      "VIOLET": "Violet"
+    },
+    "radii": {
+      "NONE": "0",
+      "SMALL": "0.3",
+      "MEDIUM": "0.5",
+      "LARGE": "0.75",
+      "FULL": "1.0"
+    }
+  },
+  "footer": {
+    "copyright": "© {{year}} TimeSheet"
+  },
+  "pages": {
+    "dashboard": {
+      "title": "Dashboard",
+      "description": "An overview of your timesheet, your leave and your projects."
+    },
+    "timesheet": {
+      "title": "My timesheet",
+      "description": "Fill in and submit your monthly timesheet."
+    },
+    "leaveRequests": {
+      "title": "My leave requests",
+      "description": "Submit leave requests and follow their status."
+    },
+    "projects": {
+      "title": "Projects",
+      "description": "The projects you are assigned to."
+    },
+    "publicHolidays": {
+      "title": "Public holidays",
+      "description": "The public holidays in the company calendar."
+    },
+    "teamTimesheets": {
+      "title": "Timesheets",
+      "description": "Review and approve the team's timesheets."
+    },
+    "employees": {
+      "title": "Employees",
+      "description": "The company's employee directory."
+    },
+    "teamLeaveRequests": {
+      "title": "Leave requests",
+      "description": "Review and approve the team's leave requests."
+    },
+    "reports": {
+      "title": "Reports",
+      "description": "Company-wide attendance and hour reports."
+    },
+    "settings": {
+      "title": "Settings"
+    },
+    "settingsProjects": {
+      "title": "Projects",
+      "description": "Manage projects and their team assignments."
+    },
+    "settingsLeaveTypes": {
+      "title": "Leave types",
+      "description": "Manage leave types and the policies behind them."
+    },
+    "settingsWorkSchedule": {
+      "title": "Work schedule",
+      "description": "Configure the working schedule and approval routing."
+    },
+    "settingsPublicHolidays": {
+      "title": "Public holidays",
+      "description": "Manage the public holiday calendar."
+    },
+    "settingsDepartments": {
+      "title": "Departments",
+      "description": "Manage departments and the team structure."
+    },
+    "settingsNotifications": {
+      "title": "Notifications",
+      "description": "Configure the notifications the application sends."
+    },
+    "settingsPermissions": {
+      "title": "Permissions",
+      "description": "Manage account roles and permissions."
+    },
+    "notAuthorized": {
+      "title": "Access restricted",
+      "description": "You do not have the permission needed to open this page."
+    },
+    "login": {
+      "title": "Sign in",
+      "description": "Sign in to your TimeSheet account."
+    },
+    "forgotPassword": {
+      "title": "Password recovery",
+      "description": "Ask for a link to choose a new password."
+    },
+    "resetPassword": {
+      "title": "New password",
+      "description": "Set a new password for your TimeSheet account."
+    },
+    "activateAccount": {
+      "title": "Activate account",
+      "description": "Choose the password you will sign in to TimeSheet with."
+    }
   },
   "auth": {
     "fields": {

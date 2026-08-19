@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActivateAccountMutation } from '@/features/auth/auth-mutations';
 import { SetPasswordScreen } from '@/features/auth/components/SetPasswordScreen';
+import { usePageMeta } from '@/hooks/usePageMeta';
 
 export interface ActivateAccountPageProps {
   /** From `?token=`. Empty when the emailed link arrived truncated. */
@@ -24,7 +25,13 @@ export interface ActivateAccountPageProps {
  */
 export const ActivateAccountPage = ({ token }: ActivateAccountPageProps) => {
   const { t } = useTranslation();
+
   const activateAccountMutation = useActivateAccountMutation();
+
+  usePageMeta({
+    title: t('pages.activateAccount.title'),
+    description: t('pages.activateAccount.description'),
+  });
 
   return (
     <SetPasswordScreen

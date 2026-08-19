@@ -3,6 +3,7 @@ import { createRoute, redirect } from '@tanstack/react-router';
 import { WorkspaceLayout } from '@/app/layout/WorkspaceLayout';
 import { WorkspaceHomePage } from '@/app/pages/WorkspaceHomePage';
 import { loadEffectivePermissions } from '@/features/permissions/permissions-query';
+import { loadProfile } from '@/features/profile/profile-query';
 
 import { rootRoute } from './root.route';
 
@@ -64,9 +65,25 @@ export const workspaceRoute = createRoute({
       throw redirect({ to: '/login', search: { redirect: location.href } });
     }
 
-    return {
-      permissions: await loadEffectivePermissions(context.queryClient, context.auth.user.id),
-    };
+    /*
+     * The profile is awaited beside the permissions, and for a related reason.
+     *
+     * It carries the username the header shows and the palette and corner
+     * radius the whole application is painted with, so a shell that mounted
+     * before it arrived would render an address for one frame and a name the
+     * next, in the default theme and then the chosen one. Both are `ensureQueryData`,
+     * so this is one request each per session and a cache read thereafter.
+     *
+     * Only the permissions are returned as context: a route guard has a reason
+     * to read them, and nothing gates on a profile. The theme and the header
+     * read it through `useProfile`, from the same cache entry this filled.
+     */
+    const [permissions] = await Promise.all([
+      loadEffectivePermissions(context.queryClient, context.auth.user.id),
+      loadProfile(context.queryClient, context.auth.user.id),
+    ]);
+
+    return { permissions };
   },
   component: WorkspaceLayout,
 });

@@ -26,7 +26,19 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, interactive-widget=resizes-visual"
     />
-    <title>Timesheet</title>
+    <!--
+      The pre-React fallback, and nothing more. Every route component states its
+      own title and description through `usePageMeta`, which overwrites both as
+      soon as the application mounts — see `src/hooks/usePageMeta.ts`.
+
+      Static, and therefore in the default language (`ro`): this file has no
+      access to i18n, and the moment it covers is over before i18n exists.
+    -->
+    <title>TimeSheet</title>
+    <meta
+      name="description"
+      content="Pontaj, concedii și raportare pentru echipă."
+    />
     <script>
       /*
        * Applies the right light/dark theme before the first paint.

@@ -3,13 +3,8 @@
     "name": "TimeSheet",
     "tagline": "Pontaj, concedii și raportare pentru echipă."
   },
-  "nav": {
-    "home": "Acasă",
-    "workspace": "Aplicație"
-  },
   "actions": {
-    "retry": "Reîncearcă",
-    "openWorkspace": "Deschide aplicația"
+    "retry": "Reîncearcă"
   },
   "language": {
     "label": "Limbă",
@@ -47,12 +42,149 @@
     "failed": "Verificarea nu a reușit."
   },
   "shell": {
-    "sidebarPlaceholder": "Navigația apare odată cu primele ecrane.",
-    "contentPlaceholder": "Zona de conținut."
+    "placeholder": "Ecranul acestei secțiuni urmează într-o funcționalitate viitoare. Navigația, spațiile de lucru și tema sunt deja funcționale."
   },
-  "landing": {
-    "title": "Fundația aplicației",
-    "body": "Clientul HTTP, tipurile generate din contractul OpenAPI, traducerile și tema sunt configurate. Ecranele urmează."
+  "sidebar": {
+    "toggle": "Comută meniul lateral",
+    "openSubmenu": "Deschide submeniul {{title}}"
+  },
+  "workspace": {
+    "label": "Spații de lucru",
+    "switch": "Schimbă spațiul de lucru",
+    "personal": "Personal",
+    "personalHint": "Munca ta",
+    "team": "Echipă",
+    "teamHint": "Administrare"
+  },
+  "account": {
+    "menu": "Meniul contului",
+    "profile": "Contul meu",
+    "unavailable": "Disponibil într-o funcționalitate viitoare."
+  },
+  "roles": {
+    "SUPERADMIN": "Super administrator",
+    "ADMIN": "Administrator",
+    "HR": "Resurse umane",
+    "USER": "Angajat"
+  },
+  "theme": {
+    "open": "Personalizează tema",
+    "title": "Personalizează tema",
+    "description": "Alege paleta de culori și rotunjimea colțurilor. Modificările se aplică imediat.",
+    "colorScheme": "Paletă de culori",
+    "cornerRadius": "Rotunjimea colțurilor",
+    "preview": "Previzualizare",
+    "previewPrimary": "Buton principal",
+    "previewOutline": "Buton conturat",
+    "schemes": {
+      "DEFAULT": "Implicit",
+      "RED": "Roșu",
+      "ROSE": "Roz",
+      "ORANGE": "Portocaliu",
+      "GREEN": "Verde",
+      "BLUE": "Albastru",
+      "YELLOW": "Galben",
+      "VIOLET": "Violet"
+    },
+    "radii": {
+      "NONE": "0",
+      "SMALL": "0.3",
+      "MEDIUM": "0.5",
+      "LARGE": "0.75",
+      "FULL": "1.0"
+    }
+  },
+  "footer": {
+    "copyright": "© {{year}} TimeSheet"
+  },
+  "pages": {
+    "dashboard": {
+      "title": "Panou principal",
+      "description": "Vedere de ansamblu asupra pontajului, concediilor și proiectelor tale."
+    },
+    "timesheet": {
+      "title": "Pontajul meu",
+      "description": "Completează și trimite pontajul tău lunar."
+    },
+    "leaveRequests": {
+      "title": "Cererile mele de concediu",
+      "description": "Trimite cereri de concediu și urmărește-le statusul."
+    },
+    "projects": {
+      "title": "Proiecte",
+      "description": "Proiectele la care ești alocat."
+    },
+    "publicHolidays": {
+      "title": "Sărbători legale",
+      "description": "Zilele libere legale din calendarul companiei."
+    },
+    "teamTimesheets": {
+      "title": "Pontaje",
+      "description": "Verifică și aprobă pontajele echipei."
+    },
+    "employees": {
+      "title": "Angajați",
+      "description": "Directorul de angajați al companiei."
+    },
+    "teamLeaveRequests": {
+      "title": "Cereri de concediu",
+      "description": "Verifică și aprobă cererile de concediu ale echipei."
+    },
+    "reports": {
+      "title": "Rapoarte",
+      "description": "Rapoarte de prezență și de ore la nivel de companie."
+    },
+    "settings": {
+      "title": "Setări"
+    },
+    "settingsProjects": {
+      "title": "Proiecte",
+      "description": "Administrează proiectele și alocările pe echipe."
+    },
+    "settingsLeaveTypes": {
+      "title": "Tipuri de concediu",
+      "description": "Administrează tipurile de concediu și politicile aferente."
+    },
+    "settingsWorkSchedule": {
+      "title": "Program de lucru",
+      "description": "Configurează programul de lucru și rutarea aprobărilor."
+    },
+    "settingsPublicHolidays": {
+      "title": "Sărbători legale",
+      "description": "Administrează calendarul de sărbători legale."
+    },
+    "settingsDepartments": {
+      "title": "Departamente",
+      "description": "Administrează departamentele și structura echipelor."
+    },
+    "settingsNotifications": {
+      "title": "Notificări",
+      "description": "Configurează notificările trimise de aplicație."
+    },
+    "settingsPermissions": {
+      "title": "Permisiuni",
+      "description": "Administrează rolurile și permisiunile conturilor."
+    },
+    "notAuthorized": {
+      "title": "Acces restricționat",
+      "description": "Nu ai permisiunea necesară pentru a deschide această pagină."
+    },
+    "login": {
+      "title": "Autentificare",
+      "description": "Autentifică-te în contul tău TimeSheet."
+    },
+    "forgotPassword": {
+      "title": "Recuperare parolă",
+      "description": "Cere un link pentru a-ți alege o parolă nouă."
+    },
+    "resetPassword": {
+      "title": "Parolă nouă",
+      "description": "Setează o parolă nouă pentru contul tău TimeSheet."
+    },
+    "activateAccount": {
+      "title": "Activare cont",
+      "description": "Alege parola cu care te vei autentifica în TimeSheet."
+    }
   },
   "auth": {
     "fields": {

@@ -37,17 +37,22 @@ export interface ThemeContextValue extends ThemePreferences {
    */
   setColorModeScope: (scope: ColorModeScope) => void;
 
-  /**
-   * SEAM (profile / auth feature): apply the preferences read from
-   * `GET /api/v1/profile/me`.
+  /*
+   * There is no `setPreferences` here any more, and its absence is the point.
    *
-   * Partial, so a settings screen can change one without restating the other.
-   * Applying is all this does — persisting is a `PATCH /api/v1/profile/me`,
-   * and that call belongs to the feature that owns the settings screen, not
-   * here. Keeping the write out of the provider is what stops the theme layer
-   * from acquiring an opinion about authentication.
+   * It used to be the seam through which the profile feature would apply the
+   * account's stored palette and radius. Filling that seam exposed what was
+   * wrong with it: a setter implies this provider *holds* the preferences,
+   * which would make two copies of one value — React's and the server's — with
+   * nothing deciding which is right. The symptom was the obvious one. A palette
+   * chosen through the setter survived the click and not the reload.
+   *
+   * The account's copy is now the only copy: `ThemeProvider` receives it as a
+   * prop, and the picker changes the theme by writing to the profile cache the
+   * prop is read from (`features/profile/useProfile.ts`). Applying and
+   * persisting became one action, so there is no longer an "apply without
+   * saving" for a setter to express.
    */
-  setPreferences: (preferences: Partial<ThemePreferences>) => void;
 
   /** Client-only, persisted locally, never sent to the backend. */
   setColorMode: (mode: ColorMode) => void;

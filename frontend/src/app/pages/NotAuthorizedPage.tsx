@@ -6,6 +6,7 @@ import { FadeIn } from '@/components/motion/FadeIn';
 import { buttonVariants } from '@/components/ui/button';
 import type { PermissionKey } from '@/features/permissions/permission-keys';
 import { cn } from '@/lib/utils';
+import { usePageMeta } from '@/hooks/usePageMeta';
 
 export interface NotAuthorizedPageProps {
   /**
@@ -40,6 +41,11 @@ export interface NotAuthorizedPageProps {
  */
 export const NotAuthorizedPage = ({ required }: NotAuthorizedPageProps) => {
   const { t } = useTranslation();
+
+  usePageMeta({
+    title: t('pages.notAuthorized.title'),
+    description: t('pages.notAuthorized.description'),
+  });
 
   return (
     <FadeIn className="mx-auto flex max-w-md flex-col items-center gap-4 py-10 text-center sm:py-16">

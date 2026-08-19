@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useResetPasswordMutation } from '@/features/auth/auth-mutations';
 import { SetPasswordScreen } from '@/features/auth/components/SetPasswordScreen';
+import { usePageMeta } from '@/hooks/usePageMeta';
 
 export interface ResetPasswordPageProps {
   /** From `?token=`. Empty when the emailed link arrived truncated. */
@@ -22,7 +23,13 @@ export interface ResetPasswordPageProps {
  */
 export const ResetPasswordPage = ({ token }: ResetPasswordPageProps) => {
   const { t } = useTranslation();
+
   const resetPasswordMutation = useResetPasswordMutation();
+
+  usePageMeta({
+    title: t('pages.resetPassword.title'),
+    description: t('pages.resetPassword.description'),
+  });
 
   return (
     <SetPasswordScreen

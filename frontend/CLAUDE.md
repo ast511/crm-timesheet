@@ -249,25 +249,45 @@ preferences.
 
 - The backend sends ISO strings and never formats a date. **Formatting is the
   frontend's job.**
+- Use **`date-fns`** for all date manipulation, parsing, comparison, and
+  formatting in the frontend.
+- Use **`date-fns-tz`** for all timezone-aware date operations and formatting.
+- These are the standard date libraries for the frontend. Do not introduce
+  another date library.
+- Do not use native `Date` methods for date manipulation or formatting unless
+  there is a specific technical reason that `date-fns` / `date-fns-tz` cannot
+  handle the requirement.
+- Do not use `Intl.DateTimeFormat`, `toLocaleString()`,
+  `toLocaleDateString()`, or `toLocaleTimeString()` directly in application
+  code.
 - Render every timestamp in the **company timezone**, read once from
-  `GET /api/v1/work-schedule` (`timezone`), never in the browser's zone.
-- Format with the `ro-RO` locale, matching the exported reports.
-- **Never** call `toLocaleString()` / `toLocaleDateString()` without an explicit
-  `timeZone`. Without it they silently use the machine's zone: correct on a laptop in
-  Bucharest, wrong for a colleague abroad, and invisible in review.
-- Put both rules in **one** helper and format through it everywhere.
+  `GET /api/v1/work-schedule` (`timezone`), never in the browser's timezone.
+- User-facing date formatting uses the **`ro` locale** from `date-fns/locale`
+  to match the exported reports.
+- Put timezone handling and date formatting behind shared helpers in
+  `src/lib/`. Components must not contain their own date formatting logic.
+- Use ISO strings from the API as the source representation. Parse them with
+  `parseISO()` when date manipulation or formatting requires a `Date`.
+
+### Shared date helpers
+
+Create shared date utilities under `src/lib/`, for example:
 
 ```ts
-new Intl.DateTimeFormat("ro-RO", {
-  timeZone: companyTimezone, // from GET /api/v1/work-schedule
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-}).format(new Date(isoString));
-```
+import { formatInTimeZone } from "date-fns-tz";
+import { ro } from "date-fns/locale";
+
+export const formatDateTime = (
+  isoString: string,
+  companyTimezone: string,
+): string =>
+  formatInTimeZone(
+    isoString,
+    companyTimezone,
+    "dd.MM.yyyy HH:mm",
+    { locale: ro },
+  );
+  ```
 
 Full reasoning — instants versus calendar dates, and why the exports are fixed to
 the company zone — is in the backend's `FEATURES/031-reporting.md`.
@@ -350,19 +370,21 @@ no `app/[route]/page.tsx` App Router and no Server Actions; ignore those Next.js
 conventions):
 
 ```
+
 src/
-  api/            generated OpenAPI types + the axios client + query setup
-  app/            router, providers, root layout shell
-  routes/         TanStack Router route definitions (typed)
-  components/
-    ui/           shadcn/ui primitives
-    [feature]/    feature-specific components: components/[feature]/ComponentName.tsx
-  features/       one folder per domain feature (its components, hooks, api calls)
-  hooks/          shared custom hooks
-  lib/            utilities (cn(), constants, formatters e.g. the date helper)
-  locales/        i18n resources: ro, en
-  theme/          theme definitions, ThemeProvider, color/radius mapping
-  types/          shared types not covered by the generated API (types/[feature].ts)
+api/ generated OpenAPI types + the axios client + query setup
+app/ router, providers, root layout shell
+routes/ TanStack Router route definitions (typed)
+components/
+ui/ shadcn/ui primitives
+[feature]/ feature-specific components: components/[feature]/ComponentName.tsx
+features/ one folder per domain feature (its components, hooks, api calls)
+hooks/ shared custom hooks
+lib/ utilities (cn(), constants, formatters e.g. the date helper)
+locales/ i18n resources: ro, en
+theme/ theme definitions, ThemeProvider, color/radius mapping
+types/ shared types not covered by the generated API (types/[feature].ts)
+
 ```
 
 - Components: `src/components/[feature]/ComponentName.tsx`
@@ -411,3 +433,4 @@ After implementing a frontend feature:
   config, and wait for explicit approval before running it.
 - Never run destructive commands without approval.
 - Prefer type-check (`tsc --noEmit`) for verification unless a full build is needed.
+```
