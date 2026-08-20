@@ -275,6 +275,67 @@
       "description": "Tipurile de concediu sunt vocabularul folosit de cereri, solduri și rapoarte. Adaugă primul tip pentru a începe."
     }
   },
+  "departments": {
+    "searchPlaceholder": "Caută după cod sau denumire…",
+    "noResults": "Niciun departament nu corespunde căutării.",
+    "columns": {
+      "code": "Cod",
+      "name": "Denumire",
+      "description": "Descriere",
+      "isActive": "Stare",
+      "actions": "Acțiuni",
+      "noValue": "—"
+    },
+    "flags": {
+      "active": "Activ",
+      "inactive": "Inactiv"
+    },
+    "actions": {
+      "create": "Adaugă departament",
+      "menu": "Acțiuni pentru {{name}}"
+    },
+    "form": {
+      "createTitle": "Departament nou",
+      "createDescription": "Definește un departament la care pot fi repartizați angajații.",
+      "editTitle": "Modifică departamentul",
+      "editDescription": "Modificările se aplică imediat pentru toți angajații repartizați."
+    },
+    "fields": {
+      "code": "Cod",
+      "codePlaceholder": "IT",
+      "name": "Denumire",
+      "namePlaceholder": "Tehnologia informației",
+      "description": "Descriere",
+      "descriptionPlaceholder": "Ce face acest departament.",
+      "isActive": "Activ",
+      "isActiveHint": "Un departament inactiv nu mai poate fi ales pentru angajați noi."
+    },
+    "validation": {
+      "codeRequired": "Introdu codul departamentului.",
+      "codeTooLong": "Codul poate avea cel mult {{max}} caractere.",
+      "codeInvalid": "Codul poate conține doar litere și cifre, separate prin - sau _.",
+      "nameRequired": "Introdu denumirea departamentului.",
+      "nameTooLong": "Denumirea poate avea cel mult {{max}} caractere.",
+      "descriptionTooLong": "Descrierea poate avea cel mult {{max}} caractere."
+    },
+    "errors": {
+      "duplicate": "Codul sau denumirea este deja folosită de alt departament. Alege altele.",
+      "inUse": "Departamentul nu poate fi șters cât timp există angajați repartizați la el. Mută-i în alt departament sau dezactivează-l pentru a-l retrage fără a pierde istoricul."
+    },
+    "toast": {
+      "created": "Departamentul „{{name}}” a fost adăugat.",
+      "updated": "Departamentul „{{name}}” a fost actualizat.",
+      "deleted": "Departamentul „{{name}}” a fost șters."
+    },
+    "delete": {
+      "title": "Ștergi departamentul?",
+      "description": "„{{name}}” va fi șters definitiv. Dacă are angajați repartizați, dezactivează-l în loc să-l ștergi."
+    },
+    "empty": {
+      "title": "Niciun departament",
+      "description": "Departamentele sunt unitățile organizatorice la care sunt repartizați angajații și după care se grupează rapoartele. Adaugă primul departament pentru a începe."
+    }
+  },
   "pages": {
     "profile": {
       "title": "Profil",

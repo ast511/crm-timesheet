@@ -12,6 +12,7 @@ the backend (F01, F02, …).
 | F05 | [App Layout](F05-app-layout.md)                             | Done   | 2026-08-19 |
 | F06 | [Profile](F06-profile.md)                                   | Done   | 2026-08-19 |
 | F07 | [Leave Types](F07-leave-types.md)                           | Done   | 2026-08-19 |
+| F08 | [Departments](F08-departments.md)                           | Done   | 2026-08-20 |
 
 ## Amendments
 

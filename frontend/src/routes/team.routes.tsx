@@ -1,5 +1,6 @@
 import { createRoute, redirect } from '@tanstack/react-router';
 
+import { DepartmentsPage } from '@/app/pages/DepartmentsPage';
 import { LeaveTypesPage } from '@/app/pages/LeaveTypesPage';
 import { WorkspacePlaceholderPage } from '@/app/pages/WorkspacePlaceholderPage';
 import { requirePermission } from '@/features/permissions/permission-route-guard';
@@ -169,12 +170,7 @@ export const settingsDepartmentsRoute = createRoute({
   getParentRoute: () => teamRoute,
   path: '/settings/departments',
   beforeLoad: requirePermission({ permission: 'DEPARTMENTS.PAGE_ACCESS' }),
-  component: () => (
-    <WorkspacePlaceholderPage
-      titleKey="pages.settingsDepartments.title"
-      descriptionKey="pages.settingsDepartments.description"
-    />
-  ),
+  component: DepartmentsPage,
 });
 
 export const settingsNotificationsRoute = createRoute({

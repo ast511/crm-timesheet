@@ -275,6 +275,67 @@
       "description": "Leave types are the vocabulary requests, balances and reports all use. Add the first one to get started."
     }
   },
+  "departments": {
+    "searchPlaceholder": "Search by code or name…",
+    "noResults": "No department matches your search.",
+    "columns": {
+      "code": "Code",
+      "name": "Name",
+      "description": "Description",
+      "isActive": "Status",
+      "actions": "Actions",
+      "noValue": "—"
+    },
+    "flags": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "actions": {
+      "create": "Add department",
+      "menu": "Actions for {{name}}"
+    },
+    "form": {
+      "createTitle": "New department",
+      "createDescription": "Define a department employees can be assigned to.",
+      "editTitle": "Edit department",
+      "editDescription": "Changes apply immediately to everyone assigned to it."
+    },
+    "fields": {
+      "code": "Code",
+      "codePlaceholder": "IT",
+      "name": "Name",
+      "namePlaceholder": "Information Technology",
+      "description": "Description",
+      "descriptionPlaceholder": "What this department does.",
+      "isActive": "Active",
+      "isActiveHint": "An inactive department can no longer be chosen for new employees."
+    },
+    "validation": {
+      "codeRequired": "Enter the department code.",
+      "codeTooLong": "The code can be at most {{max}} characters.",
+      "codeInvalid": "The code may contain only letters and digits, separated by - or _.",
+      "nameRequired": "Enter the department name.",
+      "nameTooLong": "The name can be at most {{max}} characters.",
+      "descriptionTooLong": "The description can be at most {{max}} characters."
+    },
+    "errors": {
+      "duplicate": "The code or the name is already used by another department. Choose different ones.",
+      "inUse": "This department cannot be deleted while employees are still assigned to it. Move them to another department, or deactivate it to retire it without losing the history."
+    },
+    "toast": {
+      "created": "Department “{{name}}” was added.",
+      "updated": "Department “{{name}}” was updated.",
+      "deleted": "Department “{{name}}” was deleted."
+    },
+    "delete": {
+      "title": "Delete this department?",
+      "description": "“{{name}}” will be removed for good. If employees are assigned to it, deactivate it instead."
+    },
+    "empty": {
+      "title": "No departments yet",
+      "description": "Departments are the organisational units employees are assigned to and reports are grouped by. Add the first one to get started."
+    }
+  },
   "pages": {
     "profile": {
       "title": "Profile",
