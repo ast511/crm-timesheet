@@ -160,13 +160,19 @@ export const settingsWorkScheduleRoute = createRoute({
  *
  * The guard is unchanged, and it is the one that looks wrong and is not: this
  * route asks for `PUBLIC_HOLIDAYS.EDIT` where its siblings ask for
- * `PAGE_ACCESS`, because **every employee holds `PUBLIC_HOLIDAYS.PAGE_ACCESS`**
- * — that is the key that opens their own holiday calendar at
- * `/app/public-holidays`. Guarding this screen with it would put the company's
- * settings in front of the whole company. Maintaining the calendar is the
- * administrative act, so `EDIT` is what makes this a team screen, exactly as
- * `TEAM_NAVIGATION` documents and as the timesheets route does with
- * `TIMESHEET.APPROVE`.
+ * `PAGE_ACCESS`. **`PUBLIC_HOLIDAYS.PAGE_ACCESS` is held by every account from
+ * `HR - View Only` upwards**, so guarding this screen with it would put the
+ * company's settings in front of accounts that are deliberately allowed to read
+ * and not to touch. Maintaining the calendar is the administrative act, so
+ * `EDIT` is what makes this a team screen, exactly as `TEAM_NAVIGATION`
+ * documents and as the timesheets route does with `TIMESHEET.APPROVE`.
+ *
+ * The reasoning used to run through a personal `/app/public-holidays` screen,
+ * which held the page-access key on the employee's side. That screen is gone —
+ * the personal workspace is a person's own work and nothing else, see
+ * `personal.routes.tsx` — and the guard did not move: this is now the only
+ * public-holidays screen in the application, and `EDIT` is still the line
+ * between reading the calendar and maintaining it.
  *
  * The create / edit / delete actions carry their own keys inside the page.
  */

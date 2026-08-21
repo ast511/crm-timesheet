@@ -26,3 +26,5 @@ records. Listed here so the history still reads in order.
 | F05    | [App Layout — the theme is stored on the account](F05-app-layout.md)            | Done   | 2026-08-19 |
 | F03    | [Authentication — a boot that could not find out](F03-authentication.md)        | Done   | 2026-08-19 |
 | F01    | [Project Foundation — the column-visibility menu crashed on its first open](F01-project-foundation.md) | Done   | 2026-08-19 |
+| F05    | [App Layout — an employee's sidebar is three items](F05-app-layout.md)          | Done   | 2026-08-21 |
+| F05    | [App Layout — the personal workspace does not vary by role](F05-app-layout.md)  | Done   | 2026-08-21 |

@@ -274,6 +274,15 @@ the administrative act, which is exactly the distinction `TEAM_NAVIGATION`
 already records for this item and for timesheets (`TIMESHEET.APPROVE`). Same
 resource, the action that means "team screen".
 
+> **The guard held; its premise did not.** "Every employee holds
+> `PUBLIC_HOLIDAYS.PAGE_ACCESS`" stopped being true when the backend removed it
+> from the `USER` baseline, and the personal `/app/public-holidays` screen this
+> paragraph contrasts with has since been deleted (F05, *the personal workspace
+> does not vary by role*). `PUBLIC_HOLIDAYS.EDIT` is still the right guard, for a
+> narrower reason: page access is held from `HR - View Only` upwards, so guarding
+> the settings screen with it would open it to accounts deliberately allowed to
+> read and not to touch.
+
 Actions carry their own keys: `PUBLIC_HOLIDAYS.CREATE`, `.EDIT`, `.DELETE` — all
 five actions are seeded for this resource.
 
@@ -397,5 +406,9 @@ Both probe rows were deleted afterwards; the list is back to its original five.
   The stored and rendered values are unaffected. A `ro-RO` calendar popover
   would fix the last inconsistency, at the cost of a dependency or a hand-built
   widget.
-- **A calendar view** of the year, from the `calendar/{year}` endpoints — the
-  employee-facing `/app/public-holidays` screen, not this one.
+- **A calendar view** of the year, from the `calendar/{year}` endpoints. This was
+  written as belonging to the employee-facing `/app/public-holidays` screen; that
+  route has since been removed with the rest of the personal reference pages (see
+  F05's *the personal workspace does not vary by role*), so a calendar view would
+  now need a home — most likely inside the timesheet, which is where an employee
+  meets holidays at all.

@@ -938,3 +938,205 @@ project's command-execution policy.
 - **Bulk apply-preset** for several users at once, which is what an
   administrator onboarding a team actually wants; it is the same transaction
   repeated, and the audit trail already records each target separately.
+
+---
+
+# Amendment: the `USER` baseline drops the two reference pages
+
+## The report
+
+> A plain employee sees five items in their sidebar. They should see three:
+> Panou principal, Pontajul meu, Cererile mele de concediu. *Proiecte* and
+> *Sărbători legale* must go — from the menu and from access — without breaking
+> the timesheet, which still needs projects and holidays underneath.
+
+## What was there
+
+`OWN_WORK` in `prisma/seeds/permission-sets.ts` — the `USER` baseline — held
+sixteen keys, four of which were the two reference resources read-only:
+
+```text
+PROJECTS.PAGE_ACCESS   PROJECTS.VIEW
+PUBLIC_HOLIDAYS.PAGE_ACCESS   PUBLIC_HOLIDAYS.VIEW
+```
+
+The original argument for them is recorded in that file and was reasonable at the
+time: *an employee filling in a timesheet has to pick a project, and one booking
+leave has to see which days the office is closed*. It turns out neither of those
+needs is met by a page, and the second half of this amendment is the evidence.
+
+The frontend needed no diagnosis. `features/workspace/navigation.ts` gates the
+personal *Proiecte* item on `PROJECTS.PAGE_ACCESS` and *Sărbători legale* on
+`PUBLIC_HOLIDAYS.PAGE_ACCESS`, and `routes/personal.routes.tsx` guards the two
+routes on the same two keys — the property F04 was built for. Withdrawing the
+permission removes the menu entry and shuts the URL at once, with no frontend
+change at all.
+
+## The change: a split, not a delete
+
+The four keys moved out of `OWN_WORK` into a new `PERSONAL_REFERENCE`, and
+`HR_VIEW_ONLY` spreads both.
+
+```text
+OWN_WORK            = dashboard + timesheet + leave requests        12
+PERSONAL_REFERENCE  = the project register + the holiday calendar    4
+USER baseline       = OWN_WORK                                      12   (was 16)
+HR - View Only      = OWN_WORK + PERSONAL_REFERENCE + HR reads      24   (unchanged)
+```
+
+**Deleting the four lines would have been wrong**, and this is the part worth
+recording. `OWN_WORK` is spread into `HR_VIEW_ONLY`, which is spread into
+`HR_STANDARD`, and so on up to `ADMIN_FULL_ACCESS` — the nesting this feature
+established deliberately. Removing the keys outright would have taken the two
+personal screens away from HR and from administrators as well: a second, larger
+decision, made by accident, on top of the one that was asked for. Splitting the
+constant confines the change to the one baseline that was meant to move.
+
+Every tier from `HR - View Only` upwards is therefore **byte-for-byte what it
+was** — 24, 33, 39, 40, 46, 55 — and the six preset cards hand out exactly what
+they handed out before. `HR - View Only` remains the card an auditor is put on,
+project register and calendar included.
+
+## Why the timesheet does not notice
+
+The requirement was explicit that this must not break the timesheet, and it does
+not, because neither mechanism the timesheet uses ever consulted these
+permissions.
+
+**Projects.** An employee picks from *every* project — there is no per-employee
+assignment — and the list comes from `GET /api/v1/projects`. That route carries
+no `@RequirePermission`, and [Feature 035](035-authorization-enforcement.md)'s
+guard admits any authenticated caller to a route that declares no requirement.
+`PROJECTS.VIEW` gated the *page*, never the endpoint. Confirmed unchanged: no
+decorator was added, and none was removed.
+
+**Public holidays.** They reach a timesheet through `TimesheetFillService`, which
+injects `PublicHolidayService` and pre-populates the draft server-side
+([Feature 030](030-timesheet-management.md)). The caller's permission set is not
+read on that path and cannot be — a holiday lands on the draft because the
+company is closed that day, not because the employee may open a screen.
+
+So what the employee loses is two pages. The project selection underneath the
+timesheet and the holidays applied to it are untouched, and that independence is
+what made this a four-row change rather than a feature.
+
+## Database
+
+No schema change. What this needs is a **withdrawal of four seeded rows**, and
+`role-permissions.seed.ts` says in its own prose why that cannot come from a
+re-run: *this seed adds and never withdraws*, because taking a permission away
+changes what people can do and belongs in an act somebody performed on purpose.
+
+`prisma/migrations/20260821120000_user_baseline_drops_reference_pages/migration.sql`
+is that act:
+
+```sql
+DELETE FROM "role_permissions"
+WHERE "role" = 'user'
+  AND "permission_id" IN (
+    SELECT "id" FROM "permissions"
+    WHERE "key" IN ('PROJECTS.PAGE_ACCESS', 'PROJECTS.VIEW',
+                    'PUBLIC_HOLIDAYS.PAGE_ACCESS', 'PUBLIC_HOLIDAYS.VIEW')
+  );
+```
+
+Four rows on any database that has been seeded, and none on a fresh one, where
+the amended seed never writes them. `WHERE "role" = 'user'` is load-bearing
+rather than defensive: it is the line that keeps HR and administrators out of a
+change that was not about them.
+
+**`'user'`, lower case.** `UserRole` is declared `USER @map("user")`, so the
+label in the Postgres enum is the mapped one; `'USER'` is the TypeScript name.
+The first attempt used it and Postgres refused the whole statement with `22P02`,
+*invalid input value for enum "UserRole"* — worth recording because it is the
+**good** failure mode. A mapped enum does not quietly match nothing: a typo in
+this predicate cannot delete zero rows and report success, which is exactly what
+a `WHERE` clause on a plain text column would have done.
+
+**Per-user overrides are deliberately left alone.** An individual employee who
+was *granted* one of these keys through the permissions screen keeps it, and
+keeps the screen — that grant is an exception somebody made on purpose about one
+account, which is precisely what a baseline change must not quietly overrule. A
+stale `REVOKE` of a key the role no longer grants resolves to the same absence
+either way and is harmless.
+
+## Files
+
+| File | Change |
+| --- | --- |
+| `prisma/seeds/permission-sets.ts` | `OWN_WORK` reduced to twelve; new `PERSONAL_REFERENCE`; `HR_VIEW_ONLY` spreads both; the ladder and the amendment note. |
+| `prisma/seeds/role-permissions.seed.ts` | The `USER` line of the summary table: sixteen → twelve, and where the four keys went. |
+| `prisma/migrations/20260821120000_user_baseline_drops_reference_pages/migration.sql` | New. The four-row withdrawal, and the argument for each clause in it. |
+| `modules/authorization/routing.spec.ts` | A `describe('the personal workspace')`; `ProjectController` and `PublicHolidayController` added to the module. |
+
+Frontend: no behavioural change. `navigation.ts`, `routes/personal.routes.tsx`,
+`routes/team.routes.tsx` and `PublicHolidaysPage.tsx` had comments asserting that
+*every employee holds `PUBLIC_HOLIDAYS.PAGE_ACCESS`*, which stopped being true;
+those were corrected. See the frontend's `F05-app-layout.md`.
+
+## Verification
+
+`tsc --noEmit` clean on both sides. **The full backend suite: 137 suites, 2 974
+tests, all passing.**
+
+`routing.spec.ts` gains four assertions, and they are deliberately a pair of
+opposing claims — a change that only made the first would be a regression nobody
+noticed until somebody could not book their hours:
+
+| Assertion | What it protects |
+| --- | --- |
+| `USER_BASELINE` excludes the four keys and has length 12 | Putting any of them back fails the test |
+| A `USER`'s effective set has exactly three `PAGE_ACCESS` keys | The sidebar is three items, asserted through the real resolver |
+| A `USER` gets `200` from `GET /projects` **and** `GET /public-holidays` | The timesheet's project picker still works |
+| `HR_STANDARD` and `ADMIN_STANDARD` still contain all four | The split did not become a delete |
+
+The third runs the real `ProjectController` and `PublicHolidayController` over
+stubbed services — the pattern this file already uses — so it is the decorators
+those routes actually carry that answer, not a reading of them.
+
+### Against the development database
+
+Applied with `npm run prisma:migrate:deploy` — `deploy` rather than `dev`,
+because `migrate status` reported no drift and one pending folder, and `deploy`
+cannot reset a database under any circumstance. `role_permissions` counted by
+role, before and after:
+
+| Role | Before | After | Of the 4 reference keys |
+| --- | --- | --- | --- |
+| `ADMIN` | 46 | 46 | 4 → 4 |
+| `HR` | 35 | 35 | 4 → 4 |
+| `USER` | **16** | **12** | **4 → 0** |
+
+A `USER`'s remaining page access is `DASHBOARD`, `LEAVE_REQUESTS`, `TIMESHEET` —
+the three-item sidebar, read back out of the database rather than reasoned about.
+There were **no per-user overrides on any of the four keys**, so the clause that
+leaves individual grants alone did not have to protect anything on this database;
+it still states the rule for one that does.
+
+Re-seeding cannot undo this. `role-permissions.seed.ts` writes `USER_BASELINE`,
+which is now the twelve keys, so `npm run prisma:seed` has nothing to re-add —
+the property the test asserting `USER_BASELINE` has length 12 exists to keep.
+
+And through the running API, signed in as `cristian.stan@example.com`, a seeded
+plain employee — the two claims of this amendment, in one session:
+
+| Request | Result |
+| --- | --- |
+| `GET /permissions/me/effective` | 12 permissions; page access to `DASHBOARD`, `LEAVE_REQUESTS`, `TIMESHEET`; **no** `PROJECTS.*` or `PUBLIC_HOLIDAYS.*` |
+| `GET /projects` | `200`, 5 projects — the timesheet picker, unmoved |
+| `GET /public-holidays` | `200`, 5 definitions |
+| `GET /public-holidays/calendar/2026` | `200`, 2 occurrences |
+
+The employee who can no longer open either page is the same employee still being
+served both lists, which is the distinction the whole change rests on.
+
+**An unrelated observation, recorded because the counts show it:** `HR` holds 35
+rows where `HR_STANDARD` lists 33. The two extra are `REPORTS.PAGE_ACCESS` and
+`REPORTS.VIEW`, left behind on this database by
+[Feature 035](035-authorization-enforcement.md) — which moved them out of the HR
+column and noted, correctly, that a seed does not withdraw what it once wrote.
+This is that note coming true. It is out of scope here and is **not** something
+this migration should have swept up: withdrawing the reports from HR is the
+separate deliberate act 035 described, and doing it silently inside a change
+about the sidebar is precisely the accident the `WHERE "role" = 'user'` clause
+above exists to prevent.

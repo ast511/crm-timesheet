@@ -33,13 +33,23 @@ import { requireSeeded, type SeedClient } from './seed-context';
  * writing exceptions on accounts that already held the permissions.
  *
  * ```text
- *   USER    16 of 55   their own work
- *   HR      33         + the people side, read and write, no deletes,
- *                        and — since Feature 035 — no company-wide reports
+ *   USER    12 of 55   their own work: their dashboard, their timesheet,
+ *                        their leave requests, and nothing else
+ *   HR      33         + the two reference pages, and the people side, read
+ *                        and write, no deletes, and — since Feature 035 — no
+ *                        company-wide reports
  *   ADMIN   46         + the reports and the administration screens; no deletes
  *                        on the directory and configuration resources, no
  *                        WORK_SCHEDULE.CONFIGURE, no permission writing
  * ```
+ *
+ * The `USER` line was sixteen until the amendment recorded at the top of
+ * `permission-sets.ts` took the standalone *Projects* and *Public holidays*
+ * screens out of the baseline. `HR` and `ADMIN` are unchanged — they hold those
+ * four keys from `PERSONAL_REFERENCE` now instead of from `OWN_WORK` — and, as
+ * the paragraph below says, a re-run of this seed would not have withdrawn them
+ * from `USER` either. The migration
+ * `20260821120000_user_baseline_drops_reference_pages` is what does that.
  *
  * The HR line lost `REPORTS.PAGE_ACCESS` and `REPORTS.VIEW` in Feature 035, when
  * `REPORTS.VIEW` became the enforced control on `/api/v1/reports` and the

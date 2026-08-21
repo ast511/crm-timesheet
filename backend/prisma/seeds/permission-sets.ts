@@ -13,8 +13,9 @@ import { ALL_PERMISSION_KEYS, type PermissionKey } from './permissions.seed';
  * permissions.
  *
  * ```text
- *   USER baseline    = OWN_WORK                                       16
- *   HR - View Only   = OWN_WORK + read of the HR resources            24
+ *   USER baseline    = OWN_WORK                                       12
+ *   HR - View Only   = OWN_WORK + PERSONAL_REFERENCE
+ *                               + read of the HR resources            24
  *   HR - Standard    = HR - View Only + the day-to-day HR work        33   ← HR baseline
  *   HR - Full Access = HR - Standard + deletes and leave policy       39
  *   Admin - Limited  = HR - Standard + approvals and admin reads      40
@@ -61,6 +62,38 @@ import { ALL_PERMISSION_KEYS, type PermissionKey } from './permissions.seed';
  * withdrawing a permission changes what people can do and belongs in an act
  * somebody performed on purpose, not in a script that runs whenever anybody
  * types `npm run prisma:seed`.
+ *
+ * ## Amended: the `USER` baseline drops the two reference pages
+ *
+ * `PROJECTS.PAGE_ACCESS`, `PROJECTS.VIEW`, `PUBLIC_HOLIDAYS.PAGE_ACCESS` and
+ * `PUBLIC_HOLIDAYS.VIEW` were in {@link OWN_WORK} and therefore in the `USER`
+ * baseline, which gave every employee two standalone screens — *Proiecte* and
+ * *Sărbători legale* — in their personal sidebar. An employee's personal
+ * workspace is now exactly the three things that are **theirs**: the dashboard,
+ * their timesheet and their leave requests. The four keys moved into
+ * {@link PERSONAL_REFERENCE}, which {@link HR_VIEW_ONLY} still spreads, so the
+ * HR and admin tiers are unchanged at 24, 33, 39, 40, 46 and 55 and the six
+ * preset cards hand out exactly what they did before. **Only the `USER`
+ * baseline moved, from sixteen keys to twelve.**
+ *
+ * Splitting the constant rather than deleting the keys from `OWN_WORK` is the
+ * whole of the care here: `OWN_WORK` is spread into `HR_VIEW_ONLY` and thence
+ * into every tier above it, so removing them outright would have taken the two
+ * personal screens away from HR and administrators as well — a second, larger
+ * decision, made by accident, on top of the one that was asked for.
+ *
+ * **Nothing in the timesheet depends on these four keys**, which is what makes
+ * the change safe rather than merely small. An employee filling in a timesheet
+ * still picks from every project: `GET /api/v1/projects` declares no
+ * `@RequirePermission` and the guard admits any authenticated caller to a route
+ * that states no requirement. Public holidays reach a timesheet through
+ * `TimesheetFillService`, which injects `PublicHolidayService` and pre-populates
+ * the draft server-side — the caller's permissions are not consulted and cannot
+ * be. What the employee loses is the two *pages*, and only those.
+ *
+ * As above, this seed will not withdraw the rows from a database that already
+ * has them. `prisma/migrations/20260821120000_user_baseline_drops_reference_pages`
+ * is the deliberate act that does.
  */
 
 /**
@@ -76,11 +109,14 @@ import { ALL_PERMISSION_KEYS, type PermissionKey } from './permissions.seed';
  * and Permission Enforcement will combine the two: this set says *what*, the
  * route says *whose*.
  *
- * `PROJECTS` and `PUBLIC_HOLIDAYS` are read-only here and are in the set at all
- * because an employee filling in a timesheet has to pick a project, and one
- * booking leave has to see which days the office is closed. `WORK_SCHEDULE` is
- * deliberately absent: the hours that constrain an entry are shown by the
- * timesheet screen itself, and a plain user has no schedule page to open.
+ * `PROJECTS` and `PUBLIC_HOLIDAYS` were read-only members of this set until the
+ * amendment at the top of this file moved them to {@link PERSONAL_REFERENCE}.
+ * The three resources that remain are the three the employee's own record is
+ * made of, and the set is now statable in one sentence: their dashboard, their
+ * timesheet, their leave. `WORK_SCHEDULE` is deliberately absent for the reason
+ * the two departing resources turned out to share — the hours that constrain an
+ * entry are shown by the timesheet screen itself, and a plain user has no
+ * schedule page to open.
  */
 const OWN_WORK: readonly PermissionKey[] = [
   'DASHBOARD.PAGE_ACCESS',
@@ -95,13 +131,42 @@ const OWN_WORK: readonly PermissionKey[] = [
   'LEAVE_REQUESTS.CREATE',
   'LEAVE_REQUESTS.EDIT',
   'LEAVE_REQUESTS.DELETE',
+];
+
+/**
+ * The two standalone reference screens: the project list and the holiday
+ * calendar, read and nothing else.
+ *
+ * A set of four keys exists rather than four lines inside `HR_VIEW_ONLY`
+ * because what they have in common is worth naming. Neither screen is *about*
+ * the person looking at it — they are the company's project register and the
+ * company's calendar — and neither is required to do the work an employee does
+ * with them. Picking a project on a timesheet and seeing which days the office
+ * is closed both happen **inside** the timesheet, through an ungated list
+ * endpoint and through a server-side pre-fill; see the amendment note at the top
+ * of this file. So these grant a page somebody may open to look something up,
+ * which is a reasonable thing to give the people who administer the company and
+ * an odd thing to put in the sidebar of everybody who works for it.
+ *
+ * It enters the ladder at {@link HR_VIEW_ONLY}, so every tier from there up
+ * holds all four exactly as it did before.
+ */
+const PERSONAL_REFERENCE: readonly PermissionKey[] = [
   'PROJECTS.PAGE_ACCESS',
   'PROJECTS.VIEW',
   'PUBLIC_HOLIDAYS.PAGE_ACCESS',
   'PUBLIC_HOLIDAYS.VIEW',
 ];
 
-/** The `USER` role's baseline: an employee, and nothing administrative. */
+/**
+ * The `USER` role's baseline: an employee, and nothing administrative.
+ *
+ * Twelve keys, and the personal sidebar they produce is three items long —
+ * *Panou principal*, *Pontajul meu*, *Cererile mele de concediu*. The frontend
+ * needs no list of its own to arrive at that: every personal menu item and every
+ * personal route names a `PAGE_ACCESS` key, so this constant is what the
+ * employee's menu is.
+ */
 export const USER_BASELINE = OWN_WORK;
 
 /**
@@ -113,9 +178,15 @@ export const USER_BASELINE = OWN_WORK;
  * works in and not one write, which is what makes it safe to hand out.
  *
  * `REPORTS` was a fifth until Feature 035; see the note at the top of this file.
+ *
+ * It spreads {@link PERSONAL_REFERENCE} as well as {@link OWN_WORK}, which is
+ * where the project list and the holiday calendar enter the ladder now that the
+ * `USER` baseline no longer carries them. The count is unchanged: the same
+ * twenty-four keys, reached from two constants instead of one.
  */
 export const HR_VIEW_ONLY: readonly PermissionKey[] = [
   ...OWN_WORK,
+  ...PERSONAL_REFERENCE,
   'EMPLOYEES.PAGE_ACCESS',
   'EMPLOYEES.VIEW',
   'LEAVES.PAGE_ACCESS',

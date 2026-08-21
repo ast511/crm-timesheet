@@ -6,12 +6,7 @@ import {
 import { landingRoute } from './landing.route';
 import { loginRoute } from './login.route';
 import { notAuthorizedRoute } from './not-authorized.route';
-import {
-  leaveRequestsRoute,
-  projectsRoute,
-  publicHolidaysRoute,
-  timesheetRoute,
-} from './personal.routes';
+import { leaveRequestsRoute, timesheetRoute } from './personal.routes';
 import { profileRoute } from './profile.route';
 import { publicRoute } from './public.route';
 import { rootRoute } from './root.route';
@@ -79,8 +74,6 @@ export const routeTree = rootRoute.addChildren([
     profileRoute,
     timesheetRoute,
     leaveRequestsRoute,
-    projectsRoute,
-    publicHolidaysRoute,
     teamRoute.addChildren([
       teamIndexRoute,
       teamTimesheetsRoute,

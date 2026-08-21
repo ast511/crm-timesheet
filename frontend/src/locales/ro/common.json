@@ -450,14 +450,6 @@
       "title": "Cererile mele de concediu",
       "description": "Trimite cereri de concediu și urmărește-le statusul."
     },
-    "projects": {
-      "title": "Proiecte",
-      "description": "Proiectele la care ești alocat."
-    },
-    "publicHolidays": {
-      "title": "Sărbători legale",
-      "description": "Zilele libere legale din calendarul companiei."
-    },
     "teamTimesheets": {
       "title": "Pontaje",
       "description": "Verifică și aprobă pontajele echipei."

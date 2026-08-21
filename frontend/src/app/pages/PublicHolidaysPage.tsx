@@ -37,14 +37,19 @@ const SKELETON_ROWS = 8;
  * ## The route's guard is `PUBLIC_HOLIDAYS.EDIT`, and that is not a slip
  *
  * The two settings screens before this one open on their resource's
- * `PAGE_ACCESS`. This one does not, and the sidebar agrees with it: **every
- * employee holds `PUBLIC_HOLIDAYS.PAGE_ACCESS`**, because that is the key that
- * opens their own holiday calendar under `/app/public-holidays`. Guarding an
- * administrative screen with it would put this page in front of the entire
- * company. What makes a screen a *team* screen is maintaining the calendar
- * rather than reading it, so the route asks for `EDIT` — the same reasoning
- * `TEAM_NAVIGATION` records for the timesheets item, and the same resource
- * either way.
+ * `PAGE_ACCESS`. This one does not, and the sidebar agrees with it:
+ * **`PUBLIC_HOLIDAYS.PAGE_ACCESS` is held by every account from `HR - View
+ * Only` upwards** — including the ones a card was chosen for precisely because
+ * they may change nothing. Guarding an administrative screen with it would put
+ * this page in front of all of them. What makes a screen a *team* screen is
+ * maintaining the calendar rather than reading it, so the route asks for `EDIT`
+ * — the same reasoning `TEAM_NAVIGATION` records for the timesheets item, and
+ * the same resource either way.
+ *
+ * There is no longer an employee-facing holiday screen to contrast this with:
+ * the personal `/app/public-holidays` route was removed when the personal
+ * workspace was reduced to a person's own work. This is the only
+ * public-holidays screen in the application.
  *
  * The guard runs in `team.routes.tsx` before this component mounts, so nothing
  * here re-checks it. What the page does gate is the actions: creating, editing

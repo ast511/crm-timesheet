@@ -34,6 +34,10 @@ import { PermissionController } from '../permission-management/permission.contro
 import { PermissionService } from '../permission-management/permission.service';
 import { UserPermissionController } from '../permission-management/user-permission.controller';
 import { UserPermissionService } from '../permission-management/user-permission.service';
+import { ProjectController } from '../projects/project.controller';
+import { ProjectService } from '../projects/project.service';
+import { PublicHolidayController } from '../public-holidays/public-holiday.controller';
+import { PublicHolidayService } from '../public-holidays/public-holiday.service';
 import { ReportingController } from '../reporting/reporting.controller';
 import { ReportingService } from '../reporting/reporting.service';
 import {
@@ -135,7 +139,7 @@ const prisma = {
  *
  * The ungated one stands in for the thirty modules this feature did not touch:
  * it declares nothing, so it must answer `200` to an ordinary employee holding
- * sixteen of fifty-five permissions. That is the regression criterion for the
+ * twelve of fifty-five permissions. That is the regression criterion for the
  * whole rollout, and it belongs in this file rather than in each of those
  * modules.
  */
@@ -171,6 +175,24 @@ describe('authorization enforcement', () => {
     listReports: jest.fn().mockReturnValue([]),
     preview: jest.fn().mockResolvedValue({}),
     export: jest.fn(),
+  };
+
+  /**
+   * The two lists an employee's timesheet stands on, stubbed at the service.
+   *
+   * They are here because of what their controllers **do not** declare: neither
+   * carries a `@RequirePermission`, and that is the contract the timesheet
+   * depends on. When the `USER` baseline stopped granting `PROJECTS.VIEW` and
+   * `PUBLIC_HOLIDAYS.VIEW`, the question "can an employee still fill in a
+   * timesheet" became a question about these two routes, and it deserves an
+   * assertion rather than a reading of the decorators.
+   */
+  const projects = {
+    findAll: jest.fn().mockResolvedValue({ items: [], meta: {} }),
+  };
+
+  const publicHolidays = {
+    findAll: jest.fn().mockResolvedValue({ items: [], meta: {} }),
   };
 
   const permissionWrites = {
@@ -215,12 +237,16 @@ describe('authorization enforcement', () => {
         PermissionController,
         UserPermissionController,
         TimesheetController,
+        ProjectController,
+        PublicHolidayController,
       ],
       providers: [
         { provide: PrismaService, useValue: prisma },
         // The real resolver, over the substituted database.
         PermissionService,
         { provide: ReportingService, useValue: reporting },
+        { provide: ProjectService, useValue: projects },
+        { provide: PublicHolidayService, useValue: publicHolidays },
         { provide: UserPermissionService, useValue: permissionWrites },
         { provide: TimesheetService, useValue: timesheets },
         // The two global guards in the order `app.module.ts` declares them:
@@ -480,6 +506,98 @@ describe('authorization enforcement', () => {
         [...USER_BASELINE].sort(),
       );
       expect(response.body.data.permissions).not.toContain('REPORTS.VIEW');
+    });
+  });
+
+  /**
+   * The employee's personal workspace, after the `USER` baseline dropped the two
+   * standalone reference pages — see the amendment note in `permission-sets.ts`.
+   *
+   * The pair of claims below is the whole of that change, and they pull in
+   * opposite directions, which is why both are asserted here rather than either
+   * being taken on trust: the employee loses the two **pages**, and keeps
+   * everything the timesheet needs from the two **resources**. A change that
+   * only did the first would be a regression nobody noticed until somebody could
+   * not book their hours.
+   */
+  describe('the personal workspace', () => {
+    const REFERENCE_PAGES = [
+      'PROJECTS.PAGE_ACCESS',
+      'PROJECTS.VIEW',
+      'PUBLIC_HOLIDAYS.PAGE_ACCESS',
+      'PUBLIC_HOLIDAYS.VIEW',
+    ];
+
+    /**
+     * Asserted against the shipped baseline rather than against a list written
+     * here, so putting any of the four back would fail this test — which is the
+     * point. The frontend needs no list of its own: the personal menu item and
+     * the personal route guard both name the `PAGE_ACCESS` key, so an absent key
+     * removes the sidebar entry and shuts the URL in one stroke.
+     */
+    it('withholds the two reference pages from the USER baseline', () => {
+      for (const key of REFERENCE_PAGES) {
+        expect(USER_BASELINE).not.toContain(key);
+      }
+
+      expect(USER_BASELINE).toHaveLength(12);
+    });
+
+    it('leaves an employee the three screens that are their own', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`${BASE}/permissions/me/effective`)
+        .set(as(UserRole.USER))
+        .expect(200);
+
+      const held = response.body.data.permissions as string[];
+
+      expect(held.filter((key) => key.endsWith('.PAGE_ACCESS')).sort()).toEqual([
+        'DASHBOARD.PAGE_ACCESS',
+        'LEAVE_REQUESTS.PAGE_ACCESS',
+        'TIMESHEET.PAGE_ACCESS',
+      ]);
+    });
+
+    /**
+     * **The regression this change had to avoid.** An employee filling in a
+     * timesheet picks from every project in the company, and the list comes from
+     * this route — which declares no requirement and therefore admits any
+     * authenticated caller. Losing `PROJECTS.VIEW` closed the page and left the
+     * picker exactly where it was.
+     *
+     * The holiday list is asserted beside it for the same contract, though the
+     * timesheet does not even go through it: holidays are pre-populated
+     * server-side by `TimesheetFillService`, which injects `PublicHolidayService`
+     * and never reads the caller's permissions.
+     */
+    it('still serves the project and holiday lists to that employee', async () => {
+      const employee = as(UserRole.USER);
+
+      await request(app.getHttpServer())
+        .get(`${BASE}/projects`)
+        .set(employee)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get(`${BASE}/public-holidays`)
+        .set(employee)
+        .expect(200);
+
+      expect(projects.findAll).toHaveBeenCalledTimes(1);
+      expect(publicHolidays.findAll).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * And the half of the split that is easy to break by accident: `OWN_WORK` is
+     * spread into `HR_VIEW_ONLY` and thence into every tier above it, so deleting
+     * the four keys outright — rather than moving them to `PERSONAL_REFERENCE` —
+     * would have taken the two screens from HR and administrators as well.
+     */
+    it('leaves HR and ADMIN holding both pages', () => {
+      for (const key of REFERENCE_PAGES) {
+        expect(HR_STANDARD).toContain(key);
+        expect(ADMIN_STANDARD).toContain(key);
+      }
     });
   });
 

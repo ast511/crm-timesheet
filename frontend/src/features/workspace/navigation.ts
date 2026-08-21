@@ -5,9 +5,7 @@ import {
   CalendarDaysIcon,
   ClipboardCheckIcon,
   ClipboardListIcon,
-  FolderKanbanIcon,
   LayoutDashboardIcon,
-  PalmtreeIcon,
   SettingsIcon,
   UsersIcon,
   type LucideIcon,
@@ -39,6 +37,22 @@ import type { Workspace } from './workspace';
  * (role × view) pair, which is where its `hrTeamLinks` and `adminTeamLinks`
  * quietly drifted apart. There are two lists here and the difference between
  * what an HR account and an administrator see falls out of the filter.
+ *
+ * ## The two lists are gated for opposite reasons
+ *
+ * `satisfies` is the same function in both, but what it is asked to protect is
+ * not, and each list has a type that says so:
+ *
+ * - **{@link TEAM_NAVIGATION} varies by role, and is supposed to.** Its type
+ *   makes a requirement mandatory, so no administrative screen can be offered to
+ *   somebody who holds nothing.
+ * - **{@link PERSONAL_NAVIGATION} does *not* vary by role, and is supposed not
+ *   to.** Its type narrows the requirement to keys every employee holds, so the
+ *   filter admits every role identically and an administrator's team permissions
+ *   cannot add a row to their personal sidebar.
+ *
+ * The second of those was learned rather than designed; the note on that list
+ * records the bug.
  */
 
 /** A path in this application's route tree, checked against the router. */
@@ -95,17 +109,98 @@ type GatedNavItem = NavEntryBase & { icon: LucideIcon } & (
   );
 
 /**
- * The signed-in person's own work.
+ * The three resources a person's **own** work is made of.
  *
- * Every entry is in the `USER` role's baseline (backend `permission-sets.ts`),
- * so an ordinary employee sees all five — which is the point: this is the
- * workspace somebody has when they have nothing else.
+ * This union is the personal workspace's admission rule, and it exists because
+ * of a bug rather than a preference — see {@link PERSONAL_NAVIGATION}. Every
+ * key in it is in the `USER` baseline, which is what makes the personal menu
+ * identical for everybody: an item gated on a key that *everyone* holds cannot
+ * be a role difference, whatever role is looking.
  *
- * The dashboard names `DASHBOARD.PAGE_ACCESS` even though everybody holds it,
- * because the menu item and the screen should say the same thing about
- * themselves, and an account can have it revoked individually.
+ * Adding a fourth member is the decision this type exists to make deliberate.
+ * The question to answer first is not "may an administrator see this" — they may
+ * see almost everything — but **"does every employee in the company hold this
+ * key by baseline?"** If the answer is no, the screen is a team screen and
+ * belongs in {@link TEAM_NAVIGATION}, whatever it is about.
  */
-export const PERSONAL_NAVIGATION: readonly NavItem[] = [
+type OwnWorkPageAccess =
+  | 'DASHBOARD.PAGE_ACCESS'
+  | 'TIMESHEET.PAGE_ACCESS'
+  | 'LEAVE_REQUESTS.PAGE_ACCESS';
+
+/**
+ * A personal item: a link, always gated, and gated on **own work only**.
+ *
+ * The mirror image of {@link GatedNavItem} one paragraph up, and the same
+ * technique put to the opposite purpose. There, the type makes a requirement
+ * *mandatory* so no team screen can leak downwards to somebody holding nothing.
+ * Here it *narrows* the requirement so no administrative screen can leak
+ * sideways into a menu that is supposed to be the same for everyone.
+ *
+ * No `children` arm: the personal workspace is flat and should stay flat. A
+ * collapsible group of one's own work would be three items behind a disclosure
+ * triangle.
+ */
+type PersonalNavItem = NavEntryBase & {
+  icon: LucideIcon;
+  route: NavRoute;
+  children?: undefined;
+  requirement: { permission: OwnWorkPageAccess };
+};
+
+/**
+ * The signed-in person's own work — **the same three items for every role.**
+ *
+ * That sentence is the whole specification of this list, and it is a statement
+ * about the product rather than about permissions: the personal workspace is
+ * where you do *your* work, and in it an administrator is an employee filling in
+ * their own timesheet. Their administrative role is not relevant here and must
+ * not be visible here. It matters in the team workspace, which is what the team
+ * workspace is for.
+ *
+ * ## The bug this shape prevents
+ *
+ * The list held five items and was filtered by permission, so what an account
+ * saw in Personal depended on what it could do in Team. While every role held
+ * `PROJECTS.PAGE_ACCESS` and `PUBLIC_HOLIDAYS.PAGE_ACCESS` that was invisible —
+ * the filter happened to admit everybody, and the menu happened to be uniform.
+ * The moment the `USER` baseline dropped those keys (backend Feature 029's
+ * amendment), the coincidence broke and *Proiecte* and *Sărbători legale* leaked
+ * into the sidebars of HR and administrators alone, who still hold them for the
+ * team side and legitimately so.
+ *
+ * The lesson is in *why it was invisible*: uniformity was an accident of which
+ * keys the baselines happened to share, and a baseline change somewhere else
+ * silently revoked it. {@link OwnWorkPageAccess} makes it structural instead.
+ * Every requirement in this list names a key every employee holds, so the filter
+ * admits every role identically — and putting an administrative key here is a
+ * **compile error** rather than a menu somebody notices in a screenshot months
+ * later.
+ *
+ * ## Where the two departed items went
+ *
+ * Nowhere new: they were already on the team side, at
+ * `/app/team/settings/projects` and `/app/team/settings/public-holidays`, gated
+ * on `PROJECTS.EDIT` and `PUBLIC_HOLIDAYS.EDIT`. An administrator still
+ * maintains both, in the workspace where administration belongs, and the
+ * personal entries were duplicates of screens that already had a home.
+ *
+ * Nothing was taken from the employee's actual work. The timesheet still offers
+ * **every** project — `GET /projects` is ungated, so the picker never consulted
+ * a permission — and public holidays still land in a timesheet because the
+ * backend pre-fills them server-side. The two pages were never how either
+ * worked.
+ *
+ * ## Why the three still declare a requirement
+ *
+ * They could be unconditional, since everybody holds them. They are not, for the
+ * reason the dashboard always gave: the menu item and the screen should say the
+ * same thing about themselves, `requirePermission` in `personal.routes.tsx`
+ * names the identical key, and an individual account *can* have one revoked
+ * through the permissions screen. That is a deliberate act about one person, not
+ * a role difference, and it should hide the item — the filter is what lets it.
+ */
+export const PERSONAL_NAVIGATION: readonly PersonalNavItem[] = [
   {
     titleKey: 'pages.dashboard.title',
     route: '/app',
@@ -124,18 +219,6 @@ export const PERSONAL_NAVIGATION: readonly NavItem[] = [
     icon: CalendarDaysIcon,
     requirement: { permission: 'LEAVE_REQUESTS.PAGE_ACCESS' },
   },
-  {
-    titleKey: 'pages.projects.title',
-    route: '/app/projects',
-    icon: FolderKanbanIcon,
-    requirement: { permission: 'PROJECTS.PAGE_ACCESS' },
-  },
-  {
-    titleKey: 'pages.publicHolidays.title',
-    route: '/app/public-holidays',
-    icon: PalmtreeIcon,
-    requirement: { permission: 'PUBLIC_HOLIDAYS.PAGE_ACCESS' },
-  },
 ];
 
 /**
@@ -149,8 +232,11 @@ export const PERSONAL_NAVIGATION: readonly NavItem[] = [
  *   Every employee holds page access — it is what opens their *own* timesheet.
  *   What makes a screen a team screen is signing somebody else's off.
  * - **Public holidays asks for `PUBLIC_HOLIDAYS.EDIT`, not page access**, for
- *   the same reason: an employee sees the holiday calendar in their own
- *   workspace; maintaining it is the administrative act.
+ *   the same reason one level up: page access is what opens the *calendar* in
+ *   the personal workspace, and everybody from `HR - View Only` upwards holds
+ *   it. Guarding the settings screen with it would hand the company's calendar
+ *   to every account that may only read it. Maintaining the calendar is the
+ *   administrative act, so `EDIT` is what makes this a team screen.
  *
  * With these, the `USER` baseline satisfies nothing here and the workspace is
  * correctly unavailable; `HR` satisfies six of them and `ADMIN` the rest.

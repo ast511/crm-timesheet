@@ -6,10 +6,36 @@ import { requirePermission } from '@/features/permissions/permission-route-guard
 import { workspaceRoute } from './workspace.route';
 
 /**
- * The personal workspace: the signed-in person's own timesheet, leave requests,
- * projects and holiday calendar.
+ * The personal workspace: the signed-in person's own timesheet and leave
+ * requests. With the dashboard at `/app` itself, that is the whole of it, and
+ * the whole of it is **the same for every role** — see `PERSONAL_NAVIGATION` in
+ * `features/workspace/navigation.ts` for why that is a rule rather than a
+ * coincidence.
  *
- * They hang directly off `/app` with no path segment of their own, which is the
+ * ## Two routes were removed from this file
+ *
+ * `/app/projects` and `/app/public-holidays` were standalone personal screens,
+ * gated on `PROJECTS.PAGE_ACCESS` and `PUBLIC_HOLIDAYS.PAGE_ACCESS`. They are
+ * gone rather than merely unlinked, and deleting them was the honest option:
+ * nothing in the application pointed at either, both were placeholders, and both
+ * duplicated a screen that already exists on the team side at
+ * `/app/team/settings/projects` and `/app/team/settings/public-holidays`. A
+ * route reachable only by typing its URL is a route nobody maintains — it keeps
+ * a guard, a title and a translation alive to serve a page no product decision
+ * still stands behind.
+ *
+ * They also had no work left to do. Choosing a project happens **inside** the
+ * timesheet, from an ungated list; public holidays are pre-filled into a
+ * timesheet by the backend. Neither ever needed a page of its own.
+ *
+ * A direct navigation to either path now falls through to the router's
+ * not-found handling, which is the correct answer for an address this
+ * application no longer has — better than a guard's "not authorized", which
+ * would have implied the page exists and is being withheld.
+ *
+ * ## The rest
+ *
+ * These hang directly off `/app` with no path segment of their own, which is the
  * other half of the rule in `features/workspace/workspace.ts`: the team
  * workspace is everything under `/app/team`, and the personal workspace is
  * everything else. A screen is in one or the other by where it is declared, and
@@ -46,30 +72,6 @@ export const leaveRequestsRoute = createRoute({
     <WorkspacePlaceholderPage
       titleKey="pages.leaveRequests.title"
       descriptionKey="pages.leaveRequests.description"
-    />
-  ),
-});
-
-export const projectsRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: '/projects',
-  beforeLoad: requirePermission({ permission: 'PROJECTS.PAGE_ACCESS' }),
-  component: () => (
-    <WorkspacePlaceholderPage
-      titleKey="pages.projects.title"
-      descriptionKey="pages.projects.description"
-    />
-  ),
-});
-
-export const publicHolidaysRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: '/public-holidays',
-  beforeLoad: requirePermission({ permission: 'PUBLIC_HOLIDAYS.PAGE_ACCESS' }),
-  component: () => (
-    <WorkspacePlaceholderPage
-      titleKey="pages.publicHolidays.title"
-      descriptionKey="pages.publicHolidays.description"
     />
   ),
 });

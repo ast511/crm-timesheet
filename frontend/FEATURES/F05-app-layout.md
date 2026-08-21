@@ -797,3 +797,263 @@ The 26-assertion shell harness and the 16-assertion roles harness were re-run
 against the change and still pass, console clean. The harness restores the
 account's original preferences in a `finally`, so the development database ends
 as it started.
+
+---
+
+# Amendment: an employee's sidebar is three items
+
+## The request
+
+> A plain `USER` currently sees *Proiecte* and *Sărbători legale* in the
+> personal sidebar. They should see exactly three items: *Panou principal*,
+> *Pontajul meu*, *Cererile mele de concediu* — gone from the menu **and** from
+> access, without breaking the timesheet underneath.
+
+## What the frontend had to change: nothing
+
+This is the amendment worth reading precisely because the diff is comments.
+
+The sidebar is permission-driven. `PERSONAL_NAVIGATION` gates *Proiecte* on
+`PROJECTS.PAGE_ACCESS` and *Sărbători legale* on `PUBLIC_HOLIDAYS.PAGE_ACCESS`,
+and `routes/personal.routes.tsx` guards the two routes with `requirePermission`
+on those same two keys — F04's rule that a menu item and a route guard state the
+same requirement, so the menu cannot offer a door the guard will shut.
+
+The backend took the four keys out of the `USER` baseline (see the backend's
+`029-permission-management.md`, *the `USER` baseline drops the two reference
+pages*). Both menu items disappeared for an employee, and both URLs began
+answering with not-authorized instead of the page. No component, no route, no
+config was edited to make that happen — which is the design this feature argued
+for, meeting the first test that could have falsified it.
+
+**The two entries stay in `PERSONAL_NAVIGATION`.** HR and administrators still
+hold both keys — the company's project register and its calendar are things they
+look up — so the items are still theirs, and the change is entirely a matter of
+who satisfies the requirement.
+
+> **Superseded the same day.** That decision was wrong, and the amendment below
+> — *the personal workspace does not vary by role* — reverses it. Keeping the two
+> entries is precisely what made an administrator's personal sidebar differ from
+> an employee's. Read on; this paragraph is left as written because it is the
+> reasoning the next amendment had to correct.
+
+## The comments that had gone stale
+
+Four files asserted, in prose, a fact that had just stopped being true: **every
+employee holds `PUBLIC_HOLIDAYS.PAGE_ACCESS`**. It was load-bearing prose rather
+than decoration — it is the stated reason `settingsPublicHolidaysRoute` guards on
+`PUBLIC_HOLIDAYS.EDIT` where its sibling settings routes guard on `PAGE_ACCESS`.
+
+The guard is unchanged and still correct; only the argument narrowed. Page access
+now enters the ladder at `HR - View Only`, so guarding the settings screen with
+it would hand the company's calendar to accounts a card was chosen for precisely
+because they may change nothing. `EDIT` is still what makes it a team screen.
+
+| File | Change |
+| --- | --- |
+| `features/workspace/navigation.ts` | `PERSONAL_NAVIGATION`: an employee sees three of the five, and why the other two stay in the list; the `TEAM_NAVIGATION` public-holidays bullet re-argued. |
+| `routes/personal.routes.tsx` | The header: three of five for a plain employee, and that the guards are what make it true of a typed URL. |
+| `routes/team.routes.tsx` | `settingsPublicHolidaysRoute` — page access starts at `HR - View Only`, not at every employee. |
+| `app/pages/PublicHolidaysPage.tsx` | The same correction, in the page's own account of its guard. |
+
+## Verification
+
+`tsc --noEmit` clean. The behaviour is asserted on the backend, where the fact
+lives: `modules/authorization/routing.spec.ts` checks that a `USER`'s effective
+set holds exactly three `PAGE_ACCESS` keys — `DASHBOARD`, `LEAVE_REQUESTS`,
+`TIMESHEET` — which is the sidebar, since every personal item names one.
+
+Against the running application, after the migration was applied, signed in as
+`cristian.stan@example.com` (a plain `USER`):
+
+```
+GET /api/v1/permissions/me/effective
+  → 12 permissions
+  → PAGE_ACCESS: DASHBOARD, LEAVE_REQUESTS, TIMESHEET
+  → PROJECTS.* / PUBLIC_HOLIDAYS.*: none
+```
+
+That response **is** the sidebar's input. `WorkspaceProvider` passes the set to
+`getNavigation`, which keeps an item when `permissions.satisfies(requirement)`,
+and the two departing items name the two absent keys — so three of the five
+survive the filter. `requirePermission` in `personal.routes.tsx` calls the same
+`satisfies` over the same set, which is why a typed URL closes with the menu
+entry rather than separately from it.
+
+**The screen itself was not opened in a browser**, and this is stated rather than
+glossed: no Playwright MCP was available in the session that made the change. The
+sidebar is asserted from the data it renders and from the filter that renders it,
+one layer short of the pixels. Worth thirty seconds of somebody's time: sign in
+as a plain employee and count the rows.
+
+---
+
+# Amendment: the personal workspace does not vary by role
+
+## The report
+
+> The personal workspace shows a person's OWN work and must be IDENTICAL for
+> everyone — USER, HR, ADMIN, SUPERADMIN all see the same three items. In
+> Personal an admin is just an employee doing their own timesheet; their
+> administrative role is irrelevant here and only matters in Team.
+
+That is a rule this feature never wrote down, and the amendment above broke it
+within a day of the prose that got it wrong.
+
+## What was actually wrong
+
+`PERSONAL_NAVIGATION` held five items and filtered them by permission. While
+every role held `PROJECTS.PAGE_ACCESS` and `PUBLIC_HOLIDAYS.PAGE_ACCESS` the
+filter admitted everybody and the menu was uniform — **by coincidence.** Nothing
+stated the invariant; it happened to hold because the baselines happened to
+overlap.
+
+The backend then took those two keys out of the `USER` baseline, legitimately,
+and the coincidence broke in the least visible direction: the plain employee's
+sidebar was fixed, and *Proiecte* and *Sărbători legale* stayed in the sidebars
+of HR and administrators alone — who still hold the keys, correctly, for the team
+side. A menu that had looked the same for everyone quietly became role-dependent,
+and the previous amendment argued for keeping it that way.
+
+**The interesting part is not the leak, it is why it was invisible.** Uniformity
+was a property of data held somewhere else, so a change to that data revoked it
+silently. Nothing in this file could have failed.
+
+## The fix, in two parts
+
+**1. The list is the three own-work items, for everybody.** *Panou principal*,
+*Pontajul meu*, *Cererile mele de concediu*. *Proiecte* and *Sărbători legale*
+are gone from Personal. They were duplicates: both already live on the team side
+at `/app/team/settings/projects` (`PROJECTS.EDIT`) and
+`/app/team/settings/public-holidays` (`PUBLIC_HOLIDAYS.EDIT`), which is where an
+administrator maintains them and where administration belongs.
+
+**2. The invariant is now structural, not observed.** A new `OwnWorkPageAccess`
+union names the three keys a personal item may be gated on, and `PersonalNavItem`
+requires the requirement to be one of them:
+
+```ts
+type OwnWorkPageAccess =
+  | 'DASHBOARD.PAGE_ACCESS'
+  | 'TIMESHEET.PAGE_ACCESS'
+  | 'LEAVE_REQUESTS.PAGE_ACCESS';
+```
+
+Every key in it is in the `USER` baseline, so the filter admits every role
+identically — and adding an administrative key to the personal list is a
+**compile error** rather than a difference somebody spots in a screenshot months
+later. It is the mirror of the technique `TEAM_NAVIGATION` already used: there
+the type makes a requirement *mandatory* so nothing leaks downward; here it
+*narrows* the requirement so nothing leaks sideways.
+
+The question the type forces at the moment somebody adds an item is the useful
+one. Not "may an administrator see this" — they may see almost everything — but
+**"does every employee hold this key by baseline?"** If not, it is a team screen.
+
+The three still declare requirements rather than being unconditional, because an
+individual account can have one revoked through the permissions screen. That is a
+deliberate act about one person, not a role difference, and it should still hide
+the item.
+
+## The routes were removed, not guarded
+
+`/app/projects` and `/app/public-holidays` are deleted from `personal.routes.tsx`
+and from the route tree. Removal rather than a redirect, and the requirement
+allowed either — the case for deleting:
+
+- **Nothing linked there.** Searched: the only references were the nav entries
+  and the route-tree registration, both removed here.
+- **Both were placeholders.** `WorkspacePlaceholderPage` with a title and a
+  description; no feature was built behind either.
+- **Both duplicated a real screen** that already exists on the team side.
+- **Neither had work left to do.** Choosing a project happens inside the
+  timesheet, from an ungated list; holidays are pre-filled into a timesheet by
+  the backend. Neither ever needed a page.
+
+A guarded-but-unreachable route keeps a permission check, a title and two
+translations alive to serve a page no product decision stands behind — it rots.
+A direct navigation now falls through to the router's not-found handling, which
+is the honest answer for an address this application does not have; a guard's
+"not authorized" would have implied the page exists and is being withheld.
+
+The two dead `pages.projects` / `pages.publicHolidays` entries were removed from
+both locale bundles. `CommonKey` is derived from the `ro` bundle, so a leftover
+reference to either would have failed the build rather than rendered a raw key.
+
+**The team settings routes are untouched.**
+
+## Files
+
+| File | Change |
+| --- | --- |
+| `features/workspace/navigation.ts` | `OwnWorkPageAccess` and `PersonalNavItem`; `PERSONAL_NAVIGATION` down to three items; the file header on why the two lists are gated for opposite reasons. Two now-unused icon imports dropped. |
+| `routes/personal.routes.tsx` | `projectsRoute` and `publicHolidaysRoute` deleted; the header records why removal beat a redirect. |
+| `routes/routeTree.ts` | Both routes unregistered. |
+| `routes/team.routes.tsx` | `settingsPublicHolidaysRoute`'s guard argument no longer runs through a personal screen that no longer exists. |
+| `app/pages/PublicHolidaysPage.tsx` | Same correction; this is now the only public-holidays screen. |
+| `locales/{ro,en}/common.json` | `pages.projects` and `pages.publicHolidays` removed. |
+
+## Verification
+
+`npm run typecheck`, `npm run lint` and `npm run build` all clean.
+
+**The compile-time guard was tested by trying to break it**, which is the only
+way a claim like "this is now a compile error" is worth making. Adding an item
+gated on `PROJECTS.PAGE_ACCESS` to `PERSONAL_NAVIGATION`:
+
+```
+src/features/workspace/navigation.ts(226,20): error TS2322:
+  Type '"PROJECTS.PAGE_ACCESS"' is not assignable to type
+  '"DASHBOARD.PAGE_ACCESS" | "TIMESHEET.PAGE_ACCESS" | "LEAVE_REQUESTS.PAGE_ACCESS"'.
+```
+
+Restored afterwards; the tree is clean.
+
+> **A note on the typecheck command, because it cost a wrong answer.** The first
+> attempt at that negative test ran `npx tsc --noEmit` and reported *no error* —
+> and so had every earlier `tsc --noEmit` run against this frontend. The root
+> `tsconfig.json` is a solution file: `"files": []` plus two project references,
+> so `tsc --noEmit` type-checks **nothing** and exits 0. The real command is
+> `npm run typecheck` (`tsc -b --noEmit`). Anyone verifying frontend work should
+> use the script, never bare `tsc --noEmit`.
+
+### Against the running application
+
+All four seeded roles, signed in for real, their effective permissions read from
+`GET /permissions/me/effective` and matched against the requirements parsed out
+of `navigation.ts` itself rather than retyped:
+
+| Role | Personal menu |
+| --- | --- |
+| `USER` | `/app` · `/app/timesheet` · `/app/leave-requests` |
+| `HR` | `/app` · `/app/timesheet` · `/app/leave-requests` |
+| `ADMIN` | `/app` · `/app/timesheet` · `/app/leave-requests` |
+| `SUPERADMIN` | `/app` · `/app/timesheet` · `/app/leave-requests` |
+
+Identical across all four — the point of the change. `HR`, `ADMIN` and
+`SUPERADMIN` still hold both `PAGE_ACCESS` keys for the team side, and those keys
+now produce **zero** personal items, which is the leak closed at its source.
+
+The team workspace is unaffected: `USER` sees 0 team items (so no team workspace
+at all), `HR` 7, `ADMIN` and `SUPERADMIN` 11 each — projects and public-holidays
+settings included for those who hold `EDIT`.
+
+**Still not opened in a browser.** No Playwright MCP was configured in the
+session that made this change (`/mcp` reports none), so the sidebar is verified
+from the data it renders and the list that renders it, one layer short of the
+pixels. Running `claude` from `frontend/` is where that MCP is available; the
+check worth doing there is four sign-ins and a row count.
+
+## Reconciling the earlier notes
+
+The amendment above this one — *an employee's sidebar is three items* — argued
+that the two entries should **stay** in `PERSONAL_NAVIGATION` because HR and
+administrators still hold their keys. That reasoning is superseded: it is exactly
+what made the personal sidebar differ by role. It is left in place rather than
+rewritten, with a pointer forward, because the mistake is the reason this
+amendment exists.
+
+The original F05 body also predates both. Its route-tree diagram and its
+"Personal workspace" table still list `projectsRoute` / `publicHolidaysRoute` and
+their two menu rows; those four lines are superseded here and nowhere else in
+this document.

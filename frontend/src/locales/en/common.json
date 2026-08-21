@@ -450,14 +450,6 @@
       "title": "My leave requests",
       "description": "Submit leave requests and follow their status."
     },
-    "projects": {
-      "title": "Projects",
-      "description": "The projects you are assigned to."
-    },
-    "publicHolidays": {
-      "title": "Public holidays",
-      "description": "The public holidays in the company calendar."
-    },
     "teamTimesheets": {
       "title": "Timesheets",
       "description": "Review and approve the team's timesheets."
