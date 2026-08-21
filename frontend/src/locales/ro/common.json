@@ -275,6 +275,46 @@
       "description": "Tipurile de concediu sunt vocabularul folosit de cereri, solduri și rapoarte. Adaugă primul tip pentru a începe."
     }
   },
+  "leaveNotificationEmails": {
+    "title": "Adrese de notificare pentru cereri",
+    "description": "Cererile de concediu sunt trimise spre aprobare către aceste adrese.",
+    "listLabel": "Adrese de notificare configurate",
+    "actions": {
+      "addTitle": "Adaugă o adresă",
+      "add": "Adaugă",
+      "menu": "Acțiuni pentru {{email}}"
+    },
+    "fields": {
+      "email": "Adresă de e-mail",
+      "emailPlaceholder": "hr@firma.ro"
+    },
+    "form": {
+      "editTitle": "Modifică adresa",
+      "editDescription": "Corectează adresa fără a o șterge, astfel încât notificările să ajungă unde trebuie."
+    },
+    "toast": {
+      "created": "Adresa „{{email}}” a fost adăugată.",
+      "updated": "Adresa a fost actualizată în „{{email}}”.",
+      "deleted": "Adresa „{{email}}” a fost eliminată."
+    },
+    "delete": {
+      "title": "Elimini adresa de notificare?",
+      "description": "„{{email}}” nu va mai primi cereri de concediu spre aprobare."
+    },
+    "empty": {
+      "title": "Nicio adresă de notificare",
+      "description": "Nimeni nu primește cererile de concediu spre aprobare. Adaugă prima adresă folosind câmpul de mai sus.",
+      "readOnlyDescription": "Nimeni nu primește deocamdată cererile de concediu spre aprobare."
+    },
+    "validation": {
+      "emailRequired": "Introdu o adresă de e-mail.",
+      "emailInvalid": "Introdu o adresă de e-mail validă.",
+      "emailTooLong": "Adresa poate avea cel mult {{max}} caractere."
+    },
+    "errors": {
+      "duplicate": "Această adresă este deja configurată."
+    }
+  },
   "departments": {
     "searchPlaceholder": "Caută după cod sau denumire…",
     "noResults": "Niciun departament nu corespunde căutării.",

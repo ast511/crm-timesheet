@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { DataTableSkeleton } from '@/components/data-table/DataTableSkeleton';
 import { FadeIn } from '@/components/motion/FadeIn';
 import { QueryBoundary } from '@/components/QueryBoundary';
+import { LeaveNotificationEmailsSection } from '@/features/leave-notification-emails/components/LeaveNotificationEmailsSection';
 import { LeaveTypeCreateButton } from '@/features/leave-types/components/LeaveTypeCreateButton';
 import { LeaveTypesTable } from '@/features/leave-types/components/LeaveTypesTable';
 import { usePageMeta } from '@/hooks/usePageMeta';
@@ -12,7 +13,18 @@ const SKELETON_COLUMNS = 9;
 const SKELETON_ROWS = 8;
 
 /**
- * `/app/team/settings/leave-types` — the kinds of leave the company recognises.
+ * `/app/team/settings/leave-types` — the kinds of leave the company recognises,
+ * and the addresses their requests are sent to.
+ *
+ * ## Two sections, one page, one subject
+ *
+ * `LeaveNotificationEmailsSection` (F10) sits below the table, separated by a
+ * rule, its own heading and its own card so it never reads as part of it. It is
+ * on this page rather than on a route of its own because both are *leave
+ * configuration* — the same subject, gated on the same `LEAVES.PAGE_ACCESS`, and
+ * a second menu item for a list of three addresses would be a navigation entry
+ * costing more than the screen behind it. Everything about the section is inside
+ * its own feature folder; this page composes it and knows nothing else.
  *
  * ## The heading is outside the boundary, the list is inside it
  *
@@ -60,6 +72,8 @@ export const LeaveTypesPage = () => {
       >
         <LeaveTypesTable />
       </QueryBoundary>
+
+      <LeaveNotificationEmailsSection />
     </FadeIn>
   );
 };

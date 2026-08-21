@@ -14,6 +14,7 @@ the backend (F01, F02, …).
 | F07 | [Leave Types](F07-leave-types.md)                           | Done   | 2026-08-19 |
 | F08 | [Departments](F08-departments.md)                           | Done   | 2026-08-20 |
 | F09 | [Public Holidays](F09-public-holidays.md)                   | Done   | 2026-08-20 |
+| F10 | [Leave Notification Emails](F10-leave-notification-emails.md) | Done | 2026-08-21 |
 
 ## Amendments
 

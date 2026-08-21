@@ -275,6 +275,46 @@
       "description": "Leave types are the vocabulary requests, balances and reports all use. Add the first one to get started."
     }
   },
+  "leaveNotificationEmails": {
+    "title": "Notification addresses for requests",
+    "description": "Leave requests are sent to these addresses for approval.",
+    "listLabel": "Configured notification addresses",
+    "actions": {
+      "addTitle": "Add an address",
+      "add": "Add",
+      "menu": "Actions for {{email}}"
+    },
+    "fields": {
+      "email": "Email address",
+      "emailPlaceholder": "hr@company.com"
+    },
+    "form": {
+      "editTitle": "Edit the address",
+      "editDescription": "Correct the address without removing it, so notifications reach the right mailbox."
+    },
+    "toast": {
+      "created": "Address “{{email}}” was added.",
+      "updated": "The address was changed to “{{email}}”.",
+      "deleted": "Address “{{email}}” was removed."
+    },
+    "delete": {
+      "title": "Remove this notification address?",
+      "description": "“{{email}}” will no longer receive leave requests for approval."
+    },
+    "empty": {
+      "title": "No notification addresses yet",
+      "description": "Nobody receives leave requests for approval. Add the first address using the field above.",
+      "readOnlyDescription": "Nobody receives leave requests for approval yet."
+    },
+    "validation": {
+      "emailRequired": "Enter an email address.",
+      "emailInvalid": "Enter a valid email address.",
+      "emailTooLong": "The address can be at most {{max}} characters."
+    },
+    "errors": {
+      "duplicate": "This address is already configured."
+    }
+  },
   "departments": {
     "searchPlaceholder": "Search by code or name…",
     "noResults": "No department matches your search.",
