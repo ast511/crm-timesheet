@@ -442,6 +442,36 @@ this Vite + TanStack Router layout wins — we do not use Next.js.)
 
 ---
 
+## Browser verification (Playwright MCP — verify your own UI before "done")
+
+A recurring problem: UI features look correct in the code and pass type-check, but a
+real defect only appears when a browser actually opens the page (a menu that crashes on
+click, a control wired to the wrong query, a broken responsive switch). Do not leave
+that discovery to the user.
+
+- After implementing or changing any page/component with UI, **use the Playwright MCP to
+  open the page in a real browser and exercise the key interactions before declaring the
+  work done** — do not stop at "type-check passes" or "argued from the contract".
+- What to actually click/verify (as applicable to the feature): the page loads with real
+  data; sorting a sortable column issues a real request and reorders across the dataset;
+  search/filter work; menus OPEN and work (especially the DataTable "Coloane"/column-
+  visibility menu — this has crashed before); create/edit/delete flows complete and show
+  the right toast; a duplicate/conflict shows the coded error; empty and error states
+  render; and the responsive table→cards switch works below `lg` (use a narrow viewport).
+- If an interaction throws, read the real browser console error (not the generic
+  "unexpected error" toast) and fix the actual cause; then re-verify in the browser.
+- **This requires the app to be running** (frontend served + backend up, migrated and
+  seeded). If it is not running, say so plainly and ask for it to be started rather than
+  claiming the UI is verified — never report a browser check that did not happen.
+- Be mindful of rate limits: repeated page loads hit the refresh tier; avoid needless
+  reload loops during verification.
+- The Playwright MCP is for live, in-development verification. It does NOT replace written
+  end-to-end tests (a separate test framework set up later for durable regression + demo
+  video); when that exists, both apply — verify live now, and the written suite guards
+  against future breakage.
+
+---
+
 ## Feature Workflow
 
 Before implementing a frontend feature:

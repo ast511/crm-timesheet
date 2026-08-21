@@ -2,6 +2,7 @@ import { createRoute, redirect } from '@tanstack/react-router';
 
 import { DepartmentsPage } from '@/app/pages/DepartmentsPage';
 import { LeaveTypesPage } from '@/app/pages/LeaveTypesPage';
+import { PublicHolidaysPage } from '@/app/pages/PublicHolidaysPage';
 import { WorkspacePlaceholderPage } from '@/app/pages/WorkspacePlaceholderPage';
 import { requirePermission } from '@/features/permissions/permission-route-guard';
 import { firstRouteOf } from '@/features/workspace/navigation';
@@ -154,16 +155,26 @@ export const settingsWorkScheduleRoute = createRoute({
   ),
 });
 
+/**
+ * The third settings screen that is a real page rather than a placeholder (F09).
+ *
+ * The guard is unchanged, and it is the one that looks wrong and is not: this
+ * route asks for `PUBLIC_HOLIDAYS.EDIT` where its siblings ask for
+ * `PAGE_ACCESS`, because **every employee holds `PUBLIC_HOLIDAYS.PAGE_ACCESS`**
+ * — that is the key that opens their own holiday calendar at
+ * `/app/public-holidays`. Guarding this screen with it would put the company's
+ * settings in front of the whole company. Maintaining the calendar is the
+ * administrative act, so `EDIT` is what makes this a team screen, exactly as
+ * `TEAM_NAVIGATION` documents and as the timesheets route does with
+ * `TIMESHEET.APPROVE`.
+ *
+ * The create / edit / delete actions carry their own keys inside the page.
+ */
 export const settingsPublicHolidaysRoute = createRoute({
   getParentRoute: () => teamRoute,
   path: '/settings/public-holidays',
   beforeLoad: requirePermission({ permission: 'PUBLIC_HOLIDAYS.EDIT' }),
-  component: () => (
-    <WorkspacePlaceholderPage
-      titleKey="pages.settingsPublicHolidays.title"
-      descriptionKey="pages.settingsPublicHolidays.description"
-    />
-  ),
+  component: PublicHolidaysPage,
 });
 
 export const settingsDepartmentsRoute = createRoute({

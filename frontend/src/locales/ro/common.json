@@ -336,6 +336,103 @@
       "description": "Departamentele sunt unitățile organizatorice la care sunt repartizați angajații și după care se grupează rapoartele. Adaugă primul departament pentru a începe."
     }
   },
+  "publicHolidays": {
+    "searchPlaceholder": "Caută după denumire…",
+    "noResults": "Nicio sărbătoare nu corespunde filtrelor.",
+    "columns": {
+      "name": "Denumire",
+      "type": "Tip",
+      "date": "Dată",
+      "validity": "Interval ani",
+      "isNational": "Aplicabilitate",
+      "actions": "Acțiuni",
+      "noValue": "—"
+    },
+    "flags": {
+      "fixed": "Fixă",
+      "variable": "Variabilă",
+      "national": "Națională",
+      "company": "Companie"
+    },
+    "span": {
+      "range": "{{start}} – {{end}}"
+    },
+    "validity": {
+      "always": "Permanent",
+      "from": "Din {{year}}",
+      "until": "Până în {{year}}",
+      "range": "{{from}} – {{to}}"
+    },
+    "filters": {
+      "type": "Filtrează după tip",
+      "allTypes": "Toate tipurile",
+      "fixedOnly": "Doar fixe",
+      "variableOnly": "Doar variabile",
+      "scope": "Filtrează după aplicabilitate",
+      "allScopes": "Toate sărbătorile",
+      "nationalOnly": "Doar naționale",
+      "companyOnly": "Doar ale companiei"
+    },
+    "actions": {
+      "create": "Adaugă sărbătoare",
+      "menu": "Acțiuni pentru {{name}}"
+    },
+    "form": {
+      "createTitle": "Sărbătoare nouă",
+      "createDescription": "Adaugă o zi în care compania este închisă.",
+      "editTitle": "Modifică sărbătoarea",
+      "editDescription": "Modificările se aplică imediat în calendarul companiei."
+    },
+    "fields": {
+      "name": "Denumire",
+      "namePlaceholder": "Ziua Națională",
+      "type": "Tip",
+      "typeFixedHint": "O sărbătoare fixă se repetă în fiecare an, în aceeași zi și lună.",
+      "typeVariableHint": "O sărbătoare variabilă se referă la un singur an; anul următor se adaugă ca înregistrare nouă.",
+      "startDate": "Data de început",
+      "endDate": "Data de sfârșit",
+      "fixedDateHint": "Pentru o sărbătoare fixă se folosesc doar ziua și luna; anul din dată nu contează.",
+      "validityLegend": "Interval de valabilitate",
+      "validityHint": "Anii în care se aplică sărbătoarea, ambele capete incluse. Lasă câmpurile goale dacă se aplică permanent; completează anul de sfârșit pentru o sărbătoare care a fost abrogată.",
+      "validFromYear": "Din anul",
+      "validToYear": "Până în anul",
+      "yearPlaceholder": "2026",
+      "description": "Descriere",
+      "descriptionPlaceholder": "Detalii despre această sărbătoare.",
+      "isNational": "Sărbătoare națională",
+      "isNationalHint": "Dezactivează pentru o zi liberă stabilită de companie, nu prin lege."
+    },
+    "validation": {
+      "nameRequired": "Introdu denumirea sărbătorii.",
+      "nameTooLong": "Denumirea poate avea cel mult {{max}} caractere.",
+      "descriptionTooLong": "Descrierea poate avea cel mult {{max}} caractere.",
+      "startDateRequired": "Alege data de început.",
+      "startDateInvalid": "Data de început nu este validă.",
+      "endDateRequired": "Alege data de sfârșit. Pentru o sărbătoare de o zi, alege aceeași dată.",
+      "endDateInvalid": "Data de sfârșit nu este validă.",
+      "endBeforeStart": "Data de sfârșit nu poate fi înaintea datei de început.",
+      "yearInvalid": "Introdu un an din patru cifre.",
+      "yearOutOfRange": "Anul trebuie să fie între {{min}} și {{max}}.",
+      "validToBeforeValidFrom": "Anul de sfârșit nu poate fi înaintea anului de început."
+    },
+    "errors": {
+      "duplicateFixed": "Există deja o sărbătoare fixă în aceeași zi și lună, într-un interval de ani care se suprapune. Alege altă zi sau restrânge intervalul de valabilitate.",
+      "duplicateVariable": "Există deja o sărbătoare variabilă cu această denumire, care începe în aceeași zi."
+    },
+    "toast": {
+      "created": "Sărbătoarea „{{name}}” a fost adăugată.",
+      "updated": "Sărbătoarea „{{name}}” a fost actualizată.",
+      "deleted": "Sărbătoarea „{{name}}” a fost ștearsă."
+    },
+    "delete": {
+      "title": "Ștergi sărbătoarea?",
+      "description": "„{{name}}” va fi ștearsă definitiv din calendar, inclusiv pentru anii trecuți. Dacă sărbătoarea a existat, dar a fost abrogată, completează anul de sfârșit în loc să o ștergi."
+    },
+    "empty": {
+      "title": "Nicio sărbătoare legală",
+      "description": "Sărbătorile legale sunt zilele în care compania este închisă și care nu se scad din zilele de concediu. Adaugă prima sărbătoare pentru a începe."
+    }
+  },
   "pages": {
     "profile": {
       "title": "Profil",

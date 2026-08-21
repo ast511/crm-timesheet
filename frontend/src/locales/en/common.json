@@ -336,6 +336,103 @@
       "description": "Departments are the organisational units employees are assigned to and reports are grouped by. Add the first one to get started."
     }
   },
+  "publicHolidays": {
+    "searchPlaceholder": "Search by name…",
+    "noResults": "No holiday matches these filters.",
+    "columns": {
+      "name": "Name",
+      "type": "Type",
+      "date": "Date",
+      "validity": "Years",
+      "isNational": "Scope",
+      "actions": "Actions",
+      "noValue": "—"
+    },
+    "flags": {
+      "fixed": "Fixed",
+      "variable": "Variable",
+      "national": "National",
+      "company": "Company"
+    },
+    "span": {
+      "range": "{{start}} – {{end}}"
+    },
+    "validity": {
+      "always": "Always",
+      "from": "From {{year}}",
+      "until": "Until {{year}}",
+      "range": "{{from}} – {{to}}"
+    },
+    "filters": {
+      "type": "Filter by type",
+      "allTypes": "All types",
+      "fixedOnly": "Fixed only",
+      "variableOnly": "Variable only",
+      "scope": "Filter by scope",
+      "allScopes": "All holidays",
+      "nationalOnly": "National only",
+      "companyOnly": "Company only"
+    },
+    "actions": {
+      "create": "Add holiday",
+      "menu": "Actions for {{name}}"
+    },
+    "form": {
+      "createTitle": "New public holiday",
+      "createDescription": "Add a day the company is closed.",
+      "editTitle": "Edit public holiday",
+      "editDescription": "Changes apply to the company calendar immediately."
+    },
+    "fields": {
+      "name": "Name",
+      "namePlaceholder": "National Day",
+      "type": "Type",
+      "typeFixedHint": "A fixed holiday recurs every year, on the same day and month.",
+      "typeVariableHint": "A variable holiday covers a single year; next year is entered as a new record.",
+      "startDate": "Start date",
+      "endDate": "End date",
+      "fixedDateHint": "Only the day and the month are used for a fixed holiday; the year in the date is disregarded.",
+      "validityLegend": "Validity range",
+      "validityHint": "The years the holiday applies to, both ends inclusive. Leave both empty if it always applies; fill in the end year for a holiday that has been repealed.",
+      "validFromYear": "From year",
+      "validToYear": "Until year",
+      "yearPlaceholder": "2026",
+      "description": "Description",
+      "descriptionPlaceholder": "Details about this holiday.",
+      "isNational": "National holiday",
+      "isNationalHint": "Turn off for a day off the company decided on rather than one set by law."
+    },
+    "validation": {
+      "nameRequired": "Enter the holiday name.",
+      "nameTooLong": "The name can be at most {{max}} characters.",
+      "descriptionTooLong": "The description can be at most {{max}} characters.",
+      "startDateRequired": "Choose the start date.",
+      "startDateInvalid": "The start date is not valid.",
+      "endDateRequired": "Choose the end date. For a one-day holiday, choose the same date.",
+      "endDateInvalid": "The end date is not valid.",
+      "endBeforeStart": "The end date cannot be before the start date.",
+      "yearInvalid": "Enter a four-digit year.",
+      "yearOutOfRange": "The year must be between {{min}} and {{max}}.",
+      "validToBeforeValidFrom": "The end year cannot be before the start year."
+    },
+    "errors": {
+      "duplicateFixed": "A fixed holiday already falls on that day and month, in an overlapping range of years. Choose another day, or narrow the validity range.",
+      "duplicateVariable": "A variable holiday with this name already starts on that date."
+    },
+    "toast": {
+      "created": "Holiday “{{name}}” was added.",
+      "updated": "Holiday “{{name}}” was updated.",
+      "deleted": "Holiday “{{name}}” was deleted."
+    },
+    "delete": {
+      "title": "Delete this holiday?",
+      "description": "“{{name}}” will be removed from the calendar for good, past years included. If the holiday was real and has since been repealed, set its end year instead of deleting it."
+    },
+    "empty": {
+      "title": "No public holidays yet",
+      "description": "Public holidays are the days the company is closed and that are not deducted from anyone's leave. Add the first one to get started."
+    }
+  },
   "pages": {
     "profile": {
       "title": "Profile",

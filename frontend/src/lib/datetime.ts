@@ -77,3 +77,53 @@ export const formatTime = (isoString: string, timeZone: string): string =>
  */
 export const formatCalendarDate = (isoString: string): string =>
   formatDate(isoString, 'UTC');
+
+/**
+ * A calendar date **without its year**. `01.01`
+ *
+ * For the one value in this application whose year is not a fact: a `FIXED`
+ * public holiday recurs by month and day, and the year inside its `startDate`
+ * is whatever year the row happened to be entered for — the backend says so
+ * outright, and its own default sort avoids `startDate` for exactly this
+ * reason. Printing `01.01.2025` beside `25.12.2026` would invite the reader to
+ * conclude the two are a year apart when they describe the same twelve months.
+ *
+ * `UTC` for the same reason {@link formatCalendarDate} fixes it: the value is a
+ * day, and reading it back in the zone it was written in is what returns the
+ * day that was typed.
+ */
+export const formatCalendarDayMonth = (isoString: string): string =>
+  format(isoString, { timeZone: 'UTC', month: '2-digit', day: '2-digit' });
+
+/**
+ * The API's instant, as an `<input type="date">` value. `2026-01-01`
+ *
+ * The other half of {@link formatCalendarDate}: that one is how a calendar date
+ * is *read*, this is how it is *edited*. `toISOString()` renders in UTC, which
+ * is the zone the value was written in, so the day that comes back is the day
+ * that was stored — whereas anything derived from `getFullYear()` /
+ * `getMonth()` would read the browser's zone and hand 1 January to a colleague
+ * in São Paulo as 31 December.
+ */
+export const toCalendarDateInput = (isoString: string): string =>
+  new Date(isoString).toISOString().slice(0, 10);
+
+/**
+ * An `<input type="date">` value, as the instant the API stores.
+ * `2026-01-01` → `2026-01-01T00:00:00.000Z`
+ *
+ * Midnight **UTC**, never `new Date('2026-01-01T00:00:00')` and never
+ * `new Date(2026, 0, 1)`: both of those are midnight in the browser's zone, so
+ * the same form submitted in Bucharest and in Los Angeles would store two
+ * different days for one date the person picked. The suffix is appended as
+ * text rather than round-tripped through `Date` precisely so no zone is
+ * consulted at any point.
+ *
+ * The backend's `@IsIsoDateString()` accepts a bare `2026-01-01` as well, and
+ * parses it to this same instant. The full form is sent because it is the
+ * spelling the contract's examples use and it says explicitly which instant is
+ * meant, rather than relying on the reader to know how the server parses a
+ * date-only string.
+ */
+export const toCalendarDateIso = (inputValue: string): string =>
+  `${inputValue}T00:00:00.000Z`;
