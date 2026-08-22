@@ -588,6 +588,137 @@
       "description": "Proiectele sunt lucrările pe care se pontează orele echipei. Fără cel puțin un proiect, nimeni nu poate completa un pontaj. Adaugă primul proiect pentru a începe."
     }
   },
+  "workSchedule": {
+    "title": "Configurare program de lucru",
+    "description": "Gestionează parametrii de pontaj, limitele de ore și procesul de aprobare pentru timesheet-uri.",
+    "workingDays": {
+      "title": "Săptămână lucrătoare",
+      "description": "Selectează zilele lucrătoare din săptămână pentru calculul automat al orelor.",
+      "groupLabel": "Zile lucrătoare",
+      "count_one": "{{count}} zi lucrătoare",
+      "count_few": "{{count}} zile lucrătoare",
+      "count_other": "{{count}} de zile lucrătoare",
+      "note": "Zilele selectate sunt folosite pentru calculul automat al orelor lucrătoare și pentru validarea timesheet-urilor. Angajații pot completa pontajul doar în zilele lucrătoare.",
+      "presets": {
+        "weekdays": "Luni - Vineri",
+        "fullWeek": "Toată săptămâna"
+      }
+    },
+    "hours": {
+      "title": "Program și limite de ore",
+      "description": "Setează limitele și parametrii pentru pontaj și timesheet-uri."
+    },
+    "fields": {
+      "weekStartsOn": "Prima zi a săptămânii",
+      "weekStartsOnHint": "Ziua de la care se numără o săptămână, atunci când orele sunt însumate săptămânal. Nu trebuie să fie o zi lucrătoare.",
+      "workStartTime": "Început program",
+      "workStartTimeHint": "Ora la care începe programul de lucru.",
+      "workEndTime": "Sfârșit program",
+      "workEndTimeHint": "Ora la care se termină programul. Poate fi înaintea orei de început, pentru turele de noapte.",
+      "minHoursPerEntry": "Ore minime per intrare",
+      "minHoursPerEntryHint": "Numărul minim de ore care poate fi înregistrat într-o intrare.",
+      "maxHoursPerEntry": "Ore maxime per intrare",
+      "maxHoursPerEntryHint": "Numărul maxim de ore care poate fi înregistrat într-o intrare.",
+      "maxHoursPerDay": "Ore maxime pe zi",
+      "maxHoursPerDayHint": "Totalul maxim de ore pe care îl poate avea o zi, însumând toate intrările.",
+      "standardHoursPerWeek": "Ore standard pe săptămână",
+      "standardHoursPerWeekHint": "Numărul de ore pe care ar trebui să le însumeze o săptămână completă.",
+      "standardHoursPerDay": "Ore standard de lucru",
+      "standardHoursPerDayHint": "Numărul de ore pe care ar trebui să le însumeze o zi completă.",
+      "lunchBreakHours": "Ore pauză de masă",
+      "lunchBreakHoursHint": "Durata pauzei de masă, în ore. Este doar înregistrată — nu se scade din orele pontate.",
+      "timezone": "Fus orar",
+      "timezoneHint": "Fusul orar în care aplicația interpretează zilele și calculează pontajele.",
+      "timezonePlaceholder": "Selectează un fus orar",
+      "timezoneSearchLabel": "Caută un fus orar",
+      "timezoneSearchPlaceholder": "Caută după nume (de exemplu Bucharest)…",
+      "timezoneEmpty": "Niciun fus orar nu corespunde căutării."
+    },
+    "actions": {
+      "save": "Salvează modificările",
+      "saving": "Se salvează configurarea…",
+      "reset": "Resetează la valorile implicite"
+    },
+    "advisories": {
+      "standardDayAboveDailyMaximum": "Orele standard pe zi depășesc maximul pe zi: un pontaj complet ar trece de limită.",
+      "entryMaximumAboveDailyMaximum": "Maximul pe intrare depășește maximul pe zi, deci nu poate fi atins."
+    },
+    "validation": {
+      "workingDaysRequired": "Selectează cel puțin o zi lucrătoare.",
+      "timeRequired": "Introdu o oră.",
+      "timeInvalid": "Introdu o oră validă, în format de 24 de ore (de exemplu 09:00).",
+      "hoursRequired": "Introdu un număr de ore.",
+      "hoursInvalid": "Introdu un număr cu cel mult două zecimale.",
+      "hoursOutOfRange": "Introdu o valoare mai mare decât 0 și cel mult {{max}}.",
+      "lunchHoursOutOfRange": "Introdu o valoare între 0 și {{max}}.",
+      "maxEntryNotAboveMin": "Maximul pe intrare trebuie să fie mai mare decât minimul pe intrare.",
+      "timezoneRequired": "Selectează un fus orar.",
+      "timezoneUnsupported": "Alege un fus orar din listă (de exemplu {{example}})."
+    },
+    "notConfigured": {
+      "title": "Programul de lucru nu este configurat",
+      "description": "Valorile de mai jos sunt cele implicite și nu au fost încă salvate. Verifică-le și salvează pentru a crea configurarea.",
+      "readOnlyDescription": "Nu există încă o configurare salvată. Un administrator cu drept de editare trebuie să o creeze."
+    },
+    "toast": {
+      "saved": "Programul de lucru a fost salvat."
+    },
+    "weekdays": {
+      "long": {
+        "MONDAY": "Luni",
+        "TUESDAY": "Marți",
+        "WEDNESDAY": "Miercuri",
+        "THURSDAY": "Joi",
+        "FRIDAY": "Vineri",
+        "SATURDAY": "Sâmbătă",
+        "SUNDAY": "Duminică"
+      },
+      "short": {
+        "MONDAY": "Lu",
+        "TUESDAY": "Ma",
+        "WEDNESDAY": "Mi",
+        "THURSDAY": "Jo",
+        "FRIDAY": "Vi",
+        "SATURDAY": "Sâ",
+        "SUNDAY": "Du"
+      }
+    },
+    "emails": {
+      "title": "Adrese de email pentru aprobare timesheet-uri",
+      "description": "Timesheet-urile completate vor fi trimise către aceste adrese pentru validare.",
+      "listLabel": "Adrese configurate pentru aprobare",
+      "unavailable": "Adresele pot fi configurate după ce programul de lucru este salvat.",
+      "actions": {
+        "add": "Adaugă adresa de email",
+        "confirmAdd": "Adaugă",
+        "remove": "Elimină {{email}}"
+      },
+      "fields": {
+        "email": "Adresă de e-mail",
+        "emailPlaceholder": "manager@firma.ro"
+      },
+      "toast": {
+        "created": "Adresa „{{email}}” a fost adăugată.",
+        "deleted": "Adresa „{{email}}” a fost eliminată."
+      },
+      "delete": {
+        "title": "Elimini adresa de aprobare?",
+        "description": "„{{email}}” nu va mai primi timesheet-uri spre validare."
+      },
+      "empty": {
+        "description": "Nu există adrese configurate. Timesheet-urile completate nu ajung la nimeni spre validare.",
+        "readOnlyDescription": "Nu există deocamdată adrese configurate."
+      },
+      "validation": {
+        "emailRequired": "Introdu o adresă de e-mail.",
+        "emailInvalid": "Introdu o adresă de e-mail validă.",
+        "emailTooLong": "Adresa poate avea cel mult {{max}} caractere."
+      },
+      "errors": {
+        "duplicate": "Această adresă este deja configurată."
+      }
+    }
+  },
   "pages": {
     "profile": {
       "title": "Profil",

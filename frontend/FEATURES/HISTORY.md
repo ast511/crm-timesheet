@@ -16,6 +16,15 @@ the backend (F01, F02, …).
 | F09 | [Public Holidays](F09-public-holidays.md)                   | Done   | 2026-08-20 |
 | F10 | [Leave Notification Emails](F10-leave-notification-emails.md) | Done | 2026-08-21 |
 | F11 | [Projects](F11-projects.md)                                 | Done   | 2026-08-21 |
+| F12 | [Work Schedule](F12-work-schedule.md)                       | Done   | 2026-08-22 |
+
+F12 is the first screen in this application that is **not a list**: one
+configuration, read with `GET` and replaced whole with `PUT`, so it has no
+`DataTable`, no pagination, no create and no delete. It is also the first
+consumer of `GET /api/v1/work-schedule`, which carries the company
+timezone — the value `lib/datetime.ts` has required in every signature
+since F01 and which nothing has supplied yet. The Timesheets module
+depends on both halves of that screen.
 
 ## Amendments
 
@@ -32,8 +41,21 @@ records. Listed here so the history still reads in order.
 | F05    | [App Layout — the personal workspace does not vary by role](F05-app-layout.md)  | Done   | 2026-08-21 |
 | F10    | [Leave Notification Emails — the addresses are `LEAVES.CONFIGURE`](F10-leave-notification-emails.md) | Done   | 2026-08-21 |
 | F03    | [Authentication — a field the server rejected was announced as *valid*](F03-authentication.md) | Done   | 2026-08-22 |
+| F12    | [Work Schedule — the timezone is a field, not a hidden value](F12-work-schedule.md) | Done   | 2026-08-22 |
 
-The last row is a shared fix, so it is also noted in the documents of every
+The F12 row corrects a deferral rather than fixing a defect. The screen
+shipped without a timezone control because the mock drew none; the mock is a
+visual reference and this field is not visual. `timezone` is the single IANA
+name the backend interprets every calendar day and day/week boundary in, and
+this application is deployed in more than one country — so a company abroad
+that cannot set it has every hour, day and week computed against Bucharest's
+midnight. It is now a searchable combobox whose options are built from
+`Intl.supportedValuesOf('timeZone')`, the same expression the backend's
+`isSupportedTimezone` builds its accepted set from, and it is always in the
+`PUT`. It brings a second shared field with it: `FormComboboxField` over a new
+`ui/combobox.tsx`, for any future list too long to scroll.
+
+The row above it is a shared fix, so it is also noted in the documents of every
 feature it changed: [F07](F07-leave-types.md), [F08](F08-departments.md),
 [F09](F09-public-holidays.md) and [F11](F11-projects.md), which found it. It
 lives under F03 because that is where `lib/form-errors.ts` and the server-side

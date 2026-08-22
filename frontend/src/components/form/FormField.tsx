@@ -6,6 +6,17 @@ import { cn } from '@/lib/utils';
 export interface FormFieldProps extends ComponentProps<'input'> {
   /** The visible label. Always rendered — a placeholder is not a label. */
   label: string;
+  /**
+   * What the value actually decides, rendered under the input and tied to it by
+   * `aria-describedby` — so it is *read out* with the field rather than being
+   * text a sighted reader happens to see nearby.
+   *
+   * The same prop `FormSelectField` has, with the same meaning. It is for a
+   * standing explanation ("the maximum any single entry may be"), never for the
+   * validation message: that is `error`, which is announced and styled
+   * differently because it is about this attempt rather than about the field.
+   */
+  description?: ReactNode;
   /** The validation message, already translated. Absent means valid. */
   error?: string;
   /**
@@ -44,6 +55,7 @@ export interface FormFieldProps extends ComponentProps<'input'> {
  */
 export const FormField = ({
   label,
+  description,
   error,
   labelAction,
   fieldClassName,
@@ -54,6 +66,20 @@ export const FormField = ({
   const generatedId = useId();
   const fieldId = id ?? generatedId;
   const errorId = `${fieldId}-error`;
+  const descriptionId = `${fieldId}-description`;
+
+  /*
+   * Both, either or neither — and *absent* rather than empty when neither,
+   * since `aria-describedby=""` points a screen reader at an element that does
+   * not exist. The same composition `FormSelectField` performs.
+   */
+  const describedBy =
+    [
+      error === undefined ? undefined : errorId,
+      description === undefined ? undefined : descriptionId,
+    ]
+      .filter((value): value is string => value !== undefined)
+      .join(' ') || undefined;
 
   return (
     <div className={cn('grid gap-2', fieldClassName)}>
@@ -67,10 +93,16 @@ export const FormField = ({
       <Input
         id={fieldId}
         aria-invalid={error !== undefined}
-        aria-describedby={error === undefined ? undefined : errorId}
+        aria-describedby={describedBy}
         className={className}
         {...inputProps}
       />
+
+      {description !== undefined && (
+        <p id={descriptionId} className="text-xs text-muted-foreground">
+          {description}
+        </p>
+      )}
 
       {/*
        * `role="alert"` rather than a plain paragraph: a message that appears

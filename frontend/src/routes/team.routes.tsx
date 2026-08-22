@@ -4,6 +4,7 @@ import { DepartmentsPage } from '@/app/pages/DepartmentsPage';
 import { LeaveTypesPage } from '@/app/pages/LeaveTypesPage';
 import { ProjectsPage } from '@/app/pages/ProjectsPage';
 import { PublicHolidaysPage } from '@/app/pages/PublicHolidaysPage';
+import { WorkSchedulePage } from '@/app/pages/WorkSchedulePage';
 import { WorkspacePlaceholderPage } from '@/app/pages/WorkspacePlaceholderPage';
 import { requirePermission } from '@/features/permissions/permission-route-guard';
 import { firstRouteOf } from '@/features/workspace/navigation';
@@ -159,16 +160,38 @@ export const settingsLeaveTypesRoute = createRoute({
   component: LeaveTypesPage,
 });
 
+/**
+ * The fifth settings screen that is a real page rather than a placeholder (F12),
+ * and the first that is **not a list** — one configuration, read with `GET` and
+ * replaced whole with `PUT`.
+ *
+ * **The guard is unchanged at `WORK_SCHEDULE.PAGE_ACCESS`**, exactly as the
+ * placeholder had it and as `TEAM_NAVIGATION` gates the sidebar entry — the two
+ * have to agree, or a visible menu item leads to a refusal. Unlike the public
+ * holidays two screens down, no correction is needed here: `PAGE_ACCESS` is not
+ * over-granted for this resource, and the screen is worth reading for anybody
+ * who holds it. Every account that can open it sees the configuration; what it
+ * may *change* is decided inside the page.
+ *
+ * That is decided on **two** keys rather than one, matching backend Feature 041
+ * cell for cell: `WORK_SCHEDULE.EDIT` for the `PUT` that stores the working days
+ * and the hour rules, and `WORK_SCHEDULE.CONFIGURE` for adding and removing the
+ * timesheet-approval addresses. `Admin - Standard` holds the first and not the
+ * second, so an ordinary administrator may change the working week and may not
+ * reroute where the approval mail goes.
+ *
+ * **`GET /api/v1/work-schedule` stays ungated on the backend, and this route
+ * does not change that.** The controller declares no requirement on either read,
+ * deliberately: the company timezone lives on this resource, so it is what every
+ * client reads before rendering a single timestamp. Guarding the *screen* is
+ * what narrows the audience here; guarding the endpoint would break the
+ * formatting of every date in the application.
+ */
 export const settingsWorkScheduleRoute = createRoute({
   getParentRoute: () => teamRoute,
   path: '/settings/work-schedule',
   beforeLoad: requirePermission({ permission: 'WORK_SCHEDULE.PAGE_ACCESS' }),
-  component: () => (
-    <WorkspacePlaceholderPage
-      titleKey="pages.settingsWorkSchedule.title"
-      descriptionKey="pages.settingsWorkSchedule.description"
-    />
-  ),
+  component: WorkSchedulePage,
 });
 
 /**

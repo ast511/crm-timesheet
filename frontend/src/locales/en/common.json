@@ -588,6 +588,137 @@
       "description": "Projects are the work the team books hours to. Without at least one, nobody can fill in a timesheet. Add the first project to get started."
     }
   },
+  "workSchedule": {
+    "title": "Working schedule settings",
+    "description": "Set the timesheet parameters, the hour limits and the approval routing for timesheets.",
+    "workingDays": {
+      "title": "Working week",
+      "description": "Choose the days of the week the company works, for the automatic hour calculation.",
+      "groupLabel": "Working days",
+      "count_one": "{{count}} working day",
+      "count_few": "{{count}} working days",
+      "count_other": "{{count}} working days",
+      "note": "The selected days drive the automatic working-hour calculation and the timesheet validation. Employees can only log time on working days.",
+      "presets": {
+        "weekdays": "Monday - Friday",
+        "fullWeek": "Whole week"
+      }
+    },
+    "hours": {
+      "title": "Schedule and hour limits",
+      "description": "Set the limits and parameters used for time tracking and timesheets."
+    },
+    "fields": {
+      "weekStartsOn": "Week starts on",
+      "weekStartsOnHint": "The day a week is counted from when hours are totalled weekly. It need not be a working day.",
+      "workStartTime": "Work starts",
+      "workStartTimeHint": "The time the working day begins.",
+      "workEndTime": "Work ends",
+      "workEndTimeHint": "The time the working day ends. It may be earlier than the start, for night shifts.",
+      "minHoursPerEntry": "Minimum hours per entry",
+      "minHoursPerEntryHint": "The smallest number of hours a single entry may record.",
+      "maxHoursPerEntry": "Maximum hours per entry",
+      "maxHoursPerEntryHint": "The largest number of hours a single entry may record.",
+      "maxHoursPerDay": "Maximum hours per day",
+      "maxHoursPerDayHint": "The ceiling across every entry on one day.",
+      "standardHoursPerWeek": "Standard hours per week",
+      "standardHoursPerWeekHint": "What a full week is expected to add up to.",
+      "standardHoursPerDay": "Standard working hours",
+      "standardHoursPerDayHint": "What a full day is expected to add up to.",
+      "lunchBreakHours": "Lunch break hours",
+      "lunchBreakHoursHint": "The company's lunch break, in hours. Recorded only — it is not subtracted from logged time.",
+      "timezone": "Time zone",
+      "timezoneHint": "The zone the application reads calendar days in and calculates timesheets against.",
+      "timezonePlaceholder": "Select a time zone",
+      "timezoneSearchLabel": "Search for a time zone",
+      "timezoneSearchPlaceholder": "Search by name, for example Bucharest…",
+      "timezoneEmpty": "No time zone matches that search."
+    },
+    "actions": {
+      "save": "Save changes",
+      "saving": "Saving the configuration…",
+      "reset": "Reset to the default values"
+    },
+    "advisories": {
+      "standardDayAboveDailyMaximum": "The standard day exceeds the daily maximum: a complete timesheet would breach the limit.",
+      "entryMaximumAboveDailyMaximum": "The per-entry maximum exceeds the daily maximum, so it can never be reached."
+    },
+    "validation": {
+      "workingDaysRequired": "Select at least one working day.",
+      "timeRequired": "Enter a time.",
+      "timeInvalid": "Enter a valid 24-hour time, for example 09:00.",
+      "hoursRequired": "Enter a number of hours.",
+      "hoursInvalid": "Enter a number with at most two decimals.",
+      "hoursOutOfRange": "Enter a value greater than 0 and at most {{max}}.",
+      "lunchHoursOutOfRange": "Enter a value between 0 and {{max}}.",
+      "maxEntryNotAboveMin": "The per-entry maximum must be greater than the per-entry minimum.",
+      "timezoneRequired": "Select a time zone.",
+      "timezoneUnsupported": "Choose a time zone from the list, for example {{example}}."
+    },
+    "notConfigured": {
+      "title": "The working schedule is not configured",
+      "description": "The values below are the defaults and have not been saved yet. Check them and save to create the configuration.",
+      "readOnlyDescription": "Nothing has been saved yet. An administrator with edit rights has to create the configuration."
+    },
+    "toast": {
+      "saved": "The working schedule has been saved."
+    },
+    "weekdays": {
+      "long": {
+        "MONDAY": "Monday",
+        "TUESDAY": "Tuesday",
+        "WEDNESDAY": "Wednesday",
+        "THURSDAY": "Thursday",
+        "FRIDAY": "Friday",
+        "SATURDAY": "Saturday",
+        "SUNDAY": "Sunday"
+      },
+      "short": {
+        "MONDAY": "Mo",
+        "TUESDAY": "Tu",
+        "WEDNESDAY": "We",
+        "THURSDAY": "Th",
+        "FRIDAY": "Fr",
+        "SATURDAY": "Sa",
+        "SUNDAY": "Su"
+      }
+    },
+    "emails": {
+      "title": "Timesheet approval e-mail addresses",
+      "description": "Completed timesheets are sent to these addresses for validation.",
+      "listLabel": "Configured approval addresses",
+      "unavailable": "Addresses can be configured once the working schedule has been saved.",
+      "actions": {
+        "add": "Add an e-mail address",
+        "confirmAdd": "Add",
+        "remove": "Remove {{email}}"
+      },
+      "fields": {
+        "email": "E-mail address",
+        "emailPlaceholder": "manager@company.com"
+      },
+      "toast": {
+        "created": "“{{email}}” has been added.",
+        "deleted": "“{{email}}” has been removed."
+      },
+      "delete": {
+        "title": "Remove the approval address?",
+        "description": "“{{email}}” will no longer receive timesheets for validation."
+      },
+      "empty": {
+        "description": "No addresses are configured. Completed timesheets reach nobody for validation.",
+        "readOnlyDescription": "No addresses are configured yet."
+      },
+      "validation": {
+        "emailRequired": "Enter an e-mail address.",
+        "emailInvalid": "Enter a valid e-mail address.",
+        "emailTooLong": "The address can be at most {{max}} characters."
+      },
+      "errors": {
+        "duplicate": "This address is already configured."
+      }
+    }
+  },
   "pages": {
     "profile": {
       "title": "Profile",
