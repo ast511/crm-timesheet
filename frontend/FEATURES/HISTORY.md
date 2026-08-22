@@ -15,6 +15,7 @@ the backend (F01, F02, …).
 | F08 | [Departments](F08-departments.md)                           | Done   | 2026-08-20 |
 | F09 | [Public Holidays](F09-public-holidays.md)                   | Done   | 2026-08-20 |
 | F10 | [Leave Notification Emails](F10-leave-notification-emails.md) | Done | 2026-08-21 |
+| F11 | [Projects](F11-projects.md)                                 | Done   | 2026-08-21 |
 
 ## Amendments
 
@@ -29,3 +30,11 @@ records. Listed here so the history still reads in order.
 | F01    | [Project Foundation — the column-visibility menu crashed on its first open](F01-project-foundation.md) | Done   | 2026-08-19 |
 | F05    | [App Layout — an employee's sidebar is three items](F05-app-layout.md)          | Done   | 2026-08-21 |
 | F05    | [App Layout — the personal workspace does not vary by role](F05-app-layout.md)  | Done   | 2026-08-21 |
+| F10    | [Leave Notification Emails — the addresses are `LEAVES.CONFIGURE`](F10-leave-notification-emails.md) | Done   | 2026-08-21 |
+| F03    | [Authentication — a field the server rejected was announced as *valid*](F03-authentication.md) | Done   | 2026-08-22 |
+
+The last row is a shared fix, so it is also noted in the documents of every
+feature it changed: [F07](F07-leave-types.md), [F08](F08-departments.md),
+[F09](F09-public-holidays.md) and [F11](F11-projects.md), which found it. It
+lives under F03 because that is where `lib/form-errors.ts` and the server-side
+validation mapping are documented.

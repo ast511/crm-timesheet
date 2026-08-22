@@ -10,6 +10,9 @@
   "AUTHORIZATION_PERMISSION_DENIED": "You do not have permission for this action ({{requiredPermissions}}).",
   "VALIDATION_ERROR": "The data sent is not valid. Check the highlighted fields.",
   "RATE_LIMIT_EXCEEDED": "Too many requests. Wait a moment and try again.",
+  "field": {
+    "rejected": "The server did not accept this value. Change it and try again."
+  },
   "fallback": {
     "network": "The server could not be reached. Check your internet connection.",
     "unknown": "Something went wrong.",

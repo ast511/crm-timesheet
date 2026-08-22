@@ -8,7 +8,7 @@ import { FormSwitchField } from '@/components/form/FormSwitchField';
 import { FormTextareaField } from '@/components/form/FormTextareaField';
 import { SubmitButton } from '@/components/form/SubmitButton';
 import { Button } from '@/components/ui/button';
-import { rejectedFields } from '@/lib/form-errors';
+import { useServerFieldErrors } from '@/hooks/useServerFieldErrors';
 
 import { useDepartmentErrorMessage } from '../department-errors';
 import {
@@ -87,6 +87,7 @@ export const DepartmentForm = ({ department, onSaved, onCancel }: DepartmentForm
   const { t } = useTranslation();
   const { departmentSchema } = useDepartmentSchemas();
   const describeError = useDepartmentErrorMessage('duplicate');
+  const markRejectedFields = useServerFieldErrors<DepartmentFormInput>();
 
   const create = useCreateDepartment();
   const update = useUpdateDepartment();
@@ -105,9 +106,7 @@ export const DepartmentForm = ({ department, onSaved, onCancel }: DepartmentForm
 
   const onSubmit = handleSubmit((values: DepartmentFormValues) => {
     const onError = (error: unknown) => {
-      for (const field of rejectedFields(error, FIELDS)) {
-        setError(field, { type: 'server' });
-      }
+      markRejectedFields(error, FIELDS, setError);
     };
 
     if (department === undefined) {

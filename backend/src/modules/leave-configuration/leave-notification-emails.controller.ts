@@ -21,6 +21,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { LeaveNotificationEmailsService } from './leave-notification-emails.service';
 import { CreateLeaveNotificationEmailDto } from './leave-notification-emails/dto/create-leave-notification-email.dto';
 import { LeaveNotificationEmailQueryDto } from './leave-notification-emails/dto/leave-notification-email-query.dto';
@@ -41,6 +42,22 @@ import { LeaveNotificationEmailEntity } from './leave-notification-emails/entiti
  * Every method is a one-line delegation on purpose. Validation is the DTOs' job,
  * the success envelope is the global interceptor's, error rendering is the
  * global filter's, and the duplicate rule is the service's.
+ *
+ * **The three writes require `LEAVES.CONFIGURE`, not `LEAVES.CREATE` / `.EDIT` /
+ * `.DELETE`** — and the departure from the sibling controller is the seed's own
+ * doing rather than a preference. `LEAVES.CONFIGURE` is described as changing
+ * "the rules balances are judged by — carry-over, approval requirements,
+ * **notification addresses** — and running the year-end generation", so this list
+ * is named in the catalog under that key and under no other. It is a routing
+ * decision about who hears from the system, which is why it sits a tier above
+ * maintaining a leave type: `HR - Standard` may add a leave type and may not
+ * redirect the mail about it.
+ *
+ * One key for all three verbs, because the resource is a list rather than a set
+ * of records — adding and removing an address are the same act of configuring
+ * where leave mail goes, and no tier should be able to do one and not the other.
+ * `WorkScheduleController` gates its own address list the same way, on
+ * `WORK_SCHEDULE.CONFIGURE`.
  *
  * `id` is taken as a plain string: ids are cuids, so `ParseUUIDPipe` would
  * reject valid ones, and a malformed id simply matches no row and yields the
@@ -76,8 +93,13 @@ export class LeaveNotificationEmailsController {
       'The address is trimmed and lower-cased before the duplicate check.',
   })
   @ApiCreatedEnvelope(LeaveNotificationEmailEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.CONFLICT,
+  )
   @Post()
+  @RequirePermission('LEAVES.CONFIGURE')
   create(
     @Body() dto: CreateLeaveNotificationEmailDto,
   ): Promise<LeaveNotificationEmailEntity> {
@@ -91,10 +113,12 @@ export class LeaveNotificationEmailsController {
   @ApiOkEnvelope(LeaveNotificationEmailEntity)
   @ApiStandardErrors(
     HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
     HttpStatus.NOT_FOUND,
     HttpStatus.CONFLICT,
   )
   @Patch(':id')
+  @RequirePermission('LEAVES.CONFIGURE')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateLeaveNotificationEmailDto,
@@ -111,8 +135,9 @@ export class LeaveNotificationEmailsController {
     description: 'Answers `200` with `data: null` rather than `204`.',
   })
   @ApiOkNullEnvelope()
-  @ApiStandardErrors(HttpStatus.NOT_FOUND)
+  @ApiStandardErrors(HttpStatus.FORBIDDEN, HttpStatus.NOT_FOUND)
   @Delete(':id')
+  @RequirePermission('LEAVES.CONFIGURE')
   remove(@Param('id') id: string): Promise<void> {
     return this.leaveNotificationEmailsService.remove(id);
   }

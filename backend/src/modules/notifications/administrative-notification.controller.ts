@@ -51,6 +51,22 @@ import { NotificationService } from './notification.service';
  * type would match anybody who asked, and every employee would receive the
  * back-office broadcasts.
  *
+ * **Feature 041's sweep left both writes here ungated, deliberately.** They are
+ * `PATCH /read-all` and `DELETE /` — inbox management, scoped by the service to
+ * what the caller can actually see, and already behind the administrative-role
+ * check above, so neither is the "the frontend hides the button but the API
+ * answers anyway" hole that sweep existed to close. The catalog draws the same
+ * line under `NOTIFICATION_CONFIG.VIEW`: "Reading your own inbox is not governed
+ * by this and is denied to nobody." An administrator clearing their own inbox is
+ * not configuring notifications, and a `NOTIFICATION_CONFIG` gate here would be a
+ * checkbox that can leave somebody unable to dismiss their own messages.
+ *
+ * The one asymmetry worth naming is that `DELETE /` removes the shared
+ * `ADMINISTRATIVE_USERS` announcements for *every* administrative user rather
+ * than only for the caller — a property of there being one row per announcement,
+ * recorded in Feature 026 and unchanged here. Per-recipient read and delete state
+ * is the fix, and it is a schema change rather than a permission.
+ *
  * **There is no `POST`, no `:id` route and no `PATCH` other than `read-all`**,
  * and their absence is deliberate rather than pending. Creation is one temporary
  * endpoint on the other controller, which takes the workspace in its body;

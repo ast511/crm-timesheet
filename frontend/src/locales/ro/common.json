@@ -473,6 +473,121 @@
       "description": "Sărbătorile legale sunt zilele în care compania este închisă și care nu se scad din zilele de concediu. Adaugă prima sărbătoare pentru a începe."
     }
   },
+  "projects": {
+    "searchPlaceholder": "Caută după cod, denumire sau client…",
+    "noResults": "Niciun proiect nu corespunde filtrelor.",
+    "columns": {
+      "code": "Cod",
+      "name": "Denumire",
+      "clientName": "Client",
+      "status": "Status",
+      "priority": "Prioritate",
+      "estimatedHours": "Ore estimate",
+      "period": "Perioadă",
+      "actions": "Acțiuni",
+      "noValue": "—",
+      "notEstimated": "Neestimat",
+      "hours": "{{hours}} h"
+    },
+    "status": {
+      "active": "Activ",
+      "onHold": "În așteptare",
+      "completed": "Finalizat",
+      "cancelled": "Anulat"
+    },
+    "priority": {
+      "low": "Scăzută",
+      "medium": "Medie",
+      "high": "Ridicată"
+    },
+    "flags": {
+      "archived": "Arhivat"
+    },
+    "period": {
+      "from": "Din {{start}}",
+      "until": "Până la {{end}}",
+      "range": "{{start}} – {{end}}"
+    },
+    "filters": {
+      "status": "Filtrează după status",
+      "allStatuses": "Toate statusurile",
+      "priority": "Filtrează după prioritate",
+      "allPriorities": "Toate prioritățile",
+      "archived": "Filtrează după arhivare",
+      "allProjects": "Toate proiectele",
+      "activeOnly": "Doar nearhivate",
+      "archivedOnly": "Doar arhivate"
+    },
+    "actions": {
+      "create": "Adaugă proiect",
+      "menu": "Acțiuni pentru {{name}}"
+    },
+    "form": {
+      "createTitle": "Proiect nou",
+      "createDescription": "Definește un proiect pe care se pot ponta ore.",
+      "editTitle": "Modifică proiectul",
+      "editDescription": "Modificările se aplică imediat, inclusiv în pontajele în lucru. Membrii echipei se administrează separat."
+    },
+    "fields": {
+      "code": "Cod",
+      "codePlaceholder": "CRM-TS",
+      "name": "Denumire",
+      "namePlaceholder": "CRM TimeSheet",
+      "clientName": "Client",
+      "clientNamePlaceholder": "TechCorp Solutions",
+      "clientNameHint": "Obligatoriu. Pentru un proiect intern, completează numele companiei.",
+      "status": "Status",
+      "priority": "Prioritate",
+      "estimatedHours": "Ore estimate",
+      "estimatedHoursPlaceholder": "0",
+      "estimatedHoursHint": "Bugetul de ore al proiectului, în ore întregi. Completează 0 dacă nu a fost estimat încă.",
+      "color": "Culoare",
+      "colorPicker": "Alege culoarea",
+      "colorClear": "Elimină culoarea",
+      "colorHint": "Opțional, în formatul #RRGGBB.",
+      "startDate": "Data de început",
+      "endDate": "Data de sfârșit",
+      "datesHint": "Ambele date sunt opționale — lasă-le goale dacă perioada nu este încă stabilită.",
+      "description": "Descriere",
+      "descriptionPlaceholder": "Ce presupune acest proiect.",
+      "isArchived": "Arhivat",
+      "isArchivedHint": "Un proiect arhivat este retras din munca curentă, dar orele deja pontate rămân neatinse."
+    },
+    "validation": {
+      "codeRequired": "Introdu codul proiectului.",
+      "codeTooLong": "Codul poate avea cel mult {{max}} caractere.",
+      "codeInvalid": "Codul poate conține doar litere și cifre, separate prin - sau _.",
+      "nameRequired": "Introdu denumirea proiectului.",
+      "nameTooLong": "Denumirea poate avea cel mult {{max}} caractere.",
+      "clientNameRequired": "Introdu numele clientului. Pentru un proiect intern, completează numele companiei.",
+      "clientNameTooLong": "Numele clientului poate avea cel mult {{max}} caractere.",
+      "descriptionTooLong": "Descrierea poate avea cel mult {{max}} caractere.",
+      "estimatedHoursRequired": "Introdu numărul de ore estimate. Completează 0 dacă nu a fost estimat încă.",
+      "estimatedHoursInvalid": "Introdu un număr întreg de ore, fără zecimale.",
+      "estimatedHoursOutOfRange": "Numărul de ore trebuie să fie între {{min}} și {{max}}.",
+      "colorInvalid": "Culoarea trebuie să fie în formatul #RRGGBB.",
+      "startDateInvalid": "Data de început nu este validă.",
+      "endDateInvalid": "Data de sfârșit nu este validă.",
+      "endBeforeStart": "Data de sfârșit nu poate fi înaintea datei de început."
+    },
+    "errors": {
+      "duplicateCode": "Codul este deja folosit de alt proiect. Alege altul.",
+      "inUse": "Proiectul nu poate fi șters cât timp are membri sau ore pontate. Arhivează-l pentru a-l retrage din munca curentă fără a pierde orele înregistrate."
+    },
+    "toast": {
+      "created": "Proiectul „{{name}}” a fost adăugat.",
+      "updated": "Proiectul „{{name}}” a fost actualizat.",
+      "deleted": "Proiectul „{{name}}” a fost șters."
+    },
+    "delete": {
+      "title": "Ștergi proiectul?",
+      "description": "„{{name}}” va fi șters definitiv. Ștergerea este refuzată dacă proiectul are membri sau ore pontate — în acest caz arhivează-l."
+    },
+    "empty": {
+      "title": "Niciun proiect",
+      "description": "Proiectele sunt lucrările pe care se pontează orele echipei. Fără cel puțin un proiect, nimeni nu poate completa un pontaj. Adaugă primul proiect pentru a începe."
+    }
+  },
   "pages": {
     "profile": {
       "title": "Profil",

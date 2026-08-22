@@ -19,6 +19,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreateTimesheetApprovalEmailDto } from './dto/create-timesheet-approval-email.dto';
 import { UpdateWorkScheduleDto } from './dto/update-work-schedule.dto';
 import { TimesheetApprovalEmailEntity } from './entities/timesheet-approval-email.entity';
@@ -49,10 +50,26 @@ import { WorkScheduleService } from './work-schedule.service';
  * global filter's, and every rule — the single-row guarantee, the entry range,
  * the duplicate address — is the service's.
  *
- * Note what is *not* here: no guard, no role check, no notion of who is
- * calling, even though this is administrator-only configuration in practice.
- * Authentication and authorization are later features, and half of an access
- * check is worse than none — it reads as protection while providing none.
+ * ## The schedule and the addresses take different keys
+ *
+ * Feature 041 gated both writes, and `WORK_SCHEDULE` is the one resource in the
+ * catalog whose `EDIT` and `CONFIGURE` cells name two genuinely different jobs
+ * rather than two sizes of the same one:
+ *
+ * | Route | Key | The catalog's own words |
+ * | --- | --- | --- |
+ * | `PUT /work-schedule` | `WORK_SCHEDULE.EDIT` | "Change the working days, hours and entry limits" |
+ * | `POST /work-schedule/emails`, `DELETE /work-schedule/emails/:id` | `WORK_SCHEDULE.CONFIGURE` | "Maintain the addresses notified when a timesheet needs approval" |
+ *
+ * The split is worth having. `Admin - Standard` holds `WORK_SCHEDULE.EDIT` and
+ * **not** `WORK_SCHEDULE.CONFIGURE` — one of the nine cells the seed deliberately
+ * withholds from that tier — so an ordinary administrator may change the working
+ * week and may not reroute the approval mail to themselves. That is an act whose
+ * consequences outlive the click, and `Admin - Full Access` is how it is granted.
+ *
+ * The two reads stay ungated, and `GET /work-schedule` in particular must: it is
+ * "the endpoint every client needs before it renders a single timestamp",
+ * because the company timezone lives on it.
  */
 @ApiTags(API_TAG.WorkSchedule)
 @ApiBearerAuth(BEARER_AUTH_NAME)
@@ -87,8 +104,9 @@ export class WorkScheduleController {
       '`PUT` because the address is known before the resource exists, the body is complete, and sending it twice leaves the same state. Answers `200` whether it created or replaced — a `201` would let a client tell the two apart, which is exactly what this endpoint exists to spare it. `workingDays` is sorted into week order before it is stored, so the response may not echo the order that was sent.',
   })
   @ApiOkEnvelope(WorkScheduleEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.FORBIDDEN)
   @Put()
+  @RequirePermission('WORK_SCHEDULE.EDIT')
   save(@Body() dto: UpdateWorkScheduleDto): Promise<WorkScheduleEntity> {
     return this.workScheduleService.save(dto);
   }
@@ -111,8 +129,13 @@ export class WorkScheduleController {
       'The address is trimmed and lower-cased before the duplicate check, so `HR@company.com` and `hr@company.com` are the same entry.',
   })
   @ApiCreatedEnvelope(TimesheetApprovalEmailEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.CONFLICT,
+  )
   @Post('emails')
+  @RequirePermission('WORK_SCHEDULE.CONFIGURE')
   addEmail(
     @Body() dto: CreateTimesheetApprovalEmailDto,
   ): Promise<TimesheetApprovalEmailEntity> {
@@ -135,8 +158,9 @@ export class WorkScheduleController {
     description: 'Answers `200` with `data: null` rather than `204`.',
   })
   @ApiOkNullEnvelope()
-  @ApiStandardErrors(HttpStatus.NOT_FOUND)
+  @ApiStandardErrors(HttpStatus.FORBIDDEN, HttpStatus.NOT_FOUND)
   @Delete('emails/:id')
+  @RequirePermission('WORK_SCHEDULE.CONFIGURE')
   removeEmail(@Param('id') id: string): Promise<void> {
     return this.workScheduleService.removeEmail(id);
   }

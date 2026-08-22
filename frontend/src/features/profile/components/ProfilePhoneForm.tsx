@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { FormField } from '@/components/form/FormField';
 import { SubmitButton } from '@/components/form/SubmitButton';
-import { rejectedFields } from '@/lib/form-errors';
+import { useServerFieldErrors } from '@/hooks/useServerFieldErrors';
 
 import { PHONE_MAX_LENGTH, type ProfilePhoneInput, type ProfilePhoneValues } from '../profile-schemas';
 import { useUpdatePhone } from '../useProfile';
@@ -48,6 +48,7 @@ export interface ProfilePhoneFormProps {
 export const ProfilePhoneForm = ({ phone }: ProfilePhoneFormProps) => {
   const { t } = useTranslation();
   const { profilePhoneSchema } = useProfileSchemas();
+  const markRejectedFields = useServerFieldErrors<ProfilePhoneInput>();
   const updatePhone = useUpdatePhone();
 
   const {
@@ -69,9 +70,7 @@ export const ProfilePhoneForm = ({ phone }: ProfilePhoneFormProps) => {
           reset({ phone: profile.employee?.phone ?? '' });
         },
         onError: (error) => {
-          for (const field of rejectedFields(error, FIELDS)) {
-            setError(field, { type: 'server' });
-          }
+          markRejectedFields(error, FIELDS, setError);
         },
       },
     );

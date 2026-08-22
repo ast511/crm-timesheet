@@ -519,9 +519,16 @@ they all hand it a stub.
   writer, so it is the natural place to evict — plus eviction on a role change in
   the users module. Worth doing when a profiler says the two extra queries per
   gated request matter; not before.
-- **Migrate the remaining routes**, per module, as each is touched. Employees,
+- ~~**Migrate the remaining routes**, per module, as each is touched. Employees,
   projects, leave configuration, notification configuration and the work schedule
-  all have keys in the catalog and role checks in their services today.
+  all have keys in the catalog and role checks in their services today.~~
+  **Addressed by [Feature 041](041-authorization-write-sweep.md)**, and done as
+  one sweep rather than per module — because the gap turned out to be a security
+  hole rather than a migration backlog: every write verb in those modules was
+  reachable by any authenticated employee. Forty-four verbs across seventeen
+  controllers now declare a key, taking the application from twelve gated routes
+  to fifty-six and from five keys in use to thirty. **Reads are still open**, and
+  041's own list records which of them deserve a decision.
 - **`PAGE_ACCESS` keys are enforced nowhere**, by design: they gate *screens*, so
   the frontend reads them from `me/effective`. If a route is ever added that is
   genuinely "open this page", it should say so.

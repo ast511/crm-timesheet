@@ -19,6 +19,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreateProjectMemberDto } from './dto/create-project-member.dto';
 import { ProjectMemberQueryDto } from './dto/project-member-query.dto';
 import { UpdateProjectMemberDto } from './dto/update-project-member.dto';
@@ -54,9 +55,25 @@ import { ProjectMemberService } from './project-member.service';
  * job, the success envelope is the global interceptor's, error rendering is the
  * global filter's, and every rule is the service's.
  *
- * Note what is *not* here: no guard, no role check, no notion of who is
- * calling. Authentication and authorization are later features, and half of an
- * access check is worse than none.
+ * ## The three writes all require `PROJECTS.EDIT`
+ *
+ * One key for `POST`, `PATCH` and `DELETE` alike, and it is not laziness — it is
+ * the catalog's own reading of what a roster is. `PROJECTS.EDIT` is described in
+ * `permissions.seed.ts` as "Change a project, **including its roster** — who is
+ * on it and who manages it", and the same file says project rosters are not a
+ * resource of their own because a membership is part of the project it is on.
+ * There is deliberately no `PROJECT_MEMBERS` resource to name, so adding
+ * somebody to a project is the same act, at the same authority, as changing the
+ * project's dates.
+ *
+ * That is also why the delete is `PROJECTS.EDIT` rather than `PROJECTS.DELETE`:
+ * removing a member removes a membership, not the project. Somebody trusted to
+ * maintain a roster should not need the permission that deletes the whole
+ * project in order to do it — and, read the other way, an `Admin - Standard`
+ * account holds `PROJECTS.EDIT` and not `PROJECTS.DELETE`, so the split is what
+ * lets that tier run projects without being able to erase one.
+ *
+ * The two reads stay ungated, like `GET /projects` beside them.
  *
  * Both ids are taken as plain strings: they are cuids, so `ParseUUIDPipe` would
  * reject valid ones.
@@ -121,10 +138,12 @@ export class ProjectMembersController {
   @ApiCreatedEnvelope(ProjectMemberRosterEntry)
   @ApiStandardErrors(
     HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
     HttpStatus.NOT_FOUND,
     HttpStatus.CONFLICT,
   )
   @Post(':projectId/members')
+  @RequirePermission('PROJECTS.EDIT')
   create(
     @Param('projectId') projectId: string,
     @Body() dto: CreateProjectMemberDto,
@@ -138,8 +157,13 @@ export class ProjectMembersController {
       'A partial update of the membership period and the project-manager flag. `leftAt`, when given, must be on or after `joinedAt`.',
   })
   @ApiOkEnvelope(ProjectMemberRosterEntry)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.NOT_FOUND)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.NOT_FOUND,
+  )
   @Patch(':projectId/members/:employeeId')
+  @RequirePermission('PROJECTS.EDIT')
   update(
     @Param('projectId') projectId: string,
     @Param('employeeId') employeeId: string,
@@ -160,8 +184,9 @@ export class ProjectMembersController {
     description: 'Answers `200` with `data: null` rather than `204`.',
   })
   @ApiOkNullEnvelope()
-  @ApiStandardErrors(HttpStatus.NOT_FOUND)
+  @ApiStandardErrors(HttpStatus.FORBIDDEN, HttpStatus.NOT_FOUND)
   @Delete(':projectId/members/:employeeId')
+  @RequirePermission('PROJECTS.EDIT')
   remove(
     @Param('projectId') projectId: string,
     @Param('employeeId') employeeId: string,

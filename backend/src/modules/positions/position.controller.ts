@@ -21,6 +21,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreatePositionDto } from './dto/create-position.dto';
 import { PositionQueryDto } from './dto/position-query.dto';
 import { UpdatePositionDto } from './dto/update-position.dto';
@@ -42,6 +43,35 @@ import { PositionService } from './position.service';
  *
  * The `@Api*` decorators added by Feature 038 describe this controller and
  * change nothing about it.
+ *
+ * ## The writes are gated on `EMPLOYEES.*`, and that needs explaining
+ *
+ * **There is no `POSITIONS` resource in the permission catalog.** Feature 029
+ * seeded twelve resources and this is not one of them — `DEPARTMENTS` got a row
+ * of its own and job titles did not — so Feature 041's sweep arrived here with no
+ * key to name. Three things could have happened, and the choice matters:
+ *
+ * 1. Invent `POSITIONS.CREATE`. Rejected: a `@RequirePermission()` naming a key
+ *    the seed never creates is the worst failure mode in this system — it looks
+ *    like an access rule and refuses everybody but a super-admin, permanently,
+ *    because no grant can satisfy it. `authorization/catalog.spec.ts` exists to
+ *    make that a failing test.
+ * 2. Add the enum value. That is a `schema.prisma` change and a migration, which
+ *    a code-only security sweep must not smuggle in. It is recorded as a future
+ *    improvement instead.
+ * 3. Gate on the resource a position actually belongs to. This is what happened.
+ *
+ * A position is not a screen and not a thing anybody administers on its own: it
+ * is a column on an employee, maintained by whoever maintains the directory, and
+ * the frontend has no positions page at all. So `POST`, `PATCH` and `DELETE`
+ * require `EMPLOYEES.CREATE`, `EMPLOYEES.EDIT` and `EMPLOYEES.DELETE` — the same
+ * keys, at the same tiers, as the records these rows are referenced by. HR keeps
+ * adding and renaming job titles; deleting one, which is refused anyway while an
+ * employee still holds it, needs the `Full Access` tier.
+ *
+ * It is a deliberate approximation rather than a claim that the two resources are
+ * the same, and the day a `POSITIONS` resource is seeded these three lines are
+ * what changes.
  */
 @ApiTags(API_TAG.Positions)
 @ApiBearerAuth(BEARER_AUTH_NAME)
@@ -78,8 +108,13 @@ export class PositionController {
       '`code` is trimmed and upper-cased before the uniqueness check, so `dev` and `DEV` are the same position.',
   })
   @ApiCreatedEnvelope(PositionEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.CONFLICT,
+  )
   @Post()
+  @RequirePermission('EMPLOYEES.CREATE')
   create(@Body() dto: CreatePositionDto): Promise<PositionEntity> {
     return this.positionService.create(dto);
   }
@@ -92,10 +127,12 @@ export class PositionController {
   @ApiOkEnvelope(PositionEntity)
   @ApiStandardErrors(
     HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
     HttpStatus.NOT_FOUND,
     HttpStatus.CONFLICT,
   )
   @Patch(':id')
+  @RequirePermission('EMPLOYEES.EDIT')
   update(
     @Param('id') id: string,
     @Body() dto: UpdatePositionDto,
@@ -116,8 +153,13 @@ export class PositionController {
       'Refused with a `409` while any employee still holds it. Answers `200` with `data: null` rather than `204`.',
   })
   @ApiOkNullEnvelope()
-  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.FORBIDDEN,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Delete(':id')
+  @RequirePermission('EMPLOYEES.DELETE')
   remove(@Param('id') id: string): Promise<void> {
     return this.positionService.remove(id);
   }

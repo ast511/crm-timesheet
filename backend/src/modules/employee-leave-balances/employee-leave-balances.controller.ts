@@ -23,6 +23,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreateEmployeeLeaveBalanceDto } from './dto/create-employee-leave-balance.dto';
 import { EmployeeLeaveBalanceQueryDto } from './dto/employee-leave-balance-query.dto';
 import { GenerateLeaveBalancesDto } from './dto/generate-leave-balances.dto';
@@ -54,10 +55,29 @@ import { LeaveBalanceGenerationReport } from './entities/leave-balance-generatio
  * reject valid ones, and a malformed id simply matches no row and yields the
  * same 404 as an id that never existed.
  *
- * Note what is *not* here: no guard, no role check, no notion of who is calling,
- * even though allocating leave is an HR/Admin action in practice. Authentication
- * and authorization are later features, and half of an access check is worse
- * than none — it reads as protection while providing none.
+ * ## Four writes, three tiers
+ *
+ * Feature 041 gated all four, and they do not all take the same key — the seed
+ * spells the difference out cell by cell:
+ *
+ * | Route | Key | The catalog's own words |
+ * | --- | --- | --- |
+ * | `POST /` | `LEAVES.CREATE` | "allocate somebody a balance" |
+ * | `PATCH /:id` | `LEAVES.EDIT` | "correct an allocated balance" |
+ * | `DELETE /:id` | `LEAVES.DELETE` | "Remove a leave type or a balance" |
+ * | `POST /generate` | `LEAVES.CONFIGURE` | "run the year-end generation" |
+ *
+ * **`generate` is the one worth pausing on.** It is not a bigger `create`: it
+ * opens a year for everybody in scope and closes the one before it, carrying
+ * over what each leave type allows, so a single call rewrites the leave position
+ * of the whole company. `LEAVES.CONFIGURE` is the key the seed names it under,
+ * and it sits a tier above the per-row writes — `HR - Standard` may correct one
+ * person's balance and may not run the year-end. `dryRun` is gated identically,
+ * because a caller who may not run the generation has no business enumerating
+ * what it would do to everybody's balances.
+ *
+ * The two reads stay ungated. A balance is read by the leave screens an employee
+ * uses to see what they have left.
  */
 @ApiTags(API_TAG.LeaveBalances)
 @ApiBearerAuth(BEARER_AUTH_NAME)
@@ -98,8 +118,13 @@ export class EmployeeLeaveBalancesController {
       'One row per employee, leave type and year — that triple is unique, so a second allocation for the same three is a `409` rather than a silent overwrite.',
   })
   @ApiCreatedEnvelope(EmployeeLeaveBalanceEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.CONFLICT,
+  )
   @Post()
+  @RequirePermission('LEAVES.CREATE')
   create(
     @Body() dto: CreateEmployeeLeaveBalanceDto,
   ): Promise<EmployeeLeaveBalanceEntity> {
@@ -126,9 +151,10 @@ export class EmployeeLeaveBalancesController {
       'Creates the balances for a year and closes the one before it, carrying over what each leave type allows. A `POST` to a named sub-path rather than a resource, because what it creates is not one balance and the response is a *report on the run* rather than a record a client could then `GET`. Answers `200` rather than `201`: a `Location` header would have nothing to point at, a re-run that creates nothing is a complete success, and `dryRun` writes nothing at all.',
   })
   @ApiOkEnvelope(LeaveBalanceGenerationReport)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.FORBIDDEN)
   @Post('generate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('LEAVES.CONFIGURE')
   generate(
     @Body() dto: GenerateLeaveBalancesDto,
   ): Promise<LeaveBalanceGenerationReport> {
@@ -143,10 +169,12 @@ export class EmployeeLeaveBalancesController {
   @ApiOkEnvelope(EmployeeLeaveBalanceEntity)
   @ApiStandardErrors(
     HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
     HttpStatus.NOT_FOUND,
     HttpStatus.CONFLICT,
   )
   @Patch(':id')
+  @RequirePermission('LEAVES.EDIT')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateEmployeeLeaveBalanceDto,
@@ -166,8 +194,13 @@ export class EmployeeLeaveBalancesController {
     description: 'Answers `200` with `data: null` rather than `204`.',
   })
   @ApiOkNullEnvelope()
-  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.FORBIDDEN,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Delete(':id')
+  @RequirePermission('LEAVES.DELETE')
   remove(@Param('id') id: string): Promise<void> {
     return this.employeeLeaveBalancesService.remove(id);
   }

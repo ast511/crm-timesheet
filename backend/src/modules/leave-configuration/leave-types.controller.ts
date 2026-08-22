@@ -21,6 +21,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { LeaveTypesService } from './leave-types.service';
 import { CreateLeaveTypeDto } from './leave-types/dto/create-leave-type.dto';
 import { LeaveTypeQueryDto } from './leave-types/dto/leave-type-query.dto';
@@ -47,10 +48,18 @@ import { LeaveTypeEntity } from './leave-types/entities/leave-type.entity';
  * reject valid ones, and a malformed id simply matches no row and yields the
  * same 404 as an id that never existed.
  *
- * Note what is *not* here: no guard, no role check, no notion of who is calling,
- * even though this is administrator-only configuration in practice.
- * Authentication and authorization are later features, and half of an access
- * check is worse than none — it reads as protection while providing none.
+ * **The three writes require `LEAVES.CREATE`, `LEAVES.EDIT` and
+ * `LEAVES.DELETE`** as of Feature 041, which is what this file's previous
+ * paragraph — "administrator-only configuration in practice", enforced nowhere —
+ * was waiting for. The seed's own descriptions name these keys for exactly this:
+ * "Add a leave type", "Change a leave type", "Remove a leave type or a balance".
+ * HR holds create and edit; the delete is the `Full Access` tier, and the
+ * service still refuses it with a `409` while any balance or request names the
+ * type.
+ *
+ * The reads stay ungated, and that is not an oversight either: a leave type is
+ * the vocabulary every leave screen renders with — its label, its icon, its
+ * colour — so an employee filing a request has to be able to list them.
  */
 @ApiTags(API_TAG.LeaveConfiguration)
 @ApiBearerAuth(BEARER_AUTH_NAME)
@@ -88,8 +97,13 @@ export class LeaveTypesController {
       '`code` and `reportMarker` are both trimmed and upper-cased before their uniqueness checks.',
   })
   @ApiCreatedEnvelope(LeaveTypeEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.CONFLICT,
+  )
   @Post()
+  @RequirePermission('LEAVES.CREATE')
   create(@Body() dto: CreateLeaveTypeDto): Promise<LeaveTypeEntity> {
     return this.leaveTypesService.create(dto);
   }
@@ -102,10 +116,12 @@ export class LeaveTypesController {
   @ApiOkEnvelope(LeaveTypeEntity)
   @ApiStandardErrors(
     HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
     HttpStatus.NOT_FOUND,
     HttpStatus.CONFLICT,
   )
   @Patch(':id')
+  @RequirePermission('LEAVES.EDIT')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateLeaveTypeDto,
@@ -126,8 +142,13 @@ export class LeaveTypesController {
       'Refused with a `409` while any balance or request still names it. Answers `200` with `data: null` rather than `204`.',
   })
   @ApiOkNullEnvelope()
-  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.FORBIDDEN,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Delete(':id')
+  @RequirePermission('LEAVES.DELETE')
   remove(@Param('id') id: string): Promise<void> {
     return this.leaveTypesService.remove(id);
   }

@@ -44,6 +44,7 @@ Append new features to the end of this table.
 | 038 | [API Documentation](038-api-documentation.md) | Completed | 2026-08-13 |
 | 039 | [User UI Preferences](039-user-ui-preferences.md) | Completed | 2026-08-13 |
 | 040 | [Refresh Token via HttpOnly Cookie](040-refresh-cookie.md) | Completed | 2026-08-14 |
+| 041 | [Authorization Write Sweep](041-authorization-write-sweep.md) | Completed | 2026-08-21 |
 
 **The authentication series (032–036) is complete.** Identity is proved rather
 than claimed (032), every failure carries a stable code (033), every route is
@@ -119,6 +120,42 @@ cookie routes also require a Bearer token no attacker can attach, and forging th
 third achieves nothing an attacker can read. It also names the deployment that
 invalidates all of that — a frontend on a different site, which needs
 `SameSite=None` — and leaves that note where whoever configures it will find it.
+
+Feature 041 goes back and finishes what 035 started, and the reason it is a
+feature rather than a chore is what the deferral turned out to *be*. Feature 035
+gated eleven routes and recorded the rest as "a gradual, per-module effort" —
+which read, at the time, as tidying. It was not: the guard admits any
+authenticated request to a route that declares nothing, so roughly twenty
+controllers were exposing `POST`, `PATCH`, `PUT` and `DELETE` verbs that any
+signed-in employee could call. The frontend hid the buttons. `curl` did not care.
+The projects work on the frontend is what surfaced it — a plain `USER`, holding
+no `PROJECTS.*` key at all, could create, edit and delete projects through the
+API — and the same shape repeated across employees, departments, leave
+configuration, leave balances, the working schedule, the reminders and the
+campaigns.
+
+Forty-four write verbs across seventeen controllers now declare a key: twelve
+gated routes became fifty-six, and five keys in use became thirty. Not one key
+was invented and not one row of the database moved — Feature 029 seeded all of
+them years of features ago, and the whole of this change is decorators, comments
+and tests.
+
+What it declines to do is as much of the story. **No read was touched**, and
+`GET /projects` in particular is now asserted open rather than merely left open:
+every employee's timesheet picker reads it, none of them holds `PROJECTS.VIEW`
+since the `USER` baseline dropped the reference pages, and a gate there would
+break the one screen every person in the company uses. Nor were the auth routes,
+the caller's own profile, or anybody's own inbox — and the `/me` leave routes are
+gated on the three keys the `USER` baseline already grants, so they refuse
+nobody today and can be revoked from one account tomorrow. The account-lifecycle
+boundary in `UserController` stays a role check and not a permission, for the
+reason 036 gave: whoever can set a role can set their own, and that boundary must
+not have a checkbox.
+
+Two places had no key to name — job titles and the email test endpoint, neither
+of which is a resource in the catalog — and 041 says so out loud rather than
+inventing one, gating both on the nearest resource they belong to and recording
+the migration that would do it properly.
 
 ## Amendments
 

@@ -22,6 +22,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { NotificationQueryDto } from './dto/notification-query.dto';
 import { NotificationBulkResult } from './entities/notification-bulk-result.entity';
@@ -54,6 +55,26 @@ import { NotificationService } from './notification.service';
  * `404` if none of them contains the row. A parallel set under
  * `/administrative/notifications/:id` would force a client holding an id to know
  * which workspace it came from before it could choose a URL.
+ *
+ * ## One route here is gated, and five deliberately are not
+ *
+ * Feature 041's sweep gated exactly `POST /notifications`, on
+ * `NOTIFICATION_CONFIG.CREATE`. It is the temporary testing route, and it is the
+ * only one on this controller that writes into somebody *else's* inbox — its body
+ * chooses the workspace and the audience, `ALL_USERS` included, so ungated it was
+ * a way for any authenticated employee to put a message in front of the whole
+ * company. Being marked deprecated is not a defence: a route that exists is a
+ * route that answers.
+ *
+ * **The other five writes stay open on purpose.** `PATCH /read-all`,
+ * `DELETE /` (empty my inbox), `PATCH /:id/read` and `DELETE /:id` act on the
+ * caller's own notifications and nobody else's — the service resolves the
+ * audiences the caller holds and answers `404` for anything outside them, so the
+ * scoping is a property of the query rather than of a gate. The catalog says so
+ * itself, under `NOTIFICATION_CONFIG.VIEW`: "Reading your own inbox is not
+ * governed by this and is denied to nobody." Requiring a permission to mark one's
+ * own message read would be a checkbox that can lock somebody out of their own
+ * notifications.
  *
  * Every method is a one-line delegation on purpose. Validation is the DTOs' job,
  * the success envelope is the global interceptor's, error rendering is the
@@ -148,17 +169,22 @@ export class NotificationController {
    * this route exists so the centre can be exercised before that engine is
    * written, and it goes away when the engine arrives.
    *
+   * Requires `NOTIFICATION_CONFIG.CREATE` since Feature 041 — the one route on
+   * this controller that writes into somebody else's inbox, and whose body may
+   * address `ALL_USERS`.
+   *
    * Answers 201; Nest applies it to `@Post` without a `@HttpCode`.
    */
   @ApiOperation({
     summary: 'Create a notification (temporary, for testing)',
     description:
-      '**Temporary, and for testing only.** Notifications are produced by the Notification Delivery Engine from events the application already records; this route exists so the centre can be exercised directly and it goes away when nothing needs it.',
+      '**Temporary, and for testing only.** Notifications are produced by the Notification Delivery Engine from events the application already records; this route exists so the centre can be exercised directly and it goes away when nothing needs it. Requires `NOTIFICATION_CONFIG.CREATE`: the body chooses the workspace and the audience, `ALL_USERS` included, so this is the one route here that writes into somebody else’s inbox.',
     deprecated: true,
   })
   @ApiCreatedEnvelope(NotificationEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.FORBIDDEN)
   @Post()
+  @RequirePermission('NOTIFICATION_CONFIG.CREATE')
   create(@Body() dto: CreateNotificationDto): Promise<NotificationEntity> {
     return this.notificationService.create(dto);
   }

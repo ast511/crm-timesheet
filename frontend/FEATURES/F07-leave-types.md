@@ -254,7 +254,7 @@ deliberately survives as `0`.
 | --- | --- |
 | Create / update succeeded | list invalidated, dialog closed, success toast |
 | Create / update `409` | `FormAlert` in the open form; dialog stays put |
-| Create / update `VALIDATION_ERROR` | the named fields marked invalid, via `rejectedFields` |
+| Create / update `VALIDATION_ERROR` | the named fields marked invalid *and given a sentence*, via `useServerFieldErrors` |
 | Delete succeeded | list invalidated, dialog closed, success toast |
 | Delete `409` | the sentence inside the still-open confirmation |
 
@@ -496,3 +496,28 @@ in one place — but it is the seam worth watching in every later list.
    `QueryBoundary` and the skeleton are the same four things every list
    screen will assemble. Correct to write out twice; worth naming by the
    third.
+---
+
+# Amendment: the shared `VALIDATION_ERROR` fix (accessibility)
+
+A field this form marked from a server rejection was **announced as valid**:
+`setError(field, { type: 'server' })` carried no message, and `FormField`
+derives `aria-invalid` and `aria-describedby` from whether there is one. The
+submit was blocked while a screen reader said the input was fine.
+
+Found by F11 on `/projects`, and identical in the six sibling forms, so it is
+fixed **once, in a shared place** — `src/hooks/useServerFieldErrors.ts`, now the
+only thing allowed to turn a rejected field name into a form error. This form
+calls it instead of writing the loop; `lib/form-errors.ts` still recovers the
+names and nothing else. The field carries `errors:field.rejected` ("the server
+did not accept this value"), while the form-level `FormAlert` keeps saying *why*
+the request failed, translated by `errorCode` — two different sentences, so
+nothing prints twice.
+
+The `409` handling on this screen is unchanged and still marks no field: the API
+names no field for it, so marking one would mean guessing. That is argued in this
+document's error section and is not the same defect.
+
+Full reasoning, the file list and the browser evidence — `aria-invalid` before
+and after, per screen — are in **F03's amendment, "a field the server rejected
+was announced as *valid*"**. Cross-references F11's finding.

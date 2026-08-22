@@ -21,6 +21,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { DepartmentService } from './department.service';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { DepartmentQueryDto } from './dto/department-query.dto';
@@ -43,7 +44,15 @@ import { DepartmentEntity } from './entities/department.entity';
  * The `@Api*` decorators added by Feature 038 describe this controller and
  * change nothing about it. `@ApiStandardErrors()` on the class is the `401`,
  * `429` and `500` every route here can answer; each method adds only the
- * failures it can actually produce.
+ * failures it can actually produce — which is why `403` is listed on the three
+ * writes and not on the two reads.
+ *
+ * **The writes require `DEPARTMENTS.CREATE`, `.EDIT` and `.DELETE`** as of
+ * Feature 041. HR holds the first two by baseline; the delete is `HR - Full
+ * Access` and above, matching the seed's own note that removing a department is
+ * refused while employees are still assigned to it. The reads stay ungated: a
+ * department list is the company's own organisational chart, and every screen
+ * that assigns somebody to one needs it.
  */
 @ApiTags(API_TAG.Departments)
 @ApiBearerAuth(BEARER_AUTH_NAME)
@@ -81,8 +90,13 @@ export class DepartmentController {
       '`code` is trimmed and upper-cased before the uniqueness check, so `dev` and `DEV` are the same department.',
   })
   @ApiCreatedEnvelope(DepartmentEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.CONFLICT,
+  )
   @Post()
+  @RequirePermission('DEPARTMENTS.CREATE')
   create(@Body() dto: CreateDepartmentDto): Promise<DepartmentEntity> {
     return this.departmentService.create(dto);
   }
@@ -95,10 +109,12 @@ export class DepartmentController {
   @ApiOkEnvelope(DepartmentEntity)
   @ApiStandardErrors(
     HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
     HttpStatus.NOT_FOUND,
     HttpStatus.CONFLICT,
   )
   @Patch(':id')
+  @RequirePermission('DEPARTMENTS.EDIT')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateDepartmentDto,
@@ -119,8 +135,13 @@ export class DepartmentController {
       'Refused with a `409` while any employee still belongs to it. Answers `200` with `data: null` rather than `204`, so a client reads the same two fields whatever it called.',
   })
   @ApiOkNullEnvelope()
-  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.FORBIDDEN,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Delete(':id')
+  @RequirePermission('DEPARTMENTS.DELETE')
   remove(@Param('id') id: string): Promise<void> {
     return this.departmentService.remove(id);
   }

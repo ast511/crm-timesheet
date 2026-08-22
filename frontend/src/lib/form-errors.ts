@@ -19,13 +19,22 @@ import { toApiError } from '@/api/api-error';
  *
  * **What it deliberately does not return is the text.** Those lines are English
  * written for a log, exactly like the envelope's `message`, and the backend
- * reserves the right to reword them. The caller marks the field invalid and the
- * form-level alert says what happened, translated by `errorCode`.
+ * reserves the right to reword them. The field carries a translated sentence
+ * saying it was refused, and the form-level alert says what happened, translated
+ * by `errorCode`.
  *
  * In practice this fires rarely: the Zod schema mirrors the backend's rules, so
  * a request that reaches the server with an invalid field is one the browser
  * was not asked to check — which is the case worth handling, and the reason
  * frontend validation is documented as UX rather than as protection.
+ *
+ * ## Call `useServerFieldErrors` instead of this
+ *
+ * This is the parsing half, kept pure and free of React so it can be reasoned
+ * about on its own. Forms use `hooks/useServerFieldErrors.ts`, which wraps it
+ * and is the *only* thing that should call `setError` for a server rejection:
+ * an error set without a message leaves the input announced as valid, which is
+ * the accessibility bug F11 found and that hook exists to make unrepeatable.
  */
 export const rejectedFields = <TField extends string>(
   error: unknown,

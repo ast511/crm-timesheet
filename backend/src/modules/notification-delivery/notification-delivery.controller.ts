@@ -5,6 +5,7 @@ import { ApiOkEnvelope } from '../../common/swagger/api-envelope-response.decora
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { DeliveryResultEntity } from './entities/delivery-result.entity';
 import { NotificationDispatcher } from './notification-dispatcher.service';
 
@@ -34,6 +35,24 @@ import { NotificationDispatcher } from './notification-dispatcher.service';
  * The controller is thin to the point of being one delegation, like every other
  * in this project: every rule, every refusal and every side effect is the
  * dispatcher's.
+ *
+ * ## `NOTIFICATION_CONFIG.EDIT`, and why a "dev endpoint" gets a real gate
+ *
+ * Feature 041 gated this route, and it is the clearest case in the whole sweep.
+ * "For development and Postman testing" describes the *intent*; what the route
+ * actually does is write a notification for every recipient of a campaign and
+ * put email on the wire under the company's `From` header, immediately, for
+ * anybody who can name a campaign id. Ungated, an ordinary employee could send
+ * an announcement to everybody by guessing nothing harder than a cuid they can
+ * read off `GET /notification-campaigns`.
+ *
+ * `NOTIFICATION_CONFIG.EDIT` rather than `.CREATE`: nothing is composed here, and
+ * what the call does to the campaign is move it to `SENT` — the seed describes
+ * `EDIT` as changing "a reminder rule or an announcement that has not been sent",
+ * which is exactly the resource and exactly the moment. It also puts sending at
+ * the same authority as cancelling, which is the pair of decisions somebody makes
+ * about a scheduled announcement, and it keeps the whole flow inside one
+ * `Admin - Standard` tier: compose, edit, send.
  */
 @ApiTags(API_TAG.NotificationDelivery)
 @ApiBearerAuth(BEARER_AUTH_NAME)
@@ -72,9 +91,14 @@ export class NotificationDeliveryController {
       '**For development and manual testing**, so the engine can be exercised without waiting for a schedule. A `DRAFT` campaign is sent as readily as a `SCHEDULED` one: this is somebody deliberately saying "send it now", and refusing a draft would mean scheduling an announcement for two minutes’ time in order to test it. Already `SENT`, `CANCELLED` or expired is a `409` naming the reason. Answers `200` rather than `201` because nothing was created — what comes back is a report of what happened: how many notifications were written, how many emails went out, and whether the mail server accepted them.',
   })
   @ApiOkEnvelope(DeliveryResultEntity)
-  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.FORBIDDEN,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Post('execute/:campaignId')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('NOTIFICATION_CONFIG.EDIT')
   execute(
     @Param('campaignId') campaignId: string,
   ): Promise<DeliveryResultEntity> {

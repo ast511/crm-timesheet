@@ -3,14 +3,65 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
+import {
+  ADMIN_STANDARD,
+  HR_STANDARD,
+  USER_BASELINE,
+} from '../prisma/seeds/permission-sets';
+import { ALL_PERMISSION_KEYS } from '../prisma/seeds/permissions.seed';
 import { AppModule } from '../src/app.module';
 import { API_BASE_PATH } from '../src/config/api.constants';
 import { configureApp } from '../src/config/app.setup';
 import { UserRole } from '../src/generated/prisma/enums';
 import { AuthService } from '../src/modules/auth/auth.service';
 import { TestAuthentication } from '../src/modules/auth/testing/authentication.testing';
+import { PermissionService } from '../src/modules/permission-management/permission.service';
 
 const ALLOWED_ORIGIN = 'http://localhost:5173';
+
+/**
+ * Authorization for a suite that is not *about* authorization, and that has no
+ * database.
+ *
+ * `PermissionsGuard` resolves the caller's effective set through
+ * `PermissionService.resolveEffective`, which reads the catalog and two tables —
+ * **on every gated route, including for a super-admin**, whose branch still
+ * fetches the catalog rows it maps. Until Feature 041 that cost this suite
+ * nothing, because none of the routes it exercises declared a requirement. The
+ * sweep gated every write verb, so without this override half the assertions
+ * below would need PostgreSQL to answer a question about the `ValidationPipe`.
+ *
+ * The stub is the same trade `auth.stub` makes one paragraph up: substitute the
+ * layer this file is not about, keep the thing being asserted real. What it does
+ * *not* do is invent a permission model — the three role sets are imported from
+ * `prisma/seeds/permission-sets.ts`, so a caller here holds exactly what the
+ * shipped product grants them, and a test that passes because an `ADMIN`
+ * genuinely lacks a key (see the two approval-address cases below) keeps failing
+ * for that reason rather than being papered over.
+ *
+ * Per-user overrides are deliberately absent: nothing in this suite grants or
+ * revokes one, and `authorization/routing.spec.ts` is where the override
+ * mechanism is exercised against the real resolver.
+ */
+const BASELINES: Record<UserRole, readonly string[]> = {
+  [UserRole.USER]: USER_BASELINE,
+  [UserRole.HR]: HR_STANDARD,
+  [UserRole.ADMIN]: ADMIN_STANDARD,
+  // Every key, by resolution rather than by configuration — the real branch.
+  [UserRole.SUPERADMIN]: ALL_PERMISSION_KEYS,
+};
+
+const permissions = {
+  resolveEffective: (userId: string, role: UserRole) =>
+    Promise.resolve({
+      userId,
+      role,
+      readOnly: role === UserRole.SUPERADMIN,
+      // The guard reads `key` and `granted` and nothing else, so the cells carry
+      // those two. A full `PermissionMatrixCell` is what the *screen* needs.
+      permissions: BASELINES[role].map((key) => ({ key, granted: true })),
+    }),
+};
 
 /**
  * Authentication for a suite that is not *about* authentication.
@@ -69,6 +120,8 @@ describe('Application endpoints (e2e)', () => {
     })
       .overrideProvider(AuthService)
       .useValue(auth.stub)
+      .overrideProvider(PermissionService)
+      .useValue(permissions)
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -556,10 +609,30 @@ describe('Application endpoints (e2e)', () => {
       expect(message.join(' ')).toMatch(/timezone/);
     });
 
+    /**
+     * The two address cases are sent as a **super-admin**, and the departure
+     * from `auth.as()` everywhere else in this block is the point rather than a
+     * workaround.
+     *
+     * Feature 041 gated `POST /work-schedule/emails` on
+     * `WORK_SCHEDULE.CONFIGURE`, which the `ADMIN` baseline deliberately
+     * withholds — it is one of the nine cells `Admin - Standard` does not carry,
+     * because rerouting the approval mail is an act whose consequences outlive
+     * the click. So the default caller now meets a `403` here and never reaches
+     * the `ValidationPipe`, while `PUT /work-schedule` above is fine on
+     * `WORK_SCHEDULE.EDIT`, which that baseline does hold. Both of those are
+     * correct, and both are asserted in `authorization/routing.spec.ts`.
+     *
+     * These two tests are about the DTO, so they need a caller who clears the
+     * gate. That is the honest fix: a super-admin, holding every key by
+     * resolution.
+     */
+    const asSuperAdmin = () => auth.as({ role: UserRole.SUPERADMIN });
+
     it('rejects an approval address that is not an address', () => {
       return request(app.getHttpServer())
         .post(`${WORK_SCHEDULE_PATH}/emails`)
-        .set(auth.as())
+        .set(asSuperAdmin())
         .send({ email: 'not-an-email' })
         .expect(400);
     });
@@ -567,7 +640,7 @@ describe('Application endpoints (e2e)', () => {
     it('refuses a schedule id supplied alongside an approval address', () => {
       return request(app.getHttpServer())
         .post(`${WORK_SCHEDULE_PATH}/emails`)
-        .set(auth.as())
+        .set(asSuperAdmin())
         .send({ email: 'hr@example.com', workScheduleId: 'work_schedule' })
         .expect(400);
     });

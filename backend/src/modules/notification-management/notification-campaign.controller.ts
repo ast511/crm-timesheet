@@ -22,6 +22,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreateNotificationCampaignDto } from './dto/create-notification-campaign.dto';
 import { NotificationCampaignQueryDto } from './dto/notification-campaign-query.dto';
 import { UpdateNotificationCampaignDto } from './dto/update-notification-campaign.dto';
@@ -55,10 +56,21 @@ import { NotificationCampaignService } from './notification-campaign.service';
  * Who is calling comes from `@CurrentUser()` — three headers when this was
  * written, the account behind a validated access token since Feature 032, and
  * not a line of this file changed for that, which is what the seam was for. It
- * is read on `POST` alone, and only because a campaign
- * records its author; the reads and the edits do not care who is asking, and
- * pretending otherwise would be half an access check — which reads as protection
- * while providing none.
+ * is read on `POST` alone, and only because a campaign records its author.
+ *
+ * **The three writes require `NOTIFICATION_CONFIG.CREATE`, `.EDIT` and
+ * `.DELETE`** as of Feature 041, the same three keys the reminders take — the
+ * catalog names both resources in one cell ("Add a reminder rule, **or compose an
+ * announcement**"), which is the seed's own statement that maintaining what this
+ * company sends is one job. An `Admin - Standard` account composes and cancels;
+ * deleting a campaign is `Admin - Full Access`, and the service refuses it with a
+ * `409` on one that was actually sent, because that is a record of something that
+ * happened.
+ *
+ * Composing is gated and **sending is gated separately**, on
+ * `POST /notification-delivery/execute/:campaignId` — see
+ * `NotificationDeliveryController`. Nothing on this controller sends anything, so
+ * clearing this gate puts no mail on the wire.
  *
  * Every method is a one-line delegation on purpose, and `id` is taken as a plain
  * string: ids are cuids, so `ParseUUIDPipe` would reject valid ones.
@@ -119,8 +131,9 @@ export class NotificationCampaignController {
       '**It is not sent.** No email leaves the system, no notification is written and no job is scheduled — the Notification Delivery Engine is the only thing that turns this into anything. The status is *derived* rather than accepted: a body carrying `scheduledAt` produces a `SCHEDULED` campaign, one without produces a `DRAFT`.',
   })
   @ApiCreatedEnvelope(NotificationCampaignEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST)
+  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.FORBIDDEN)
   @Post()
+  @RequirePermission('NOTIFICATION_CONFIG.CREATE')
   create(
     @CurrentUser() user: CurrentUser,
     @Body() dto: CreateNotificationCampaignDto,
@@ -144,10 +157,12 @@ export class NotificationCampaignController {
   @ApiOkEnvelope(NotificationCampaignEntity)
   @ApiStandardErrors(
     HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
     HttpStatus.NOT_FOUND,
     HttpStatus.CONFLICT,
   )
   @Patch(':id')
+  @RequirePermission('NOTIFICATION_CONFIG.EDIT')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateNotificationCampaignDto,
@@ -168,8 +183,13 @@ export class NotificationCampaignController {
       'Only one that was never sent; a `409` on one that was, because that is a record of something that happened. Answers `200` with `data: null` rather than `204`.',
   })
   @ApiOkNullEnvelope()
-  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.FORBIDDEN,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Delete(':id')
+  @RequirePermission('NOTIFICATION_CONFIG.DELETE')
   remove(@Param('id') id: string): Promise<void> {
     return this.campaignService.remove(id);
   }

@@ -39,8 +39,9 @@ import roErrors from '@/locales/ro/errors.json';
  * A missing key falls back to the status, then to a generic sentence — never to
  * the raw English message.
  *
- * Reserved lowercase keys (`fallback.*`) cannot collide with a code, because
- * every backend code is SCREAMING_SNAKE_CASE.
+ * Reserved lowercase keys (`fallback.*`, and `field.*` for the sentence a
+ * rejected input carries — see `useServerFieldErrors`) cannot collide with a
+ * code, because every backend code is SCREAMING_SNAKE_CASE.
  */
 
 export const LANGUAGES = ['ro', 'en'] as const;

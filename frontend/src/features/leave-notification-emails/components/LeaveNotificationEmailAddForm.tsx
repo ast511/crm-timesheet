@@ -18,14 +18,26 @@ import { LeaveNotificationEmailForm } from './LeaveNotificationEmailForm';
  * Because the form is always there, the empty state below needs no call to
  * action of its own — the affordance is already on screen, immediately above it.
  *
- * Gated on `LEAVES.CREATE`, the same key the leave-types create button carries
- * on this page. Somebody without it sees the list and no way to add to it, which
- * is correct: they can read the configuration and filling it in is not their
- * job.
+ * Gated on `LEAVES.CONFIGURE` — **not** `LEAVES.CREATE`, which is what the
+ * leave-types create button beside it on this page carries, and the difference
+ * is the catalog's rather than a preference. The seed describes
+ * `LEAVES.CONFIGURE` as changing "the rules balances are judged by — carry-over,
+ * approval requirements, **notification addresses** — and running the year-end
+ * generation": this list is named there and under no other key.
+ *
+ * So the two halves of one screen ask for two different permissions, on purpose.
+ * Adding a leave type is day-to-day HR work; deciding who is *emailed* about
+ * leave is a routing decision about the company, and `HR - Standard` may do the
+ * first and not the second. Backend Feature 041 gates
+ * `POST /leave-notification-emails` on the same key, which is what keeps this
+ * form from rendering a button the API would refuse.
+ *
+ * Somebody without it sees the list and no way to add to it, which is correct:
+ * they can read the configuration and filling it in is not their job.
  */
 export const LeaveNotificationEmailAddForm = () => {
   const { t } = useTranslation();
-  const canCreate = useCan({ permission: 'LEAVES.CREATE' });
+  const canCreate = useCan({ permission: 'LEAVES.CONFIGURE' });
 
   if (!canCreate) return null;
 

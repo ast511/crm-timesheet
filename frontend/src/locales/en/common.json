@@ -473,6 +473,121 @@
       "description": "Public holidays are the days the company is closed and that are not deducted from anyone's leave. Add the first one to get started."
     }
   },
+  "projects": {
+    "searchPlaceholder": "Search by code, name or client…",
+    "noResults": "No project matches the filters.",
+    "columns": {
+      "code": "Code",
+      "name": "Name",
+      "clientName": "Client",
+      "status": "Status",
+      "priority": "Priority",
+      "estimatedHours": "Estimated hours",
+      "period": "Period",
+      "actions": "Actions",
+      "noValue": "—",
+      "notEstimated": "Not estimated",
+      "hours": "{{hours}} h"
+    },
+    "status": {
+      "active": "Active",
+      "onHold": "On hold",
+      "completed": "Completed",
+      "cancelled": "Cancelled"
+    },
+    "priority": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High"
+    },
+    "flags": {
+      "archived": "Archived"
+    },
+    "period": {
+      "from": "From {{start}}",
+      "until": "Until {{end}}",
+      "range": "{{start}} – {{end}}"
+    },
+    "filters": {
+      "status": "Filter by status",
+      "allStatuses": "All statuses",
+      "priority": "Filter by priority",
+      "allPriorities": "All priorities",
+      "archived": "Filter by archiving",
+      "allProjects": "All projects",
+      "activeOnly": "Not archived only",
+      "archivedOnly": "Archived only"
+    },
+    "actions": {
+      "create": "Add project",
+      "menu": "Actions for {{name}}"
+    },
+    "form": {
+      "createTitle": "New project",
+      "createDescription": "Define a project that hours can be booked to.",
+      "editTitle": "Edit project",
+      "editDescription": "Changes apply immediately, including to timesheets in progress. Team members are managed separately."
+    },
+    "fields": {
+      "code": "Code",
+      "codePlaceholder": "CRM-TS",
+      "name": "Name",
+      "namePlaceholder": "CRM TimeSheet",
+      "clientName": "Client",
+      "clientNamePlaceholder": "TechCorp Solutions",
+      "clientNameHint": "Required. For an internal project, name the company itself.",
+      "status": "Status",
+      "priority": "Priority",
+      "estimatedHours": "Estimated hours",
+      "estimatedHoursPlaceholder": "0",
+      "estimatedHoursHint": "The project's budget, in whole hours. Enter 0 if it has not been estimated yet.",
+      "color": "Colour",
+      "colorPicker": "Pick the colour",
+      "colorClear": "Clear the colour",
+      "colorHint": "Optional, in #RRGGBB format.",
+      "startDate": "Start date",
+      "endDate": "End date",
+      "datesHint": "Both dates are optional — leave them empty while the schedule is not settled.",
+      "description": "Description",
+      "descriptionPlaceholder": "What this project involves.",
+      "isArchived": "Archived",
+      "isArchivedHint": "An archived project is retired from current work, while the hours already booked to it stay untouched."
+    },
+    "validation": {
+      "codeRequired": "Enter the project code.",
+      "codeTooLong": "The code can be at most {{max}} characters.",
+      "codeInvalid": "The code may contain only letters and digits, separated by - or _.",
+      "nameRequired": "Enter the project name.",
+      "nameTooLong": "The name can be at most {{max}} characters.",
+      "clientNameRequired": "Enter the client. For an internal project, name the company itself.",
+      "clientNameTooLong": "The client name can be at most {{max}} characters.",
+      "descriptionTooLong": "The description can be at most {{max}} characters.",
+      "estimatedHoursRequired": "Enter the estimated hours. Enter 0 if it has not been estimated yet.",
+      "estimatedHoursInvalid": "Enter a whole number of hours, with no decimals.",
+      "estimatedHoursOutOfRange": "The number of hours must be between {{min}} and {{max}}.",
+      "colorInvalid": "The colour must be in #RRGGBB format.",
+      "startDateInvalid": "The start date is not valid.",
+      "endDateInvalid": "The end date is not valid.",
+      "endBeforeStart": "The end date cannot be before the start date."
+    },
+    "errors": {
+      "duplicateCode": "That code is already used by another project. Choose a different one.",
+      "inUse": "The project cannot be deleted while it has members or booked hours. Archive it instead to retire it from current work without losing the recorded hours."
+    },
+    "toast": {
+      "created": "Project “{{name}}” was added.",
+      "updated": "Project “{{name}}” was updated.",
+      "deleted": "Project “{{name}}” was deleted."
+    },
+    "delete": {
+      "title": "Delete this project?",
+      "description": "“{{name}}” will be removed for good. The deletion is refused if the project has members or booked hours — archive it in that case."
+    },
+    "empty": {
+      "title": "No projects yet",
+      "description": "Projects are the work the team books hours to. Without at least one, nobody can fill in a timesheet. Add the first project to get started."
+    }
+  },
   "pages": {
     "profile": {
       "title": "Profile",

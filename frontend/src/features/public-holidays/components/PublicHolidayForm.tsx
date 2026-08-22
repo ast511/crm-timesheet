@@ -11,8 +11,8 @@ import { FormSwitchField } from '@/components/form/FormSwitchField';
 import { FormTextareaField } from '@/components/form/FormTextareaField';
 import { SubmitButton } from '@/components/form/SubmitButton';
 import { Button } from '@/components/ui/button';
+import { useServerFieldErrors } from '@/hooks/useServerFieldErrors';
 import { toCalendarDateInput } from '@/lib/datetime';
-import { rejectedFields } from '@/lib/form-errors';
 
 import { usePublicHolidayErrorMessage } from '../public-holiday-errors';
 import {
@@ -151,6 +151,7 @@ export const PublicHolidayForm = ({ holiday, onSaved, onCancel }: PublicHolidayF
   const { t } = useTranslation();
   const { publicHolidaySchema } = usePublicHolidaySchemas();
   const prefersReducedMotion = useReducedMotion();
+  const markRejectedFields = useServerFieldErrors<PublicHolidayFormInput>();
 
   const create = useCreatePublicHoliday();
   const update = useUpdatePublicHoliday();
@@ -210,9 +211,7 @@ export const PublicHolidayForm = ({ holiday, onSaved, onCancel }: PublicHolidayF
 
   const onSubmit = handleSubmit((values: PublicHolidayFormValues) => {
     const onError = (error: unknown) => {
-      for (const field of rejectedFields(error, FIELDS)) {
-        setError(field, { type: 'server' });
-      }
+      markRejectedFields(error, FIELDS, setError);
     };
 
     if (holiday === undefined) {

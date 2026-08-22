@@ -10,6 +10,9 @@
   "AUTHORIZATION_PERMISSION_DENIED": "Nu ai permisiunea necesară pentru această acțiune ({{requiredPermissions}}).",
   "VALIDATION_ERROR": "Datele trimise nu sunt valide. Verifică câmpurile marcate.",
   "RATE_LIMIT_EXCEEDED": "Prea multe cereri. Așteaptă câteva momente și încearcă din nou.",
+  "field": {
+    "rejected": "Serverul nu a acceptat această valoare. Modific-o și încearcă din nou."
+  },
   "fallback": {
     "network": "Serverul nu a putut fi contactat. Verifică conexiunea la internet.",
     "unknown": "A apărut o eroare neașteptată.",

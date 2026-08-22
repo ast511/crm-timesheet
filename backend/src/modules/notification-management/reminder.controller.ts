@@ -21,6 +21,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreateReminderDto } from './dto/create-reminder.dto';
 import { ReminderQueryDto } from './dto/reminder-query.dto';
 import { UpdateReminderDto } from './dto/update-reminder.dto';
@@ -49,18 +50,28 @@ import { ReminderService } from './reminder.service';
  * reject valid ones, and a malformed id simply matches no row and yields the
  * same 404 as an id that never existed.
  *
- * Note what is *not* here: no guard, no role check, no notion of who is calling.
- * Authentication and authorization are later features, and half of an access
- * check is worse than none — it reads as protection while providing none. The
- * campaigns controller *does* read the caller, and only because a campaign
+ * The campaigns controller *does* read the caller, and only because a campaign
  * records its author; a reminder records nobody.
  *
- * **When RBAC arrives, this resource is narrower than the campaigns one:
- * `SUPERADMIN` and `ADMIN` only, not `HR`.** A reminder is a standing rule that
- * fires against every employee on a schedule nobody re-approves, so a bad one
- * goes out repeatedly and silently; a campaign is a single announcement somebody
- * composes and sends once. The feature document records the whole rule — nothing
- * in this file enforces any of it today.
+ * ## The writes require `NOTIFICATION_CONFIG.CREATE`, `.EDIT` and `.DELETE`
+ *
+ * Feature 041 enforced what Feature 027 could only write down. The three keys are
+ * the catalog's own for this resource — "Add a reminder rule", "Change or cancel
+ * a reminder rule", "Remove a reminder rule" — and the first two are in the
+ * `Admin - Standard` baseline while `HR - Full Access` holds none of the three.
+ * **That delivers the narrowing this file has always asked for**: reminders are
+ * administrators' and not HR's, because a reminder is a standing rule that fires
+ * against every employee on a schedule nobody re-approves, so a bad one goes out
+ * repeatedly and silently.
+ *
+ * It arrives as a permission rather than the role check the original note
+ * imagined, which is strictly better: the same restriction, plus the ability to
+ * grant one HR lead the reminders without granting them the rest of the admin
+ * tier. `NOTIFICATION_CONFIG.DELETE` is in no baseline at all — `Admin - Full
+ * Access` and a super-admin only — which is the seed's usual line on deletes.
+ *
+ * The reads stay ungated. Reading which reminders exist is what the notification
+ * configuration screen does before it decides whether to show an edit button.
  */
 @ApiTags(API_TAG.NotificationManagement)
 @ApiBearerAuth(BEARER_AUTH_NAME)
@@ -95,11 +106,16 @@ export class ReminderController {
   @ApiOperation({
     summary: 'Create a reminder rule',
     description:
-      'The name is unique. A rule fires against every employee on a schedule nobody re-approves, which is why this resource is administrator-only in intent — see the feature document.',
+      'The name is unique. A rule fires against every employee on a schedule nobody re-approves, which is why this resource is administrators’ rather than HR’s: `NOTIFICATION_CONFIG.CREATE` is in the `Admin - Standard` baseline and in none of the HR tiers.',
   })
   @ApiCreatedEnvelope(ReminderEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.CONFLICT,
+  )
   @Post()
+  @RequirePermission('NOTIFICATION_CONFIG.CREATE')
   create(@Body() dto: CreateReminderDto): Promise<ReminderEntity> {
     return this.reminderService.create(dto);
   }
@@ -122,10 +138,12 @@ export class ReminderController {
   @ApiOkEnvelope(ReminderEntity)
   @ApiStandardErrors(
     HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
     HttpStatus.NOT_FOUND,
     HttpStatus.CONFLICT,
   )
   @Patch(':id')
+  @RequirePermission('NOTIFICATION_CONFIG.EDIT')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateReminderDto,
@@ -145,8 +163,9 @@ export class ReminderController {
     description: 'Answers `200` with `data: null` rather than `204`.',
   })
   @ApiOkNullEnvelope()
-  @ApiStandardErrors(HttpStatus.NOT_FOUND)
+  @ApiStandardErrors(HttpStatus.FORBIDDEN, HttpStatus.NOT_FOUND)
   @Delete(':id')
+  @RequirePermission('NOTIFICATION_CONFIG.DELETE')
   remove(@Param('id') id: string): Promise<void> {
     return this.reminderService.remove(id);
   }

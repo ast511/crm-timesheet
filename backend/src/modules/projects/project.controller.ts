@@ -21,6 +21,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ProjectQueryDto } from './dto/project-query.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -38,10 +39,24 @@ import { ProjectService } from './project.service';
  * service's; a controller that did any of it here would be the one place those
  * decisions could drift.
  *
- * Note what is *not* here: no guard, no role check, no notion of who is
- * calling. Authentication and authorization are later features, and half of an
- * access check is worse than none — it reads as protection while providing
- * none.
+ * ## The three writes are gated; the two reads are not
+ *
+ * Feature 041 closed the gap this controller's own comment used to describe.
+ * `POST`, `PATCH` and `DELETE` carry `PROJECTS.CREATE`, `PROJECTS.EDIT` and
+ * `PROJECTS.DELETE` — the catalog's own keys for this resource, and the ones the
+ * `Admin - Standard` baseline already grants for the first two. A plain employee
+ * holds no `PROJECTS.*` key at all, so a direct `POST /api/v1/projects` from a
+ * screen that hides its own "New project" button is now a `403` rather than a
+ * project.
+ *
+ * **`GET /projects` stays ungated, and that is load-bearing rather than an
+ * oversight.** Every employee filling in a timesheet picks from this list, and
+ * since the `USER` baseline dropped `PROJECTS.VIEW` — see the amendment note in
+ * `permission-sets.ts` — the *only* thing keeping the picker working is that this
+ * route declares no requirement. `authorization/routing.spec.ts` asserts it, so
+ * gating it later would be a failing test rather than a support ticket. What the
+ * employee loses without `PROJECTS.PAGE_ACCESS` is the standalone *Proiecte*
+ * screen, and only that.
  *
  * `id` is taken as a plain string: ids are cuids, so `ParseUUIDPipe` would
  * reject valid ones, and a malformed id simply matches no row and yields the
@@ -82,8 +97,13 @@ export class ProjectController {
       '`code` is trimmed and upper-cased before the uniqueness check. `endDate`, when given, must be on or after `startDate`.',
   })
   @ApiCreatedEnvelope(ProjectEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.CONFLICT,
+  )
   @Post()
+  @RequirePermission('PROJECTS.CREATE')
   create(@Body() dto: CreateProjectDto): Promise<ProjectEntity> {
     return this.projectService.create(dto);
   }
@@ -96,10 +116,12 @@ export class ProjectController {
   @ApiOkEnvelope(ProjectEntity)
   @ApiStandardErrors(
     HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
     HttpStatus.NOT_FOUND,
     HttpStatus.CONFLICT,
   )
   @Patch(':id')
+  @RequirePermission('PROJECTS.EDIT')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateProjectDto,
@@ -120,8 +142,13 @@ export class ProjectController {
       'Refused with a `409` while anybody is still a member of it. Answers `200` with `data: null` rather than `204`.',
   })
   @ApiOkNullEnvelope()
-  @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.FORBIDDEN,
+    HttpStatus.NOT_FOUND,
+    HttpStatus.CONFLICT,
+  )
   @Delete(':id')
+  @RequirePermission('PROJECTS.DELETE')
   remove(@Param('id') id: string): Promise<void> {
     return this.projectService.remove(id);
   }

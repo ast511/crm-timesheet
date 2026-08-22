@@ -6,8 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { FormAlert } from '@/components/form/FormAlert';
 import { FormField } from '@/components/form/FormField';
 import { SubmitButton } from '@/components/form/SubmitButton';
+import { useServerFieldErrors } from '@/hooks/useServerFieldErrors';
 import { useApiErrorMessage } from '@/i18n/useApiErrorMessage';
-import { rejectedFields } from '@/lib/form-errors';
 
 import { useLoginMutation } from '../auth-mutations';
 import type { LoginValues } from '../auth-schemas';
@@ -42,6 +42,7 @@ export const LoginForm = ({ onAuthenticated }: LoginFormProps) => {
   const { t } = useTranslation();
   const { loginSchema } = useAuthSchemas();
   const describeError = useApiErrorMessage();
+  const markRejectedFields = useServerFieldErrors<LoginValues>();
   const loginMutation = useLoginMutation();
 
   const {
@@ -58,9 +59,7 @@ export const LoginForm = ({ onAuthenticated }: LoginFormProps) => {
     loginMutation.mutate(values, {
       onSuccess: onAuthenticated,
       onError: (error) => {
-        for (const field of rejectedFields(error, FIELDS)) {
-          setError(field, { type: 'server' });
-        }
+        markRejectedFields(error, FIELDS, setError);
       },
     });
   });

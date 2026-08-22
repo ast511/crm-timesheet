@@ -368,12 +368,17 @@ default ever changes, the argument for having no search changes with it.
    `leave-notification-email-errors.ts` exists. One code — ideally with
    `params.email` — would let the sentence live in `errors.json` beside
    every other one and delete that file.
-2. **Declare the permission on the backend routes.** The UI gates on
+2. ~~**Declare the permission on the backend routes.** The UI gates on
    `LEAVES.CREATE`/`EDIT`/`DELETE` while the API asks only for a valid
    token. Adding `@RequirePermission()` to both this controller and
    `LeaveTypesController` would make the screen's gating a statement
    about access rather than about menus. The table in *Permissions*
-   above is the proposal.
+   above is the proposal.~~ **Done by backend Feature 041.** It took the
+   proposal for `LeaveTypesController` and a different key for this one —
+   `LEAVES.CONFIGURE`, which the catalog names the notification addresses
+   under. See *Amendment: the addresses are `LEAVES.CONFIGURE`* at the end
+   of this document, which is also where the `HR - Standard` consequence
+   is recorded.
 3. **Search, if the list ever grows.** `?search=` is already there; the
    control is a `FormField` and one piece of state away. Not before it is
    needed.
@@ -384,3 +389,127 @@ default ever changes, the argument for having no search changes with it.
    and the card are the four things any second section on a page will
    assemble. This is the first; correct to write out twice, worth naming
    by the third — the same note F07 left about a `ListPage` shell.
+
+---
+
+# Amendment: the addresses are `LEAVES.CONFIGURE`, not `LEAVES.CREATE`
+
+Backend Feature 041 declared `@RequirePermission()` on the write verbs of
+roughly twenty controllers, this one included. It picked a different key
+from the one the table in *Permissions* proposed, so this document's own
+instruction applies:
+
+> **The moment the backend declares a requirement on these routes, this
+> table is what it should be declared as** — and if it declares something
+> else, this is the one place to change.
+
+It declared something else. This is that change.
+
+## What moved
+
+| Affordance | Was | Is |
+| --- | --- | --- |
+| See the section | `LEAVES.PAGE_ACCESS` | `LEAVES.PAGE_ACCESS` (unchanged) |
+| Add | `LEAVES.CREATE` | `LEAVES.CONFIGURE` |
+| Correct | `LEAVES.EDIT` | `LEAVES.CONFIGURE` |
+| Remove | `LEAVES.DELETE` | `LEAVES.CONFIGURE` |
+
+`POST`, `PATCH` and `DELETE /api/v1/leave-notification-emails` all
+require `LEAVES.CONFIGURE` on the server now, so those three rows are no
+longer a proposal — they are what the API enforces.
+
+## Why the original reading was wrong
+
+The argument in *Permissions* above was that `LEAVES.CONFIGURE` "is
+deliberately not used: the catalog describes it as the rules balances are
+judged by, which is the Leave Balances feature." That is half of the
+catalog's sentence. The whole of it, from `permissions.seed.ts`:
+
+> Change the rules balances are judged by — carry-over, approval
+> requirements, **notification addresses** — and run the year-end
+> generation.
+
+The seed names this list, in this key, explicitly. So the resource was
+never ambiguous; the description was simply read to the first comma. The
+instinct behind the original choice — "one page should not offer two
+different answers to *may I change the leave configuration*" — was
+reasonable, and it turns out the catalog does give one page two answers,
+on purpose: the leave *types* beside this section keep
+`LEAVES.CREATE`/`EDIT`/`DELETE`, which backend 041 also declared, matching
+this document's proposal exactly for that half of the screen.
+
+The two halves differ because the acts differ. Adding a leave type is
+day-to-day HR work. Deciding who is *emailed* about leave is a routing
+decision about the company — the same class of act as rerouting the
+timesheet-approval mail, which the catalog puts under
+`WORK_SCHEDULE.CONFIGURE` for the same reason and which
+`Admin - Standard` also does not hold.
+
+## What this costs, and who feels it
+
+**`HR - Standard` loses the addresses.** It holds `LEAVES.CREATE` and
+`LEAVES.EDIT` and does not hold `LEAVES.CONFIGURE`, so an HR account now
+sees the list, no add form, and no row menu at all — where before it saw
+the add form and a one-item menu.
+
+That is a genuine reduction in what an HR account may do, not a
+refactor, and it is the correct one: it was previously offering an
+affordance the API would have refused the moment 041 landed. The tiers
+that keep it are `HR - Full Access`, `Admin - Standard`,
+`Admin - Full Access` and a super-admin. An individual HR lead who needs
+it is granted `LEAVES.CONFIGURE` on the permissions screen, one account
+at a time, with an audit row recording who granted it — which is the
+whole reason this is a permission and not a role.
+
+The paragraph at the end of *Permissions* above — "`HR - Standard` …
+gets the add form and a row menu with one item" — describes the old
+behaviour and is superseded by this section.
+
+## One key, so the row menu stopped splitting
+
+`LeaveNotificationEmailRowActions` gated its two items separately, on
+`LEAVES.EDIT` and `LEAVES.DELETE`, with an `anyOf` on the trigger. One key
+now governs both, so the two `<Can>` wrappers are gone and the trigger
+uses a plain `useCan`. The menu is all-or-nothing here: either both items
+or no trigger.
+
+That is not a loss of granularity, it is the absence of a distinction the
+catalog does not draw. Correcting an address and removing one are the same
+act of configuring where leave mail goes, and no tier should be able to do
+one and not the other. The leave-types menu one section up still splits
+its two, because there the catalog really does have separate keys.
+
+## Files
+
+| File | Change |
+| --- | --- |
+| `src/features/leave-notification-emails/components/LeaveNotificationEmailAddForm.tsx` | `LEAVES.CREATE` → `LEAVES.CONFIGURE`; the comment now carries the catalog quotation |
+| `src/features/leave-notification-emails/components/LeaveNotificationEmailRowActions.tsx` | `anyOf: ['LEAVES.EDIT','LEAVES.DELETE']` → `permission: 'LEAVES.CONFIGURE'`; both `<Can>` wrappers removed with the now-unused import |
+| `src/features/leave-notification-emails/components/LeaveNotificationEmailsEmptyState.tsx` | `LEAVES.CREATE` → `LEAVES.CONFIGURE`, so its two sentences follow the form above it |
+
+No API call, query, schema, form, route, string or style changed. The
+mutations were always correct — only which callers are offered them moved.
+
+## Verification
+
+- `tsc --noEmit` clean; `eslint src/features/leave-notification-emails`
+  clean.
+- The backend half is asserted rather than argued:
+  `authorization/routing.spec.ts` drives all three verbs and refuses a
+  caller without `LEAVES.CONFIGURE`, and `catalog.spec.ts` checks the key
+  against the seed.
+- **Not browser-verified.** This changes which permission string three
+  components ask for and nothing about what they render; the responsive,
+  keyboard and dialog behaviour is untouched from the original F10 pass.
+  A live check would need an `HR - Standard` and an
+  `HR - Full Access` account side by side, and is worth doing when the app
+  is next running — see `frontend/CLAUDE.md` on not reporting a browser
+  check that did not happen.
+
+## Supersedes
+
+*Future Improvements* item 2 — "Declare the permission on the backend
+routes" — is **done**, by backend Feature 041, for this controller and for
+`LeaveTypesController` alongside it. The proposal table it pointed at was
+right about the leave types and wrong about the addresses, and both halves
+are now settled above.

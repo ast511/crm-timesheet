@@ -22,6 +22,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreatePublicHolidayDto } from './dto/create-public-holiday.dto';
 import { MonthParamsDto } from './dto/month-params.dto';
 import { PublicHolidayQueryDto } from './dto/public-holiday-query.dto';
@@ -41,10 +42,21 @@ import { PublicHolidayService } from './public-holiday.service';
  * recurrence rule, the two duplicate rules — is the service's; a controller
  * that did any of it here would be the one place those decisions could drift.
  *
- * Note what is *not* here: no guard, no role check, no notion of who is
- * calling. Authentication and authorization are later features, and half of an
- * access check is worse than none — it reads as protection while providing
- * none.
+ * ## The three writes are gated; the four reads are not
+ *
+ * Feature 041 gave `POST`, `PATCH` and `DELETE` the catalog's own
+ * `PUBLIC_HOLIDAYS.CREATE`, `.EDIT` and `.DELETE`. `HR - Standard` already holds
+ * the first two and `HR - Full Access` the third, which is the line this
+ * resource was always meant to draw: HR maintains the calendar, and removing a
+ * holiday that timesheets have already been filled around is the deliberate act.
+ *
+ * **The list and the two calendar routes stay ungated.** Nothing in the
+ * timesheet actually calls them — `TimesheetFillService` injects
+ * `PublicHolidayService` directly and pre-populates a draft server-side, so the
+ * caller's permissions are not consulted and cannot be — but they are the
+ * company's calendar rather than anybody's private data, and
+ * `authorization/routing.spec.ts` pins `GET /public-holidays` open beside
+ * `GET /projects` for the same reason.
  *
  * `id` is taken as a plain string: ids are cuids, so `ParseUUIDPipe` would
  * reject valid ones, and a malformed id simply matches no row and yields the
@@ -123,8 +135,13 @@ export class PublicHolidayController {
       'Three rules are the service’s rather than the validation pipe’s, because none is about a single field in isolation: `endDate` must be on or after `startDate`, `isRecurring` must agree with `type`, and the two duplicate rules. All three answer `400`.',
   })
   @ApiCreatedEnvelope(PublicHolidayEntity)
-  @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
+  @ApiStandardErrors(
+    HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.CONFLICT,
+  )
   @Post()
+  @RequirePermission('PUBLIC_HOLIDAYS.CREATE')
   create(@Body() dto: CreatePublicHolidayDto): Promise<PublicHolidayEntity> {
     return this.publicHolidayService.create(dto);
   }
@@ -137,10 +154,12 @@ export class PublicHolidayController {
   @ApiOkEnvelope(PublicHolidayEntity)
   @ApiStandardErrors(
     HttpStatus.BAD_REQUEST,
+    HttpStatus.FORBIDDEN,
     HttpStatus.NOT_FOUND,
     HttpStatus.CONFLICT,
   )
   @Patch(':id')
+  @RequirePermission('PUBLIC_HOLIDAYS.EDIT')
   update(
     @Param('id') id: string,
     @Body() dto: UpdatePublicHolidayDto,
@@ -160,8 +179,9 @@ export class PublicHolidayController {
     description: 'Answers `200` with `data: null` rather than `204`.',
   })
   @ApiOkNullEnvelope()
-  @ApiStandardErrors(HttpStatus.NOT_FOUND)
+  @ApiStandardErrors(HttpStatus.FORBIDDEN, HttpStatus.NOT_FOUND)
   @Delete(':id')
+  @RequirePermission('PUBLIC_HOLIDAYS.DELETE')
   remove(@Param('id') id: string): Promise<void> {
     return this.publicHolidayService.remove(id);
   }

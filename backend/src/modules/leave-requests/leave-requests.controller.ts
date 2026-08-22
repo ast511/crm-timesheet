@@ -18,6 +18,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { LeaveRequestQueryDto } from './dto/leave-request-query.dto';
 import { UpdateLeaveRequestStatusDto } from './dto/update-leave-request-status.dto';
 import { LeaveRequestEntity } from './entities/leave-request.entity';
@@ -43,11 +44,24 @@ import { LeaveRequestsService } from './leave-requests.service';
  * — and deleting one would erase a record of something that happened. The only
  * write is the decision.
  *
- * Note what is *not* here either: no guard, no role check, no notion of who is
- * calling beyond the header the decision is signed with. Authentication and
- * authorization are later features, and half of an access check is worse than
- * none — it reads as protection while providing none. Every route on this
- * controller is open, and the feature document says so out loud.
+ * **The decision requires `LEAVE_REQUESTS.APPROVE`** as of Feature 041 — the one
+ * write this controller has, and the seed describes the key as "Approve or reject
+ * leave, which is what moves an employee balance". It covers cancellation too:
+ * all three transitions are the approver acting on somebody else's request, and
+ * an employee withdrawing their own uses `DELETE /me/leave-requests/:id`
+ * instead, which is gated on `LEAVE_REQUESTS.DELETE` and which the `USER`
+ * baseline holds.
+ *
+ * `LEAVE_REQUESTS.APPROVE` is in `HR - Standard`, so approving leave stays HR's
+ * job exactly as the presets intended, and it can be withdrawn from one HR
+ * account or granted to one manager without a code change.
+ *
+ * The two reads stay ungated for now, which is a narrower statement than it
+ * sounds: they read across everybody, and closing them is a `LEAVE_REQUESTS.VIEW`
+ * gate that the `USER` baseline *also* holds — so it would refuse nobody while
+ * looking like it did. Scoping this list to what a caller may see is a row-level
+ * rule rather than a resource permission, and it is recorded as a future
+ * improvement rather than papered over with a gate that admits everybody.
  *
  * `id` is taken as a plain string: ids are cuids, so `ParseUUIDPipe` would
  * reject valid ones, and a malformed id simply matches no row and yields the
@@ -116,6 +130,7 @@ export class LeaveRequestsController {
     HttpStatus.CONFLICT,
   )
   @Patch(':id/status')
+  @RequirePermission('LEAVE_REQUESTS.APPROVE')
   updateStatus(
     @CurrentEmployeeId() processedById: string,
     @Param('id') id: string,

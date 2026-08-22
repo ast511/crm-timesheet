@@ -8,7 +8,7 @@ import { FormSwitchField } from '@/components/form/FormSwitchField';
 import { FormTextareaField } from '@/components/form/FormTextareaField';
 import { SubmitButton } from '@/components/form/SubmitButton';
 import { Button } from '@/components/ui/button';
-import { rejectedFields } from '@/lib/form-errors';
+import { useServerFieldErrors } from '@/hooks/useServerFieldErrors';
 
 import { useLeaveTypeErrorMessage } from '../leave-type-errors';
 import { DEFAULT_LEAVE_TYPE_ICON } from '../leave-type-icons';
@@ -118,6 +118,7 @@ export const LeaveTypeForm = ({ leaveType, onSaved, onCancel }: LeaveTypeFormPro
   const { t } = useTranslation();
   const { leaveTypeSchema } = useLeaveTypeSchemas();
   const describeError = useLeaveTypeErrorMessage('duplicate');
+  const markRejectedFields = useServerFieldErrors<LeaveTypeFormInput>();
 
   const create = useCreateLeaveType();
   const update = useUpdateLeaveType();
@@ -143,9 +144,7 @@ export const LeaveTypeForm = ({ leaveType, onSaved, onCancel }: LeaveTypeFormPro
 
   const onSubmit = handleSubmit((values: LeaveTypeFormValues) => {
     const onError = (error: unknown) => {
-      for (const field of rejectedFields(error, FIELDS)) {
-        setError(field, { type: 'server' });
-      }
+      markRejectedFields(error, FIELDS, setError);
     };
 
     if (leaveType === undefined) {

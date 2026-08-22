@@ -22,6 +22,7 @@ import {
 import { ApiStandardErrors } from '../../common/swagger/api-standard-errors.decorator';
 import { API_TAG } from '../../config/swagger-tags';
 import { BEARER_AUTH_NAME } from '../../config/swagger.setup';
+import { RequirePermission } from '../authorization/decorators/require-permission.decorator';
 import { CreateLeaveRequestDto } from './dto/create-leave-request.dto';
 import { MyLeaveRequestQueryDto } from './dto/leave-request-query.dto';
 import { UpdateLeaveRequestDto } from './dto/update-leave-request.dto';
@@ -56,6 +57,29 @@ import { LeaveRequestsService } from './leave-requests.service';
  * the success envelope is the global interceptor's, error rendering is the
  * global filter's, and everything else — the working-day count, the overlap, the
  * replacements, the balance — is the service's.
+ *
+ * ## The gates here are the ones an ordinary employee already holds
+ *
+ * `POST`, `PATCH` and `DELETE` carry `LEAVE_REQUESTS.CREATE`, `.EDIT` and
+ * `.DELETE` as of Feature 041 — all three of which are in `OWN_WORK`, the twelve
+ * keys the `USER` baseline is made of, so **every employee in the company passes
+ * them by default**. That is the whole point: this controller is somebody's own
+ * leave, and gating it on an approver's key would have locked the entire
+ * workforce out of asking for a day off.
+ *
+ * What the gate buys, then, is not a refusal but a *statement*: filing leave is a
+ * capability the company grants, and it can now be withdrawn from one account
+ * through the permissions screen — an employee on notice, a contractor whose
+ * leave is handled elsewhere — with an audit row saying who withdrew it. Before
+ * this, the only way to stop somebody filing was to deactivate their account.
+ *
+ * **The permission says *what*; the URL says *whose*.** `LEAVE_REQUESTS.EDIT`
+ * states that somebody may amend a leave request, never whose, and a matrix of
+ * (resource × action) cannot express ownership — `permission-sets.ts` makes the
+ * same point about `TIMESHEET.EDIT`. The `/me` scope is what supplies the missing
+ * half, and it is the one scope that cannot be aimed at somebody else. The
+ * approver's `PATCH /leave-requests/:id/status` is where the *other* answer to
+ * "whose" lives, and it takes `LEAVE_REQUESTS.APPROVE` instead.
  *
  * `id` is taken as a plain string: ids are cuids, so `ParseUUIDPipe` would
  * reject valid ones, and a malformed id simply matches no row and yields the
@@ -115,6 +139,7 @@ export class MyLeaveRequestsController {
   @ApiCreatedEnvelope(MyLeaveRequestEntity)
   @ApiStandardErrors(HttpStatus.BAD_REQUEST, HttpStatus.CONFLICT)
   @Post()
+  @RequirePermission('LEAVE_REQUESTS.CREATE')
   create(
     @CurrentEmployeeId() employeeId: string,
     @Body() dto: CreateLeaveRequestDto,
@@ -135,6 +160,7 @@ export class MyLeaveRequestsController {
     HttpStatus.CONFLICT,
   )
   @Patch(':id')
+  @RequirePermission('LEAVE_REQUESTS.EDIT')
   update(
     @CurrentEmployeeId() employeeId: string,
     @Param('id') id: string,
@@ -159,6 +185,7 @@ export class MyLeaveRequestsController {
   @ApiOkNullEnvelope()
   @ApiStandardErrors(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT)
   @Delete(':id')
+  @RequirePermission('LEAVE_REQUESTS.DELETE')
   remove(
     @CurrentEmployeeId() employeeId: string,
     @Param('id') id: string,

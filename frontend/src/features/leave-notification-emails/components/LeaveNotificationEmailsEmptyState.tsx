@@ -18,10 +18,15 @@ import { useCan } from '@/features/permissions/usePermissions';
  * an unconfigured list. A failed fetch is a different thing again and lands in
  * `QueryErrorState`, one boundary out — a thrown query cannot render as an
  * empty list.
+ *
+ * The key is `LEAVES.CONFIGURE`, the same one the add form above uses and for
+ * the reason recorded there. It has to be the same key: this component decides
+ * which of two sentences to show, and "use the field above" is a lie told to
+ * anybody for whom that field did not render.
  */
 export const LeaveNotificationEmailsEmptyState = () => {
   const { t } = useTranslation();
-  const canCreate = useCan({ permission: 'LEAVES.CREATE' });
+  const canCreate = useCan({ permission: 'LEAVES.CONFIGURE' });
 
   return (
     <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-8 text-center">

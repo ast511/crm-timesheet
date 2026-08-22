@@ -949,3 +949,147 @@ turn that into the anonymous case, which is at least a screen with a form on it"
 The anonymous case is now the wrong destination for a hung boot request, and a
 form is not what somebody with a live session should be shown. A timeout is still
 worth adding; it should resolve to `unknown`.
+
+---
+
+# Amendment: a field the server rejected was announced as *valid*
+
+## The report
+
+F11 (projects) found it while fixing the duplicate-code path, and booked it as a
+Future Improvement there:
+
+> `rejectedFields` returns the field names and every caller does `setError(field,
+> { type: 'server' })` with no message — which, as the duplicate-code fix above
+> found, leaves `aria-invalid` false. This affects F07, F08, F09 and F11
+> identically and wants one shared fix.
+
+It is an accessibility defect, and a quiet one. `FormField` — like
+`FormTextareaField`, `FormSelectField`, `FormDateField` and `FormColorField` —
+derives `aria-invalid` and `aria-describedby` from whether there **is** a
+message, because that is the only thing it can derive them from:
+
+```tsx
+aria-invalid={error !== undefined}
+aria-describedby={error === undefined ? undefined : errorId}
+```
+
+So a `setError` carrying only a `type` put the field into `react-hook-form`'s
+invalid state — enough to block the submit — while leaving the input unstyled,
+`aria-invalid="false"`, and described by nothing. Somebody using a screen reader
+was told the field was fine, given no error text to hear, and left with a save
+that refused for a reason nothing on the page stated.
+
+The pattern was written seven times, identically: this feature's `LoginForm`,
+F06's `ProfilePhoneForm`, F07's `LeaveTypeForm`, F08's `DepartmentForm`, F09's
+`PublicHolidayForm`, F10's `LeaveNotificationEmailForm` and F11's `ProjectForm`.
+Fixing seven copies would leave the eighth form free to reintroduce it, so the
+loop itself is now the shared thing.
+
+## The fix: `hooks/useServerFieldErrors.ts`
+
+`lib/form-errors.ts` keeps its job — recovering the rejected field names from the
+envelope's `details`, and nothing else. What is new is the one place allowed to
+turn those names into form errors:
+
+```ts
+const markRejectedFields = useServerFieldErrors<DepartmentFormInput>();
+// …
+onError: (error) => markRejectedFields(error, FIELDS, setError),
+```
+
+It sets every rejected field with a translated message, so `aria-invalid`
+becomes true, `aria-describedby` points at the text, and `FormField`'s
+`role="alert"` announces it without focus having moved. No call site constructs
+a field error from a server rejection any more.
+
+### Why the sentence is generic
+
+The message is `errors:field.rejected` — *"Serverul nu a acceptat această
+valoare. Modific-o și încearcă din nou."* / *"The server did not accept this
+value. Change it and try again."* — rather than the backend's own line for that
+field. Those lines (`code must be shorter than or equal to 20 characters`) are
+English written for a log, which `CLAUDE.md` forbids rendering and the backend
+documents as free to be reworded. What the field can honestly say is *that* it
+was refused; **why** the request failed stays in the form-level `FormAlert`,
+translated from `errorCode`.
+
+The two are therefore different sentences doing different jobs, and nothing is
+printed twice: the alert says *"Datele trimise nu sunt valide. Verifică
+câmpurile marcate"* and the marked fields are now genuinely marked. F11's
+separate dedupe — the duplicate-`code` sentence goes on the field and the alert
+suppresses conflicts — is untouched and still correct, because there the two
+*would* have been the same sentence.
+
+`field.*` joins `fallback.*` as a reserved lowercase key in the `errors` bundle;
+neither can collide with an error code, which is always SCREAMING_SNAKE_CASE.
+
+### What was deliberately not changed
+
+The `409`s on F07, F08 and F09 still mark no field. That is not the same bug: a
+form with no field errors is not lying about anything, and the sentence is in the
+`FormAlert`'s live region. `/departments` reports *which* column collided only
+inside its English prose (`A department with code "DEV" already exists` —
+`describeConflicts()`), `/leave-types` names none of its three unique columns,
+and `/public-holidays` conflicts on a *combination* of day and year range. There
+is no `errorCode` and no `params.field` on any of them, so marking an input would
+mean guessing, and a wrong field turned red is worse than an accurate sentence.
+Coded `409`s from the backend remain the fix, as those three feature docs say.
+
+## Files
+
+| File | Change |
+| --- | --- |
+| `src/hooks/useServerFieldErrors.ts` | New. The only place a server rejection becomes a field error. |
+| `src/lib/form-errors.ts` | Doc only — `rejectedFields` is now the parsing half, called by the hook. |
+| `src/locales/{ro,en}/errors.json` | `field.rejected`. |
+| `src/i18n/config.ts` | Doc — `field.*` is reserved alongside `fallback.*`. |
+| `features/auth/components/LoginForm.tsx` | Uses the hook. |
+| `features/profile/components/ProfilePhoneForm.tsx` | Uses the hook. |
+| `features/leave-types/components/LeaveTypeForm.tsx` | Uses the hook. |
+| `features/departments/components/DepartmentForm.tsx` | Uses the hook. |
+| `features/public-holidays/components/PublicHolidayForm.tsx` | Uses the hook. |
+| `features/leave-notification-emails/components/LeaveNotificationEmailForm.tsx` | Uses the hook; its own duplicate-email branch already carried a message. |
+| `features/projects/components/ProjectForm.tsx` | Uses the hook; the `409` branch is unchanged. |
+
+## Verification
+
+`tsc --noEmit`, `lint` and `build` clean.
+
+Browser-verified against the running stack (Playwright MCP). The
+`VALIDATION_ERROR` path is deliberately hard to reach by typing — each Zod schema
+mirrors the backend's rules — so the API was made to answer with the
+`ValidationPipe`'s real envelope for one named field, which is exactly the shape
+`rejectedFields` reads. The `409`s were produced for real, against seeded rows.
+
+| Screen | Field | `aria-invalid` before | after | Announced text on the field |
+| --- | --- | --- | --- | --- |
+| Departments | `code` | `false` | **`true`** | *Serverul nu a acceptat această valoare…* |
+| Leave types | `reportMarker` | `false` | **`true`** | *Serverul nu a acceptat această valoare…* |
+| Public holidays | `endDate` | `false` | **`true`** | *Serverul nu a acceptat această valoare…* |
+| Projects | `clientName` | `false` | **`true`** | *Serverul nu a acceptat această valoare…* |
+
+In every case `aria-describedby` went from absent to the id of a `role="alert"`
+paragraph holding that sentence, the *unrejected* fields stayed `aria-invalid=
+"false"`, and the form-level alert read *"Datele trimise nu sunt valide. Verifică
+câmpurile marcate"* — one sentence each, never the same one twice.
+
+The paths that had to keep working:
+
+| Check | Result |
+| --- | --- |
+| Zod validation, empty submit (departments / leave types / public holidays) | fields `aria-invalid="true"`, each with its own translated `role="alert"` sentence |
+| Real `409`, duplicate `DEV` (departments) | conflict sentence in the live region; no field marked, nothing announced as invalid |
+| Real `409`, duplicate `ANNUAL_LEAVE` (leave types) | same |
+| Real `409`, second fixed holiday on 01.01 (public holidays) | same, with the `FIXED` sentence |
+| Real `409`, duplicate `CRM-TS` (projects, F11) | message **on** `code`, `aria-invalid="true"`, form-level alert empty — the dedupe still holds |
+
+No JavaScript errors in the console throughout; the only entries were the 400s
+and 409s the checks provoked.
+
+## Resolves
+
+F11's *Future Improvement*, "A `VALIDATION_ERROR` still does not mark its
+fields". The route it suggested first — an `invalid` prop on each field
+component — was not taken: it would have let a caller mark a field invalid while
+still saying nothing, which is the same defect one prop further along.

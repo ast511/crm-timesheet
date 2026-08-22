@@ -2,6 +2,7 @@ import { createRoute, redirect } from '@tanstack/react-router';
 
 import { DepartmentsPage } from '@/app/pages/DepartmentsPage';
 import { LeaveTypesPage } from '@/app/pages/LeaveTypesPage';
+import { ProjectsPage } from '@/app/pages/ProjectsPage';
 import { PublicHolidaysPage } from '@/app/pages/PublicHolidaysPage';
 import { WorkspacePlaceholderPage } from '@/app/pages/WorkspacePlaceholderPage';
 import { requirePermission } from '@/features/permissions/permission-route-guard';
@@ -115,16 +116,31 @@ export const reportsRoute = createRoute({
  * there is no `/app/team/settings` index here and nothing points at one.
  */
 
+/**
+ * The fourth settings screen that is a real page rather than a placeholder
+ * (F11).
+ *
+ * **The guard is unchanged at `PROJECTS.EDIT`**, exactly as the placeholder had
+ * it and as `TEAM_NAVIGATION` gates the sidebar entry — the two have to agree,
+ * or a visible menu item leads to a refusal. It is the same judgement the
+ * holidays route makes one screen down: `PAGE_ACCESS` is held further along the
+ * roles than the people who should be changing a shared configuration, and
+ * maintaining one is the administrative act that makes a screen a team screen.
+ *
+ * **`GET /api/v1/projects` stays ungated on the backend, and this route does
+ * not change that.** `ProjectController` declares no `@RequirePermission()`,
+ * which for the list route is a property to preserve: the timesheet's project
+ * picker reads it for every employee, and the `USER` baseline holds no
+ * `PROJECTS.*` key at all. Guarding the *screen* is what narrows the audience
+ * here; guarding the endpoint would empty that picker.
+ *
+ * The create / edit / delete actions carry their own keys inside the page.
+ */
 export const settingsProjectsRoute = createRoute({
   getParentRoute: () => teamRoute,
   path: '/settings/projects',
   beforeLoad: requirePermission({ permission: 'PROJECTS.EDIT' }),
-  component: () => (
-    <WorkspacePlaceholderPage
-      titleKey="pages.settingsProjects.title"
-      descriptionKey="pages.settingsProjects.description"
-    />
-  ),
+  component: ProjectsPage,
 });
 
 /**

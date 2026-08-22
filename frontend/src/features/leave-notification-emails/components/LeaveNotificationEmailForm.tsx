@@ -6,8 +6,8 @@ import { FormAlert } from '@/components/form/FormAlert';
 import { FormField } from '@/components/form/FormField';
 import { SubmitButton } from '@/components/form/SubmitButton';
 import { Button } from '@/components/ui/button';
+import { useServerFieldErrors } from '@/hooks/useServerFieldErrors';
 import { useApiErrorMessage } from '@/i18n/useApiErrorMessage';
-import { rejectedFields } from '@/lib/form-errors';
 
 import { isDuplicateEmailConflict } from '../leave-notification-email-errors';
 import {
@@ -69,6 +69,7 @@ export const LeaveNotificationEmailForm = ({
   const { t } = useTranslation();
   const { leaveNotificationEmailSchema } = useLeaveNotificationEmailSchemas();
   const describeError = useApiErrorMessage();
+  const markRejectedFields = useServerFieldErrors<LeaveNotificationEmailFormInput>();
 
   const create = useCreateLeaveNotificationEmail();
   const update = useUpdateLeaveNotificationEmail();
@@ -96,9 +97,7 @@ export const LeaveNotificationEmailForm = ({
       return;
     }
 
-    for (const field of rejectedFields(error, FIELDS)) {
-      setError(field, { type: 'server' });
-    }
+    markRejectedFields(error, FIELDS, setError);
   };
 
   const onSubmit = handleSubmit((values: LeaveNotificationEmailFormValues) => {
